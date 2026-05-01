@@ -4,14 +4,15 @@ Bridge AllStarLink / ASL3 to Brandmeister using Homebrew.
 
 ## Design
 
-See [DESIGN.md](DESIGN.md) for architecture and protocol details,
-[docs/TEST-VECTORS.md](docs/TEST-VECTORS.md) for encoder test
-coverage,
-[docs/BRANDMEISTER-API.md](docs/BRANDMEISTER-API.md) for the
-Halligan API integration (`bmcli` + bridge auto-provisioning),
-[docs/USRP-METADATA.md](docs/USRP-METADATA.md) for the USRP TEXT
-call-metadata wire shape, and
-[docs/TODO.md](docs/TODO.md) for tracked deferred work.
+- [DESIGN.md](DESIGN.md) -- architecture and protocol details.
+- [docs/TEST-VECTORS.md](docs/TEST-VECTORS.md) -- encoder test
+  coverage.
+- [docs/BRANDMEISTER-API.md](docs/BRANDMEISTER-API.md) -- Halligan
+  API integration (`bmcli` + bridge auto-provisioning).
+- [docs/USRP-METADATA.md](docs/USRP-METADATA.md) -- USRP TEXT
+  call-metadata wire shape.
+- [docs/TODO.md](docs/TODO.md) -- tracked deferred work.
+
 Per-module detail lives in module-level rustdoc.
 
 ## Building
