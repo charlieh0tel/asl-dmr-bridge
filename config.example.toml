@@ -1,0 +1,118 @@
+[repeater]
+callsign = "W6XXX"
+# Homebrew repeater identity, your hotspot ID from radioid.net.
+# May exceed 24 bits (e.g. 9-digit BM hotspot IDs).
+dmr_id = 1234567
+# On-air DMR subscriber ID, 24-bit, used as src_id in DMRD packets
+# and embedded LC.  Typically your personal 7-digit DMR-MARC ID.
+# Must be distinct from dmr_id when dmr_id exceeds 24 bits.
+src_id = 1234567
+# 9-digit Hz values. Required and must be non-zero. BrandMeister rejects
+# zero/default values. For a duplex hotspot use distinct TX/RX freqs.
+rx_freq = 434000000
+tx_freq = 439000000
+# color_code = 1
+# latitude = 37.7749        # decimal degrees, optional
+# longitude = -122.4194     # decimal degrees, optional
+# height = 50               # antenna height in meters, optional
+# location = ""
+# description = ""
+# url = ""
+# Optional RadioID-style subscriber CSV for callsign lookup.  When
+# set, the USRP TEXT call-metadata frames gain `call` and `name`
+# fields populated from this table.  Bridge does not auto-download;
+# fetch with:
+#   wget -O /var/lib/asl-dmr-bridge/user.csv https://radioid.net/static/user.csv
+# A missing file at startup logs a warning and the bridge runs
+# without enrichment; the periodic refresh (below) picks up the
+# file when it appears.  An mtime over 30 days old triggers a
+# stale-file warn so an operator whose nightly cron broke notices.
+# See docs/USRP-METADATA.md for details.
+# subscriber_file = "/var/lib/asl-dmr-bridge/user.csv"
+# Optional periodic re-load of subscriber_file.  Default "0s" loads
+# once at startup only.  Set to a positive humantime duration (e.g.
+# "1h") to pick up edits without a bridge restart.
+# subscriber_refresh_interval = "0s"
+
+[usrp]
+local_host = "127.0.0.1"
+local_port = 34001
+remote_host = "127.0.0.1"
+remote_port = 34002
+
+[vocoder]
+backend = "thumbdv"
+serial_port = "/dev/ttyUSB0"
+# serial_baud = 460800
+# For ambeserver backend:
+# backend = "ambeserver"
+# host = "127.0.0.1"
+# port = 2460
+# DV3000 chip gain in dB, -90..=90 (each direction).  Applied to
+# thumbdv and ambeserver backends only; mbelib ignores.  Omit to
+# leave the chip at its default gain (0 dB).
+# gain_in_db = 0
+# gain_out_db = 0
+
+[dmr]
+# gateway = "both"  # "both", "dmr_to_fm", or "fm_to_dmr"
+slot = 1
+talkgroup = 2
+call_type = "group"
+hang_time = "500ms"
+stream_timeout = "5s"
+# tx_timeout = "180s"
+# Minimum DMR-side hang after a USRP unkey: a re-key within this
+# window continues the same call (smooths over brief PTT taps).
+# Must be less than stream_timeout.  0 = immediate terminator.
+# min_tx_hang = "2.5s"
+
+# Optional automatic gain control on the USRP-tx (digital -> analog)
+# path.  Brandmeister-aggregated DMR audio levels vary widely; AGC
+# tracks a peak envelope and steers gain toward `target_dbfs` so the
+# FM listener hears consistent loudness.  Off by default; existing
+# setups using `vocoder.gain_out_db` see no change.
+# [agc]
+# enabled = true
+# target_dbfs = -6.0      # peak target (negative dBFS, leaves headroom)
+# attack = "10ms"         # fast response to louder signal
+# release = "200ms"       # slower response to quieter signal
+# max_gain_db = 30.0      # cap on quiet-signal boost
+
+[network]
+profile = "brandmeister"
+host = "3102.master.brandmeister.network"
+port = 62031
+# Password can be supplied here, OR via --password-file <path>, OR
+# via the BM_BRIDGE_PASSWORD env var.  The packaged systemd unit
+# sources /etc/default/asl-dmr-bridge (mode 600 conffile) for the
+# env var -- the recommended path on Debian/Ubuntu so the secret
+# stays out of this TOML.  Exactly one source -- bridge errors at
+# startup if zero or two.
+# password = "your-hotspot-password"
+keepalive_interval = "5s"
+keepalive_missed_limit = 3
+
+# Optional Brandmeister Halligan API integration.  Section absent =
+# no API calls at all.  When present, the bridge logs the peer's
+# subscription state at startup (anonymous, no auth needed) and --
+# if an API key + at least one static_talkgroups_tsN list are
+# supplied -- reconciles BM-side static TGs with the declared list
+# on each startup.
+#
+# Reconciliation is pure-set: declared list = final state.  Missing
+# TGs are POSTed, extras are DELETEd.  Omit a slot to leave it
+# untouched; `[]` reduces it to empty.
+#
+# [brandmeister_api]
+# # Bearer JWT, get one from selfcare.brandmeister.network -> API.
+# # Provide via this field, OR api_key_file = "<path>", OR the
+# # BRANDMEISTER_API_KEY env var.  Exactly one source.
+# api_key = "..."
+# # api_key_file = "/etc/asl-dmr-bridge/brandmeister-api.key"
+# static_talkgroups_ts1 = [91, 3100]
+# static_talkgroups_ts2 = []
+# # Optional periodic re-run of the provisioning logic so SelfCare
+# # edits made while the bridge is up get corrected.  Default "0s"
+# # = startup-only.  Suggested for long-running deployments: "1h".
+# reconcile_interval = "0s"

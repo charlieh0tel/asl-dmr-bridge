@@ -1,0 +1,45 @@
+[workspace]
+members = ["ambe", "ambe/mbelib-sys", "bmcli", "brandmeister-api", "bridge", "dmr-events", "dmr-subscriber", "dmr-types", "dmr-wire", "usrp-wire"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "GPL-2.0-or-later"
+
+[workspace.dependencies]
+# Local crates -- relative paths so the workspace publishes coherently.
+ambe = { version = "1.1.0", path = "ambe" }
+brandmeister-api = { version = "1.1.0", path = "brandmeister-api" }
+dmr-subscriber = { version = "1.1.0", path = "dmr-subscriber" }
+dmr-types = { version = "1.1.0", path = "dmr-types" }
+dmr-events = { version = "1.1.0", path = "dmr-events" }
+dmr-wire = { version = "1.1.0", path = "dmr-wire" }
+mbelib-sys = { version = "1.1.0", path = "ambe/mbelib-sys" }
+usrp-wire = { version = "1.1.0", path = "usrp-wire" }
+
+# External deps.  Features that are "always wanted" live here; features
+# specific to one consumer (tokio runtimes, signal handlers, etc.) stay
+# in the consumer's Cargo.toml as additive overrides.
+anyhow = "1.0.102"
+cc = "1"
+clap = { version = "4.6.1", default-features = false, features = ["derive", "error-context", "help", "std", "suggestions", "usage"] }
+cpal = "0.17.3"
+csv = "1.4"
+hex = "0.4.3"
+humantime-serde = "1.1.1"
+proptest = "1.11.0"
+reqwest = { version = "0.13.3", features = ["json"] }
+secrecy = "0.10.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+serialport = "4.9.0"
+sha2 = "0.11.0"
+tempfile = "3.27.0"
+thiserror = "2.0.18"
+tokio = "1.52.1"
+tokio-util = { version = "0.7.18", features = ["rt"] }
+toml = "1.1.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+wiremock = "0.6.5"

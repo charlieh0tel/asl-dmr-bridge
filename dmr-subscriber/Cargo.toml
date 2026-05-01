@@ -1,0 +1,12 @@
+[package]
+name = "dmr-subscriber"
+version = "1.1.0"
+edition.workspace = true
+license.workspace = true
+description = "DMR ID -> callsign / operator name lookup, loaded from a RadioID-style CSV."
+
+[dependencies]
+csv.workspace = true
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+tracing.workspace = true

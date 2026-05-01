@@ -1,0 +1,8 @@
+/target
+*~
+config.ai6kg*.toml
+/.claude/
+/test_bm.py
+/test_single.py
+/run_tests.sh
+/ambe/tests/fixtures/amb/

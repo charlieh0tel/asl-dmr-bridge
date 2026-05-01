@@ -1,0 +1,20 @@
+name: Build Debian Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb:
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@main
+    with:
+      package: asl-dmr-bridge
+      build-deps: "libasound2-dev"
+      run-tests: false
+    secrets: inherit

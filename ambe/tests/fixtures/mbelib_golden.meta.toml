@@ -1,0 +1,22 @@
+# Companion manifest for the corresponding _golden.bin.
+# Regenerate via `cargo run -p ambe --example gen_golden`.
+# PR reviewers: diff this alongside the .bin to confirm the
+# regen was intentional and that TEST_FRAMES still matches.
+
+backend = "mbelib"
+regenerated_at_unix = 1777332816
+ambe_version = "0.1.0"
+
+# TEST_FRAMES inputs as hex; if these don't match the
+# current ambe::test_vectors::TEST_FRAMES, the .bin is
+# stale and must be regenerated.
+test_frames = [
+    "000000000000000000",
+    "ffffffffffffffffff",
+    "55aa55aa55aa55aa55",
+    "aa55aa55aa55aa55aa",
+    "0123456789abcdef12",
+    "fedcba9876543210ed",
+    "000102040810204080",
+    "a55a33cc0ff03cc35a",
+]

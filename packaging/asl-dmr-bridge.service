@@ -1,0 +1,47 @@
+[Unit]
+Description=ASL3 to DMR bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Operator-supplied secrets and overrides.  Hyphen prefix so the
+# unit still starts if the file is missing -- the bridge will exit
+# at config-load time with a clear "no password supplied" error.
+EnvironmentFile=-/etc/default/asl-dmr-bridge
+Environment=RUST_LOG=info
+ExecStart=/usr/bin/asl-dmr-bridge /etc/asl-dmr-bridge/config.toml
+Restart=on-failure
+RestartSec=5
+
+# ThumbDV access (FTDI serial in /dev/ttyUSB*) needs the "dialout"
+# group on Debian/Ubuntu.  Drop the line if you only use ambeserver
+# or mbelib.
+DynamicUser=yes
+SupplementaryGroups=dialout
+
+# Sandboxing.  The bridge needs only loopback / outbound UDP and
+# (optionally) a serial tty; nothing else.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount
+
+[Install]
+WantedBy=multi-user.target

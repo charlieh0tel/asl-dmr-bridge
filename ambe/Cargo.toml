@@ -1,0 +1,43 @@
+[package]
+name = "ambe"
+version = "1.1.0"
+edition.workspace = true
+license.workspace = true
+
+[features]
+mbelib = ["dep:mbelib-sys"]
+thumbdv = ["dep:serialport"]
+# Exposes `test_harness` + `test_vectors` for integration tests and
+# the `gen_golden` example.  Off by default so the public API of the
+# crate doesn't include test-only code.
+testing = []
+
+[dependencies]
+mbelib-sys = { workspace = true, optional = true }
+serialport = { workspace = true, optional = true }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+# `gen_golden` and the golden integration tests need the `testing`
+# feature to access TEST_FRAMES + decode_test_frames; mark
+# required-features so cargo skips the targets cleanly otherwise
+# instead of failing with a missing-symbol compile error.
+
+[[example]]
+name = "gen_golden"
+required-features = ["testing"]
+
+[[test]]
+name = "mbelib_golden"
+required-features = ["testing", "mbelib"]
+
+[[test]]
+name = "thumbdv_golden"
+required-features = ["testing", "thumbdv"]
+
+[[test]]
+name = "ambeserver_golden"
+required-features = ["testing"]

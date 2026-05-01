@@ -1,0 +1,67 @@
+[package]
+name = "asl-dmr-bridge"
+version = "1.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Bridge between AllStarLink (ASL3) FM repeaters and Brandmeister DMR networks via the Homebrew protocol."
+
+[features]
+mbelib = ["ambe/mbelib"]
+thumbdv = ["ambe/thumbdv"]
+# Forwards to `ambe/testing` so workspace-wide `cargo test --features
+# testing` reaches the goldens + gen_golden.
+testing = ["ambe/testing"]
+
+[dependencies]
+ambe.workspace = true
+brandmeister-api.workspace = true
+dmr-subscriber.workspace = true
+dmr-types.workspace = true
+dmr-events.workspace = true
+dmr-wire.workspace = true
+usrp-wire.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+hex.workspace = true
+humantime-serde.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+cpal.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+url.workspace = true
+wiremock.workspace = true
+
+[package.metadata.deb]
+maintainer = "Christopher Hoover <ch@murgatroid.com>"
+copyright = "2026, Christopher Hoover"
+license-file = ["../LICENSE", "0"]
+extended-description = """\
+asl-dmr-bridge connects an AllStarLink (ASL3) FM node to a Brandmeister \
+DMR repeater over the Homebrew protocol, transcoding USRP-format audio \
+to AMBE+2 via a ThumbDV / AMBEserver / mbelib backend.  Includes a \
+systemd unit and a sample configuration."""
+section = "hamradio"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/asl-dmr-bridge", "usr/bin/", "755"],
+    ["../config.example.toml", "etc/asl-dmr-bridge/config.example.toml", "644"],
+    ["../packaging/asl-dmr-bridge.default", "etc/default/asl-dmr-bridge", "600"],
+    ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "644"],
+    ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "644"],
+]
+conf-files = [
+    "/etc/asl-dmr-bridge/config.example.toml",
+    "/etc/default/asl-dmr-bridge",
+]

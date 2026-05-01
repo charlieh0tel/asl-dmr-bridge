@@ -1,0 +1,3 @@
+# NW Digital Radio ThumbDV: set FTDI latency_timer to 1 ms.
+# Kernel default is 16 ms, which stalls AMBE decode round-trips.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", ATTRS{product}=="ThumbDV", ATTR{latency_timer}="1"

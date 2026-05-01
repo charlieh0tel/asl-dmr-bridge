@@ -1,0 +1,170 @@
+# asl-dmr-bridge
+
+Bridge an FM repeater (via AllStarLink / ASL3) to a DMR network by acting
+as a Homebrew-variant DMR peer. Initial target is Brandmeister.
+
+## Status
+
+Both DMR -> FM and FM -> DMR voice paths are live-tested against
+Brandmeister, with hardware AMBE-3000R (ThumbDV / AMBEserver) and
+mbelib (decode-only) backends verified end-to-end.
+
+FM -> DMR is listener-confirmed via the BM parrot service (see
+[docs/PARROT-TEST.md](docs/PARROT-TEST.md)): a recorded voice clip
+fed into the bridge round-trips through Brandmeister and comes back
+clearly intelligible.
+
+Working:
+- Brandmeister auth + keepalive (RPTL/RPTK/RPTC + RPTPING/MSTPONG)
+- Auto-reconnect with exponential backoff
+- Graceful shutdown (SIGINT/SIGTERM, sends RPTCL)
+- DMR -> FM voice: DMRD parse, burst disassembly, AMBE decode, USRP TX
+- FM -> DMR voice: USRP RX, AMBE encode, burst assembly, DMRD emit
+- Half-duplex PTT state machine (Idle / Rx / RxHang / Tx)
+- Configurable gateway direction (both / dmr_to_fm / fm_to_dmr)
+- Group and private (unit-to-unit) call addressing
+
+Workspace crates:
+- `ambe`            -- Vocoder trait and three backends (ThumbDV, AMBEserver, mbelib)
+- `brandmeister-api`-- Typed client for the BM Halligan REST API
+- `bmcli`           -- CLI over `brandmeister-api`
+- `dmr-events`      -- Bridge-presentation call-event types (CallMetadata, MetaEvent)
+- `dmr-subscriber`  -- DMR ID -> callsign / first-name lookup from a RadioID CSV
+- `dmr-types`       -- Shared on-air newtypes (DmrId, SubscriberId, Talkgroup, ColorCode, Slot)
+- `dmr-wire`        -- DMR L2 (DMRD packets, BPTC/RS/Hamming/QR FEC, voice task, PTT)
+- `usrp-wire`       -- USRP wire format (Frame parse/serialize, header constants)
+
+See [DESIGN.md](DESIGN.md) for architecture and protocol details,
+[DESIGN-rust.md](DESIGN-rust.md) for cross-cutting Rust-specific
+notes (concurrency model, dependency choices),
+[docs/TEST-VECTORS.md](docs/TEST-VECTORS.md) for encoder test
+coverage,
+[docs/BRANDMEISTER-API.md](docs/BRANDMEISTER-API.md) for the
+Halligan API integration (`bmcli` + bridge auto-provisioning),
+[docs/USRP-METADATA.md](docs/USRP-METADATA.md) for the USRP TEXT
+call-metadata wire shape, and
+[docs/TODO.md](docs/TODO.md) for tracked deferred work.
+Per-module detail lives in module-level rustdoc.
+
+## Brandmeister and peer bridging
+
+Brandmeister restricts use of the MMDVM/HBP peer protocol (which
+this bridge speaks) for bridging BM to other reflectors or DMR
+networks; OpenBridge and XLX Interlink are the BM-sanctioned
+inter-network protocols, and require coordination with BM.  Confirm
+your intended use with BM before deploying.
+
+## Building
+
+```
+cargo build --release
+```
+
+Feature flags:
+- `--features mbelib` -- software AMBE decode via mbelib (decode only)
+- `--features thumbdv` -- ThumbDV serial backend (encode + decode)
+
+Both can be combined: `--features mbelib,thumbdv`.
+
+## Usage
+
+```
+RUST_LOG=info asl-dmr-bridge config.toml
+```
+
+The BM hotspot password can be supplied three ways (pick one):
+- `[network] password = "..."` in the config file (default).
+- `BM_BRIDGE_PASSWORD=...` env var.  The packaged systemd unit sources
+  `/etc/default/asl-dmr-bridge` (mode 600) for this -- the recommended
+  path on Debian/Ubuntu, since it keeps the secret out of the TOML
+  config (which is more likely to leak via backups, share-screens, etc.).
+- `--password-file <path>` for a single-line password file.
+
+Setting more than one is a startup error -- pick a source and stick
+with it.
+
+Optional Brandmeister Halligan API integration: with a
+`[brandmeister_api]` section in the config (or just an API key in
+`BRANDMEISTER_API_KEY`), the bridge logs the peer's BM-side
+subscription state at startup and -- when desired static talkgroup
+lists are supplied -- reconciles them on each run.  `bmcli` is a
+standalone CLI over the same API.  See
+[docs/BRANDMEISTER-API.md](docs/BRANDMEISTER-API.md) for the full
+guide and `config.example.toml` for the config schema.
+
+See `config.example.toml` for the configuration schema.
+
+Key config fields:
+```toml
+[dmr]
+gateway = "both"      # "both", "dmr_to_fm", or "fm_to_dmr"
+slot = 1              # DMR timeslot (1 or 2)
+talkgroup = 91        # talkgroup to bridge
+call_type = "group"   # "group" or "private"
+
+[vocoder]
+backend = "mbelib"    # "mbelib", "thumbdv", or "ambeserver"
+```
+
+## Packaging
+
+Tagged releases are built and published as `.deb` artifacts by the
+`Build Debian Package` GitHub Actions workflow (amd64 + arm64,
+glibc-bookworm compatible).  Push a `v*` tag to trigger a release.
+
+To build a `.deb` locally:
+```
+cargo install cargo-deb
+cargo deb -p asl-dmr-bridge
+```
+
+The `.deb` installs `/usr/bin/asl-dmr-bridge`,
+`/etc/asl-dmr-bridge/config.example.toml`, an empty
+`/etc/default/asl-dmr-bridge` env file (mode 600, sourced by the
+unit for `BM_BRIDGE_PASSWORD` and friends), the systemd unit at
+`/lib/systemd/system/asl-dmr-bridge.service`, and a udev rule that
+sets the FTDI `latency_timer` to 1 ms for ThumbDV
+(`/lib/udev/rules.d/99-thumbdv.rules`).  Copy the example config to
+`/etc/asl-dmr-bridge/config.toml` and edit, then put the BM password
+in `/etc/default/asl-dmr-bridge` before starting the service.
+
+The systemd unit runs as a `DynamicUser` with empty
+`CapabilityBoundingSet` plus the standard sandboxing directives;
+`SupplementaryGroups=dialout` is preset so the dynamic user can open
+`/dev/ttyUSB*` for ThumbDV.  Drop that line from the unit if you only
+use the ambeserver or mbelib backends.
+
+```
+sudo systemctl enable --now asl-dmr-bridge
+sudo journalctl -fu asl-dmr-bridge
+```
+
+## Test tools
+
+Examples for testing without an ASL3 instance:
+
+```
+# Listen to decoded DMR audio through speakers
+cargo run --example usrp_play
+
+# Dump decoded DMR audio to raw PCM (pipe to aplay)
+cargo run --example usrp_dump | aplay -f S16_LE -r 8000 -c 1
+
+# Send raw PCM to the bridge as USRP (emulates chan_usrp)
+cargo run --example usrp_send < voice.raw
+
+# End-to-end TX test via BM TG 9990 parrot.  Set talkgroup = 9990
+# in the bridge config first, then run.  See docs/PARROT-TEST.md.
+cargo run --example parrot_test
+```
+
+## License
+
+Copyright (C) 2026 Christopher Hoover
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+See [LICENSE](LICENSE) for the full text.
