@@ -108,9 +108,3 @@ Fail: empty capture, or output near-zero.
 - **Drop-outs in the middle**: backpressure or chip stall on the
   serial path.  Check bridge log for `USRP tx channel full,
   dropping voice burst` warnings.
-
-## Avoid TG 91 for tests
-
-TG 91 is the world-wide chat -- transmitting test tones to it
-disrupts real users.  Always use parrot (subscriber 9990, private
-call) for tone tests.

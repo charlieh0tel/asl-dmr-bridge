@@ -85,9 +85,7 @@ exten => h,1,NoOp(call ended)
 ; documentation for the current best practice in your version.
 ```
 
-This is intentionally minimal documentation -- the dialplan side is
-your problem, and what counts as best practice changes with ASL3
-versions.  The contract on the wire side is fixed: one TEXT frame
-on every call boundary, JSON shape locked by
+The contract on the wire side is fixed: one TEXT frame on every
+call boundary, JSON shape locked by
 `dmr_events::tests::call_metadata_json_shape_no_lookup` /
 `call_metadata_json_shape_with_lookup`.
