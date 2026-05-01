@@ -33,6 +33,11 @@
 - Avoid magic constants.
 - Only comment unintiutive or hard to understand code.
 - Always comment data structures.
+- Don't abbreviate by dropping letters from the middle of a word.
+  Truncation (cutting from the end) is OK.  `repeater` can shorten
+  to `rep` or `repeat`; not to `rpt`.  `talkgroup` not `tg`.  Domain
+  acronyms / wire-protocol terms (`dmr`, `rs`, `bptc`, `rptc`) are
+  fine.
 
 
 ## Rust Rules
