@@ -27,13 +27,13 @@ use tracing::error;
 use tracing::info;
 use tracing::warn;
 
-use crate::config::BrandmeisterApiConfig;
-use crate::config::Config;
+use crate::config::ResolvedBrandmeisterApiConfig;
+use crate::config::RuntimeConfig;
 
 /// Run startup provisioning: log peer profile, reconcile statics if
 /// requested.  Errors are logged and swallowed -- the bridge does not
 /// gate on API success.
-pub(crate) async fn provision(config: &Config) {
+pub(crate) async fn provision(config: &RuntimeConfig) {
     let device_id = config.repeater.dmr_id;
     let client = build_client(config.brandmeister_api.as_ref());
     run_once(&client, device_id, config.brandmeister_api.as_ref()).await;
@@ -48,7 +48,7 @@ pub(crate) async fn provision(config: &Config) {
 /// reqwest -- no blocking, no separate task needed.
 pub(crate) async fn periodic_provision(
     device_id: DmrId,
-    api_cfg: BrandmeisterApiConfig,
+    api_cfg: ResolvedBrandmeisterApiConfig,
     interval: Duration,
     cancel: CancellationToken,
 ) {
@@ -67,14 +67,18 @@ pub(crate) async fn periodic_provision(
     }
 }
 
-fn build_client(api_cfg: Option<&BrandmeisterApiConfig>) -> Client {
+fn build_client(api_cfg: Option<&ResolvedBrandmeisterApiConfig>) -> Client {
     match api_cfg.and_then(|c| c.api_key.as_ref()) {
         Some(token) => Client::with_token(token.expose_secret().to_owned().into()),
         None => Client::new(),
     }
 }
 
-async fn run_once(client: &Client, device_id: DmrId, api_cfg: Option<&BrandmeisterApiConfig>) {
+async fn run_once(
+    client: &Client,
+    device_id: DmrId,
+    api_cfg: Option<&ResolvedBrandmeisterApiConfig>,
+) {
     log_profile(client, device_id).await;
     if let Some(cfg) = api_cfg
         && cfg.api_key.is_some()
@@ -118,7 +122,11 @@ fn is_empty_object(v: &serde_json::Value) -> bool {
     }
 }
 
-async fn reconcile_statics(client: &Client, device_id: DmrId, api_cfg: &BrandmeisterApiConfig) {
+async fn reconcile_statics(
+    client: &Client,
+    device_id: DmrId,
+    api_cfg: &ResolvedBrandmeisterApiConfig,
+) {
     let current = match client.device_talkgroups(device_id).await {
         Ok(v) => v,
         Err(e) => {

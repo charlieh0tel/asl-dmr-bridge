@@ -381,6 +381,45 @@ pub(crate) struct NetworkConfig {
 const GAIN_MIN_DB: i8 = -90;
 const GAIN_MAX_DB: i8 = 90;
 
+/// Fully-resolved runtime configuration.  Constructed only via
+/// `RuntimeConfig::load` (or the `Config::resolve` test helper),
+/// which does parse + validate + secret-resolve in one step.  Every
+/// field is its final runtime shape: no `Option<password>` race,
+/// no put-back-into-Option round-trip on `api_key`.
+#[derive(Debug)]
+pub(crate) struct RuntimeConfig {
+    pub(crate) repeater: RepeaterConfig,
+    pub(crate) usrp: UsrpConfig,
+    pub(crate) vocoder: VocoderConfig,
+    pub(crate) dmr: DmrConfig,
+    pub(crate) network: ResolvedNetworkConfig,
+    pub(crate) brandmeister_api: Option<ResolvedBrandmeisterApiConfig>,
+    pub(crate) agc: AgcConfig,
+}
+
+/// Network section after password resolution.  Mirrors `NetworkConfig`
+/// but `password` is the resolved `SecretString`, not an `Option`.
+#[derive(Debug)]
+pub(crate) struct ResolvedNetworkConfig {
+    pub(crate) profile: Network,
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) password: SecretString,
+    pub(crate) keepalive_interval: Duration,
+    pub(crate) keepalive_missed_limit: u32,
+}
+
+/// Brandmeister API section after key resolution.  `api_key` stays
+/// `Option` because it really is optional (anonymous reads work);
+/// `None` here means "no source supplied a key", not "race".
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedBrandmeisterApiConfig {
+    pub(crate) api_key: Option<SecretString>,
+    pub(crate) static_talkgroups_ts1: Option<Vec<dmr_types::Talkgroup>>,
+    pub(crate) static_talkgroups_ts2: Option<Vec<dmr_types::Talkgroup>>,
+    pub(crate) reconcile_interval: Duration,
+}
+
 impl Config {
     pub(crate) async fn load(path: &Path) -> Result<Self, ConfigError> {
         let text = tokio::fs::read_to_string(path)
@@ -410,6 +449,64 @@ impl Config {
             return Err(ConfigError::KeepaliveIntervalZero);
         }
         Ok(())
+    }
+
+    /// Stitch a parsed/validated `Config` together with externally-
+    /// resolved password and API key into the runtime shape.  Used
+    /// by `RuntimeConfig::load` and by tests that want to hand-build
+    /// a runtime config without touching the filesystem.
+    pub(crate) fn resolve(
+        self,
+        password: SecretString,
+        api_key: Option<SecretString>,
+    ) -> RuntimeConfig {
+        let Config {
+            repeater,
+            usrp,
+            vocoder,
+            dmr,
+            network,
+            brandmeister_api,
+            agc,
+        } = self;
+        RuntimeConfig {
+            repeater,
+            usrp,
+            vocoder,
+            dmr,
+            network: ResolvedNetworkConfig {
+                profile: network.profile,
+                host: network.host,
+                port: network.port,
+                password,
+                keepalive_interval: network.keepalive_interval,
+                keepalive_missed_limit: network.keepalive_missed_limit,
+            },
+            brandmeister_api: brandmeister_api.map(|api| ResolvedBrandmeisterApiConfig {
+                api_key,
+                static_talkgroups_ts1: api.static_talkgroups_ts1,
+                static_talkgroups_ts2: api.static_talkgroups_ts2,
+                reconcile_interval: api.reconcile_interval,
+            }),
+            agc,
+        }
+    }
+}
+
+impl RuntimeConfig {
+    /// One-shot constructor: load + parse + validate + resolve secrets.
+    /// Returns a fully-resolved config; the caller never sees a
+    /// partially-resolved `Config`.
+    pub(crate) async fn load(
+        path: &Path,
+        password_file: Option<SecretString>,
+        password_env: Option<SecretString>,
+        api_key_env: Option<SecretString>,
+    ) -> Result<Self, ConfigError> {
+        let mut config = Config::load(path).await?;
+        let password = resolve_password(&mut config, password_file, password_env)?;
+        let api_key = resolve_api_key(&mut config, api_key_env)?;
+        Ok(config.resolve(password, api_key))
     }
 }
 
@@ -514,12 +611,9 @@ pub(crate) fn read_api_key_file(path: &Path) -> Result<Option<SecretString>, Con
 /// `BRANDMEISTER_API_KEY` env var, `[brandmeister_api].api_key_file`,
 /// or `[brandmeister_api].api_key`.  At most one may be set
 /// (`api_key` and `api_key_file` are checked at config-validate time;
-/// the env var is the third candidate here).  After this call, if a
-/// `[brandmeister_api]` section exists, its `api_key` field is
-/// `Some(resolved)` if any source supplied a non-empty key.  The
-/// round-trip lives on for now because `bm_provision` reads the key
-/// straight from the config -- unlike the BM password which has a
-/// single consumer in main.rs.
+/// the env var is the third candidate here).  Returns the resolved
+/// secret directly so callers don't depend on a put-back-into-Option
+/// invariant.
 ///
 /// Unlike the BM password, the API key is *optional*: anonymous
 /// reads (peer profile log) work without it, so missing key just
@@ -528,9 +622,9 @@ pub(crate) fn read_api_key_file(path: &Path) -> Result<Option<SecretString>, Con
 pub(crate) fn resolve_api_key(
     config: &mut Config,
     env_source: Option<SecretString>,
-) -> Result<(), ConfigError> {
+) -> Result<Option<SecretString>, ConfigError> {
     let Some(api_cfg) = config.brandmeister_api.as_mut() else {
-        return Ok(());
+        return Ok(None);
     };
     fn non_empty(s: SecretString) -> Option<SecretString> {
         if s.expose_secret().is_empty() {
@@ -562,7 +656,7 @@ pub(crate) fn resolve_api_key(
             if api_cfg.static_talkgroups_ts2.is_some() {
                 return Err(ConfigError::BmApiKeyMissingForStatics { slot: 2 });
             }
-            Ok(())
+            Ok(None)
         }
         1 => {
             let (source, secret) = candidates
@@ -570,8 +664,7 @@ pub(crate) fn resolve_api_key(
                 .next()
                 .expect("candidates.len() == 1 by match arm");
             tracing::info!(source, "loaded Brandmeister API key");
-            api_cfg.api_key = Some(secret);
-            Ok(())
+            Ok(Some(secret))
         }
         _ => Err(ConfigError::BmApiKeyAmbiguous),
     }

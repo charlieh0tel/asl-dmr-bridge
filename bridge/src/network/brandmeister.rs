@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::RuntimeConfig;
 use crate::network::NetworkProfile;
 use dmr_types::REPEATER_ID_WIRE_LEN;
 use dmr_types::Slot;
@@ -98,7 +98,7 @@ impl NetworkProfile for Brandmeister {
     /// Build RPTC config packet.
     ///
     /// Format matches DMRGateway's getConfig() sprintf.
-    fn config_packet(&self, config: &Config) -> Vec<u8> {
+    fn config_packet(&self, config: &RuntimeConfig) -> Vec<u8> {
         use std::fmt::Write as _;
 
         let r = &config.repeater;
@@ -155,8 +155,14 @@ impl NetworkProfile for Brandmeister {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use secrecy::SecretString;
 
-    fn test_config() -> Config {
+    fn resolved(cfg: Config) -> RuntimeConfig {
+        cfg.resolve(SecretString::from("test"), None)
+    }
+
+    fn test_config() -> RuntimeConfig {
         toml::from_str(
             r#"
             [repeater]
@@ -192,6 +198,7 @@ mod tests {
             keepalive_missed_limit = 3
             "#,
         )
+        .map(resolved)
         .unwrap()
     }
 
@@ -252,7 +259,7 @@ mod tests {
         assert_eq!(&pkt[slot_offset..slot_offset + SLOTS_WIDTH], b"2");
     }
 
-    fn full_config() -> Config {
+    fn full_config() -> RuntimeConfig {
         toml::from_str(
             r#"
             [repeater]
@@ -296,6 +303,7 @@ mod tests {
             keepalive_missed_limit = 3
             "#,
         )
+        .map(resolved)
         .unwrap()
     }
 

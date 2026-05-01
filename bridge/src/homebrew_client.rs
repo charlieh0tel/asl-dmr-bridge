@@ -26,7 +26,7 @@ use tracing::debug;
 use tracing::info;
 use tracing::warn;
 
-use crate::config::Config;
+use crate::config::RuntimeConfig;
 use crate::network::NetworkProfile;
 use dmr_types::DmrId;
 use dmr_types::REPEATER_ID_WIRE_LEN;
@@ -249,7 +249,7 @@ async fn send_rptcl(socket: &UdpSocket, dmr_id: DmrId) {
     reason = "run wires the Homebrew session to inbound DMR, bounded voice out, unbounded control out, session-control notifications, and cancellation."
 )]
 pub(crate) async fn run(
-    config: &Config,
+    config: &RuntimeConfig,
     password: &SecretString,
     profile: &dyn NetworkProfile,
     dmrd_tx: mpsc::Sender<Dmrd>,
@@ -318,7 +318,7 @@ impl From<NetworkError> for ConnectError {
     reason = "connect_once carries the full per-session wiring so reconnect preserves ownership of both outbound queues and the control channel."
 )]
 async fn connect_once(
-    config: &Config,
+    config: &RuntimeConfig,
     password: &SecretString,
     profile: &dyn NetworkProfile,
     dmrd_tx: mpsc::Sender<Dmrd>,
@@ -394,7 +394,7 @@ async fn connect_once(
 
 async fn authenticate(
     socket: &UdpSocket,
-    config: &Config,
+    config: &RuntimeConfig,
     password: &SecretString,
     profile: &dyn NetworkProfile,
     cancel: &CancellationToken,
@@ -418,7 +418,7 @@ async fn authenticate(
 
 async fn authenticate_inner(
     socket: &UdpSocket,
-    config: &Config,
+    config: &RuntimeConfig,
     password: &SecretString,
     profile: &dyn NetworkProfile,
 ) -> Result<(), NetworkError> {
@@ -485,7 +485,7 @@ async fn authenticate_inner(
 
 async fn keepalive_loop(
     socket: &UdpSocket,
-    config: &Config,
+    config: &RuntimeConfig,
     dmrd_tx: &mpsc::Sender<Dmrd>,
     dmrd_voice_out_rx: &mut mpsc::Receiver<Vec<u8>>,
     dmrd_ctl_out_rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
@@ -866,7 +866,9 @@ mod tests {
     "#;
 
     async fn run_keepalive_with_response(response: &[u8]) -> Result<(), NetworkError> {
-        let config: Config = toml::from_str(KEEPALIVE_TEST_CONFIG).unwrap();
+        use crate::config::Config;
+        let parsed: Config = toml::from_str(KEEPALIVE_TEST_CONFIG).unwrap();
+        let config = parsed.resolve(SecretString::from("test"), None);
         let master = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let bridge = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let bridge_addr = bridge.local_addr().unwrap();

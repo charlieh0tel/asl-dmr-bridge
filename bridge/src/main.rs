@@ -33,7 +33,6 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 use crate::agc::Agc;
 use crate::agc::AgcParams;
-use crate::config::Config;
 use crate::config::Network;
 use crate::config::VocoderBackend;
 use crate::network::brandmeister::Brandmeister;
@@ -214,24 +213,24 @@ async fn async_main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-    let mut config = Config::load(&args.config).await?;
 
-    // Resolve BM password from --password-file / env / config in
-    // that priority, before logging the config (so we know which
-    // source supplied it; the value itself is SecretString-redacted).
-    let file_source = match &args.password_file {
+    let password_file_source = match &args.password_file {
         Some(path) => config::read_password_file(path)?,
         None => None,
     };
-    let env_source = std::env::var(PASSWORD_ENV)
+    let password_env_source = std::env::var(PASSWORD_ENV)
         .ok()
         .map(secrecy::SecretString::from);
-    let password = config::resolve_password(&mut config, file_source, env_source)?;
-
-    let api_key_env = std::env::var(API_KEY_ENV)
+    let api_key_env_source = std::env::var(API_KEY_ENV)
         .ok()
         .map(secrecy::SecretString::from);
-    config::resolve_api_key(&mut config, api_key_env)?;
+    let config = config::RuntimeConfig::load(
+        &args.config,
+        password_file_source,
+        password_env_source,
+        api_key_env_source,
+    )
+    .await?;
 
     info!(
         callsign = %config.repeater.callsign.as_str(),
@@ -414,7 +413,7 @@ async fn async_main() -> anyhow::Result<()> {
     let homebrew = async {
         let r = homebrew_client::run(
             &config,
-            &password,
+            &config.network.password,
             profile.as_ref(),
             dmrd_in_tx,
             dmrd_voice_out_rx,
