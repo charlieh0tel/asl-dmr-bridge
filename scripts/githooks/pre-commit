@@ -51,6 +51,15 @@ jwts=$(printf '%s\n' "$added" \
     | grep -E '[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}' || true)
 [ -n "$jwts" ] && report "jwt-shape" "$jwts"
 
+# 4. Personal callsign in a TOML callsign-assignment.  Narrow on the
+# `callsign = "AI6KG"` shape so legitimate attribution prose (e.g.
+# `copyright = "... (AI6KG)"`) isn't flagged.
+toml_diff=$(git diff --cached --diff-filter=AM -- '*.toml' ":(exclude)$excluded")
+toml_added=$(printf '%s\n' "$toml_diff" | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+calls=$(printf '%s\n' "$toml_added" \
+    | grep -E 'callsign[[:space:]]*=[[:space:]]*"AI6KG"' || true)
+[ -n "$calls" ] && report "personal-callsign-in-config" "$calls"
+
 if [ "$fail" -ne 0 ]; then
     cat >&2 <<'EOF'
 
