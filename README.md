@@ -76,6 +76,9 @@ cargo install cargo-deb
 cargo deb -p asl-dmr-bridge
 ```
 
+The packaged unit stays dormant via `ConditionPathExists` until
+`/etc/asl-dmr-bridge/config.toml` exists.
+
 ## Test tools
 
 Examples for testing without an ASL3 instance:

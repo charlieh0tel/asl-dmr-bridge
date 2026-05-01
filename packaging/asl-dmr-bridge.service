@@ -2,6 +2,7 @@
 Description=ASL3 to DMR bridge
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=/etc/asl-dmr-bridge/config.toml
 
 [Service]
 Type=simple
