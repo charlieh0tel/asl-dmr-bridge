@@ -34,6 +34,13 @@ use tracing::warn;
 /// staying clear of normal weekly maintenance gaps.
 const STALE_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
+/// Per-string-field cap.  Real ITU callsigns are <=7 chars; first/last
+/// names and city/state/country fit within ASCII single-line norms
+/// (<=32).  64 leaves slack for unicode + suffixes while bounding the
+/// USRP TEXT JSON and log lines a malformed CSV could otherwise blow
+/// up to multi-MB.
+const MAX_FIELD_LEN: usize = 64;
+
 /// One operator record from the RadioID CSV.
 ///
 /// All fields except `dmr_id` and `callsign` may legitimately be
@@ -107,11 +114,16 @@ impl Subscribers {
             .from_reader(reader);
         let mut by_id = HashMap::new();
         let mut bad_rows = 0usize;
+        let mut capped_rows = 0usize;
         for record in rdr.deserialize::<CsvRow>() {
             match record {
                 Ok(row) => match SubscriberId::try_from(row.radio_id) {
                     Ok(id) => {
-                        by_id.insert(id, row.into_subscriber(id));
+                        let (sub, capped) = row.into_subscriber(id);
+                        if capped {
+                            capped_rows += 1;
+                        }
+                        by_id.insert(id, sub);
                     }
                     Err(_) => {
                         bad_rows += 1;
@@ -130,6 +142,13 @@ impl Subscribers {
         }
         if bad_rows > 5 {
             warn!(skipped = bad_rows, "additional malformed rows skipped");
+        }
+        if capped_rows > 0 {
+            warn!(
+                rows = capped_rows,
+                max = MAX_FIELD_LEN,
+                "subscriber CSV had over-length fields; truncated"
+            );
         }
         Ok(Self { by_id })
     }
@@ -195,17 +214,42 @@ struct CsvRow {
 }
 
 impl CsvRow {
-    fn into_subscriber(self, dmr_id: SubscriberId) -> Subscriber {
-        Subscriber {
-            dmr_id,
-            callsign: self.callsign,
-            first_name: self.first_name,
-            last_name: self.last_name,
-            city: self.city,
-            state: self.state,
-            country: self.country,
-        }
+    fn into_subscriber(self, dmr_id: SubscriberId) -> (Subscriber, bool) {
+        let (callsign, c1) = cap_field(self.callsign);
+        let (first_name, c2) = cap_field(self.first_name);
+        let (last_name, c3) = cap_field(self.last_name);
+        let (city, c4) = cap_field(self.city);
+        let (state, c5) = cap_field(self.state);
+        let (country, c6) = cap_field(self.country);
+        let capped = c1 || c2 || c3 || c4 || c5 || c6;
+        (
+            Subscriber {
+                dmr_id,
+                callsign,
+                first_name,
+                last_name,
+                city,
+                state,
+                country,
+            },
+            capped,
+        )
     }
+}
+
+/// Truncate at the last UTF-8 char boundary <= `MAX_FIELD_LEN`.
+/// Returns `(capped_string, was_truncated)`.
+fn cap_field(s: String) -> (String, bool) {
+    if s.len() <= MAX_FIELD_LEN {
+        return (s, false);
+    }
+    let mut t = s;
+    let mut cut = MAX_FIELD_LEN;
+    while !t.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    t.truncate(cut);
+    (t, true)
 }
 
 #[cfg(test)]
@@ -244,6 +288,36 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
     fn lookup_miss_returns_none() {
         let subs = Subscribers::from_reader(SAMPLE.as_bytes()).unwrap();
         assert!(subs.get(9999999).is_none());
+    }
+
+    #[test]
+    fn caps_over_length_fields() {
+        // A malformed CSV with a multi-MB callsign field would otherwise
+        // flow into USRP TEXT JSON / log lines verbatim.  Each field
+        // truncates at MAX_FIELD_LEN bytes.
+        let huge = "X".repeat(10_000);
+        let csv = format!(
+            "RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY\n\
+             7654321,{huge},Test,User,City,ST,USA\n"
+        );
+        let subs = Subscribers::from_reader(csv.as_bytes()).unwrap();
+        let s = subs.get(7654321).expect("present");
+        assert_eq!(s.callsign.len(), MAX_FIELD_LEN);
+        assert!(s.callsign.chars().all(|c| c == 'X'));
+    }
+
+    #[test]
+    fn caps_at_utf8_char_boundary() {
+        // Multi-byte chars must not be split mid-codepoint.
+        let big = "é".repeat(40); // 2 bytes each, 80 bytes total > MAX_FIELD_LEN
+        let csv = format!(
+            "RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY\n\
+             7654321,N0CALL,{big},User,City,ST,USA\n"
+        );
+        let subs = Subscribers::from_reader(csv.as_bytes()).unwrap();
+        let s = subs.get(7654321).unwrap();
+        assert!(s.first_name.len() <= MAX_FIELD_LEN);
+        assert!(s.first_name.is_char_boundary(s.first_name.len()));
     }
 
     #[test]
