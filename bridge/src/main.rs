@@ -388,7 +388,11 @@ async fn async_main() -> anyhow::Result<()> {
         callsign: config.repeater.callsign.as_str().to_string(),
     };
 
-    // voice_task is infallible; wrap for try_join!'s unified error type.
+    // Each branch trips `cancel` on its own exit (Ok, Err, or natural
+    // completion).  With `join!` (not `try_join!`) all siblings then
+    // drain through their cancel-aware paths -- voice_task gets to
+    // run on_shutdown (terminator + unkey to peers) instead of being
+    // dropped at its next .await mid-call.
     let voice = async {
         dmr_wire::voice::voice_task(
             dmrd_in_rx,
@@ -404,10 +408,11 @@ async fn async_main() -> anyhow::Result<()> {
             cancel.clone(),
         )
         .await;
+        cancel.cancel();
         anyhow::Ok(())
     };
     let homebrew = async {
-        homebrew_client::run(
+        let r = homebrew_client::run(
             &config,
             &password,
             profile.as_ref(),
@@ -418,12 +423,10 @@ async fn async_main() -> anyhow::Result<()> {
             cancel.clone(),
         )
         .await
-        .map_err(anyhow::Error::from)
+        .map_err(anyhow::Error::from);
+        cancel.cancel();
+        r
     };
-    // Optional periodic timers join the same try_join! so a panic in
-    // either tears the process down with a stack trace, instead of
-    // silently disabling the timer.  Branches resolve to Ok(()) when
-    // not configured -- try_join! keeps polling the live siblings.
     let subscriber_branch = async {
         if let (Some(state), Some(path)) = (
             subscribers_state.as_ref(),
@@ -438,6 +441,7 @@ async fn async_main() -> anyhow::Result<()> {
             )
             .await;
         }
+        cancel.cancel();
         anyhow::Ok(())
     };
     let bm_reconcile_branch = async {
@@ -452,18 +456,30 @@ async fn async_main() -> anyhow::Result<()> {
             )
             .await;
         }
+        cancel.cancel();
         anyhow::Ok(())
     };
-    let tg = config.dmr.talkgroup.as_u32();
-    tokio::try_join!(
-        usrp::rx_task(
-            socket.clone(),
+    // rx + tx must `async move` to take ownership of `socket` (or a
+    // clone) and the channel halves; cancel is cloned per branch so
+    // the outer `cancel` stays available for the non-move branches.
+    let socket_for_rx = socket.clone();
+    let cancel_for_rx = cancel.clone();
+    let rx = async move {
+        let r = usrp::rx_task(
+            socket_for_rx,
             audio_in_tx,
             remote_addr,
             byte_swap,
-            cancel.clone()
-        ),
-        usrp::tx_task(
+            cancel_for_rx.clone(),
+        )
+        .await;
+        cancel_for_rx.cancel();
+        r
+    };
+    let tg = config.dmr.talkgroup.as_u32();
+    let cancel_for_tx = cancel.clone();
+    let tx = async move {
+        let r = usrp::tx_task(
             socket,
             audio_out_rx,
             metadata_rx,
@@ -471,13 +487,26 @@ async fn async_main() -> anyhow::Result<()> {
             tg,
             byte_swap,
             agc_state,
-            cancel.clone()
-        ),
+            cancel_for_tx.clone(),
+        )
+        .await;
+        cancel_for_tx.cancel();
+        r
+    };
+    let (r_rx, r_tx, r_hb, r_voice, r_sub, r_bm) = tokio::join!(
+        rx,
+        tx,
         homebrew,
         voice,
         subscriber_branch,
-        bm_reconcile_branch,
-    )?;
+        bm_reconcile_branch
+    );
+    if let Some(e) = [r_rx, r_tx, r_hb, r_voice, r_sub, r_bm]
+        .into_iter()
+        .find_map(Result::err)
+    {
+        return Err(e);
+    }
 
     info!("shutdown complete");
     Ok(())
