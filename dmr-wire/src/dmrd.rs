@@ -29,15 +29,24 @@ const FLAG_FRAME_TYPE_MASK: u8 = 0x30;
 const FLAG_FRAME_TYPE_SHIFT: u32 = 4;
 const FLAG_DTYPE_VSEQ_MASK: u8 = 0x0F;
 
-/// Group vs unit (private) call.
+/// Group vs unit (private) call.  `non_exhaustive` because the
+/// underlying flag bit is one of two values today, but the wider
+/// DMR-protocol family reserves combinations (e.g., direct-mode
+/// peer call) that a future profile could surface here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CallType {
     Group,
     Unit,
 }
 
-/// High-level DMRD frame class (bits 5:4 of flags).
+/// High-level DMRD frame class (bits 5:4 of flags).  `non_exhaustive`
+/// because the wire reserves four 2-bit values; today we surface
+/// three and reject the fourth as `DmrdError::ReservedFrameType`,
+/// but a future protocol extension could promote it to a real
+/// variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FrameType {
     /// Mid-superframe voice burst (A..F cycle carried in `dtype_vseq`).
     Voice,
