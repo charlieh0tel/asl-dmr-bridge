@@ -43,8 +43,8 @@ url.workspace = true
 wiremock.workspace = true
 
 [package.metadata.deb]
-maintainer = "Christopher Hoover <ch@murgatroid.com>"
-copyright = "2026, Christopher Hoover"
+maintainer = "Christopher Hoover (AI6KG) <ch@murgatroid.com>"
+copyright = "2026, Christopher Hoover (AI6KG)"
 license-file = ["../LICENSE", "0"]
 extended-description = """\
 asl-dmr-bridge connects an AllStarLink (ASL3) FM node to a Brandmeister \
