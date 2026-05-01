@@ -42,7 +42,9 @@ subscriber_file = "/var/lib/asl-dmr-bridge/user.csv"
 ```
 
 A `systemd` timer or cron entry hitting that same `wget` weekly is
-plenty.  The bridge re-reads the file only on (re)start.
+plenty.  Set `[repeater].subscriber_refresh_interval` (e.g. `"1d"`)
+if you want the bridge to re-read the file periodically without a
+restart; default `"0s"` is load-once-at-startup.
 
 Field meanings:
 - `dmr_id` -- talker's on-air subscriber ID (the DMRD `src_id` field).

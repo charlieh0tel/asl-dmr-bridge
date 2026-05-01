@@ -213,9 +213,9 @@ color_code, height.
 ```
 b"DMRD"        [4]   magic
 seq            [1]   0-255 wrapping
-src_id         [3]   DMR source ID (repeater's registered DMR ID)
-dst_id         [3]   destination TG
-repeater_id    [4]
+src_id         [3]   on-air talker subscriber ID (24-bit; from [repeater].src_id)
+dst_id         [3]   destination TG (group call) or addressee SID (private call)
+repeater_id    [4]   Homebrew peer identity (from [repeater].dmr_id; may exceed 24 bits)
 flags          [1]   slot (bit 7), call type (bit 6), frame type, data type
 stream_id      [4]   unique per transmission
 dmr_data      [33]   assembled DMR voice frame (see DMR Frame Assembly)
@@ -384,22 +384,28 @@ continues.
 
 ## Configuration Schema
 
-TOML. See `config.example.toml`.
+TOML.  Authoritative reference is `config.example.toml`; the snippet
+below names every required field and the optional sections.
 
 ```toml
 [repeater]
 callsign = "N0CALL"
-dmr_id = 1234567        # dedicated hotspot ID from radioid.net
-# Optional RPTC fields (have sensible defaults if omitted):
-# rx_freq, tx_freq, tx_power, color_code, latitude, longitude,
-# height, location, description, url
+dmr_id = 1234567              # Homebrew peer ID (may exceed 24 bits for 9-digit BM hotspots)
+src_id = 1234567              # 24-bit on-air subscriber ID (DMRD src_id, embedded LC)
+rx_freq = 434000000           # Hz, non-zero
+tx_freq = 439000000           # Hz, non-zero
+# Optional RPTC fields with sensible defaults:
+# tx_power, color_code, latitude, longitude, height, location, description, url
+# Optional callsign enrichment:
+# subscriber_file = "/var/lib/asl-dmr-bridge/user.csv"
+# subscriber_refresh_interval = "1d"   # 0s = load once at startup
 
 [usrp]
 local_host = "127.0.0.1"
 local_port = 34001
 remote_host = "127.0.0.1"
 remote_port = 34002
-# byte_swap = false    # enable for cross-endian USRP peer
+# byte_swap = false           # enable for cross-endian USRP peer
 
 [vocoder]
 backend = "thumbdv"           # "thumbdv", "ambeserver", or "mbelib"
@@ -407,23 +413,42 @@ serial_port = "/dev/ttyUSB0"
 # serial_baud = 460800
 # host = "127.0.0.1"          # for ambeserver backend
 # port = 2460
+# gain_in_db = 0              # DV3000 chip gain, -90..=90 (thumbdv/ambeserver only)
+# gain_out_db = 0
 
 [dmr]
 gateway = "both"              # "both", "dmr_to_fm", or "fm_to_dmr"
 slot = 1                      # TS1 or TS2
 talkgroup = 1
-call_type = "group"
+call_type = "group"           # "group" or "private"
 hang_time = "500ms"           # RX hang timer after terminator
 stream_timeout = "5s"         # force RX unkey if voice stalls
 tx_timeout = "180s"           # force TX terminator after this
+# min_tx_hang = "0s"          # hold DMR call open this long after USRP unkey
 
 [network]
 profile = "brandmeister"
 host = "master.example.net"
 port = 62031
-password = "your-hotspot-password"
+password = "your-hotspot-password"   # or BM_BRIDGE_PASSWORD env / --password-file
 keepalive_interval = "5s"
 keepalive_missed_limit = 3
+
+# Optional FM-side AGC.  Off by default; enable when the USRP source
+# has uneven levels.
+# [agc]
+# enabled = true
+# target_dbfs = -6.0
+# attack = "10ms"
+# release = "200ms"
+# max_gain_db = 30.0
+
+# Optional Brandmeister Halligan API integration.  See docs/BRANDMEISTER-API.md.
+# [brandmeister_api]
+# api_key = "..."             # or api_key_file / BRANDMEISTER_API_KEY
+# static_talkgroups_ts1 = [91, 3100]
+# static_talkgroups_ts2 = []
+# reconcile_interval = "0s"   # >0 to also reconcile periodically while running
 ```
 
 ---

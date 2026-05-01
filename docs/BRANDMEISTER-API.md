@@ -36,10 +36,10 @@ Token sources (mutually exclusive, exactly one for write commands):
 Read commands (no token needed):
 
 ```
-bmcli device <id>                  # info: callsign, freqs, last master
+bmcli device <id> info             # callsign, freqs, last master
 bmcli device <id> profile          # statics + dynamics + timed + blocks
 bmcli device <id> statics          # current static TGs
-bmcli talkgroup <id>               # talkgroup metadata
+bmcli talkgroup <id> info          # talkgroup metadata
 bmcli talkgroup <id> devices       # who has it static-subscribed
 ```
 
