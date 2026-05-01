@@ -83,13 +83,10 @@ stream_timeout = "5s"
 profile = "brandmeister"
 host = "3102.master.brandmeister.network"
 port = 62031
-# Password can be supplied here, OR via --password-file <path>, OR
-# via the BM_BRIDGE_PASSWORD env var.  The packaged systemd unit
-# sources /etc/default/asl-dmr-bridge (mode 600 conffile) for the
-# env var -- the recommended path on Debian/Ubuntu so the secret
-# stays out of this TOML.  Exactly one source -- bridge errors at
-# startup if zero or two.
+# Password.  One of: password = "...", password_file = "<path>",
+# BRANDMEISTER_PASSWORD env, --password-file CLI.
 # password = "your-hotspot-password"
+# password_file = "/etc/asl-dmr-bridge/password"
 keepalive_interval = "5s"
 keepalive_missed_limit = 3
 
@@ -105,11 +102,11 @@ keepalive_missed_limit = 3
 # untouched; `[]` reduces it to empty.
 #
 # [brandmeister_api]
-# # Bearer JWT, get one from selfcare.brandmeister.network -> API.
-# # Provide via this field, OR api_key_file = "<path>", OR the
-# # BRANDMEISTER_API_KEY env var.  Exactly one source.
+# # JWT from selfcare.brandmeister.network -> API.  One of:
+# # api_key = "...", api_key_file = "<path>",
+# # BRANDMEISTER_API_KEY env, --api-key-file CLI.
 # api_key = "..."
-# # api_key_file = "/etc/asl-dmr-bridge/brandmeister-api.key"
+# # api_key_file = "/etc/asl-dmr-bridge/bm-api.key"
 # static_talkgroups_ts1 = [91, 3100]
 # static_talkgroups_ts2 = []
 # # Optional periodic re-run of the provisioning logic so SelfCare

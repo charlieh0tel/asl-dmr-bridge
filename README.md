@@ -33,13 +33,20 @@ Both can be combined: `--features mbelib,thumbdv`.
 RUST_LOG=info asl-dmr-bridge config.toml
 ```
 
-The BM hotspot password can be supplied three ways (pick one):
-- `[network] password = "..."` in the config file (default).
-- `BM_BRIDGE_PASSWORD=...` env var.  The packaged systemd unit sources
-  `/etc/default/asl-dmr-bridge` (mode 600).
-- `--password-file <path>` for a single-line password file.
+The BM hotspot password can be supplied four ways (pick one):
+- `[network] password = "..."` inline in the config file.
+- `[network] password_file = "<path>"` to a single-line file.
+- `BRANDMEISTER_PASSWORD=...` env var.  The packaged systemd unit
+  sources `/etc/default/asl-dmr-bridge` (mode 600).
+- `--password-file <path>` CLI flag.
 
-Setting more than one is a startup error.
+Setting more than one is a startup error.  The packaged deb ships an
+empty `/etc/asl-dmr-bridge/password` (mode 600) ready to populate.
+
+The Brandmeister API key uses the same four sources, with
+`api_key` / `api_key_file` under `[brandmeister_api]`,
+`BRANDMEISTER_API_KEY` env, and `--api-key-file` CLI.  Default
+skeleton path is `/etc/asl-dmr-bridge/bm-api.key`.
 
 Optional Brandmeister Halligan API integration: with a
 `[brandmeister_api]` section in the config (or an API key in

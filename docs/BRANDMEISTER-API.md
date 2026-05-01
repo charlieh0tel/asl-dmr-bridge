@@ -59,9 +59,9 @@ Add a `[brandmeister_api]` section to the bridge config:
 ```toml
 [brandmeister_api]
 # Bearer JWT.  Pick exactly one source:
-api_key = "..."                                  # inline
-# api_key_file = "/etc/asl-dmr-bridge/bm.key"    # single-line file
-# or set $BRANDMEISTER_API_KEY in the bridge's environment
+api_key = "..."                                       # inline
+# api_key_file = "/etc/asl-dmr-bridge/bm-api.key"     # single-line file
+# or BRANDMEISTER_API_KEY env, or --api-key-file CLI
 
 # Pure-set reconciliation: declared list = final state at startup.
 # Missing TGs are POSTed, extras are DELETEd.  Omit a slot to leave

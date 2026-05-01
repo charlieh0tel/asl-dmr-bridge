@@ -1,20 +1,5 @@
-# Environment for the asl-dmr-bridge systemd service.
-#
-# Sourced by /lib/systemd/system/asl-dmr-bridge.service via
-# EnvironmentFile=.  Variables here override [network].password in
-# the TOML config -- the bridge errors at startup if more than one
-# source supplies a password.
-#
-# This file should stay mode 600 root:root (it contains the BM
-# hotspot password verbatim).  systemd reads it before dropping
-# privileges, so the runtime DynamicUser does not need access.
+# Sourced by the systemd unit before privilege drop.  Mode 600.
 
-# BM_BRIDGE_PASSWORD=changeme
-
-# Optional: Brandmeister Halligan API key (JWT bearer).  Only needed
-# if you use [brandmeister_api] static-talkgroup reconciliation or
-# bmcli; anonymous read endpoints work without it.
+# BRANDMEISTER_PASSWORD=changeme
 # BRANDMEISTER_API_KEY=
-
-# Optional: tracing filter (default "info").
-# RUST_LOG=info,brandmeister_api=debug
+# RUST_LOG=info

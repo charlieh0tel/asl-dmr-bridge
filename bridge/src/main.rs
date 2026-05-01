@@ -46,15 +46,22 @@ struct Args {
     config: PathBuf,
 
     /// Read the BM hotspot password from this file (single line,
-    /// trailing whitespace stripped).  Alternatives in priority
-    /// order: this flag > `BM_BRIDGE_PASSWORD` env var >
-    /// `[network].password` in the config.  Exactly one source
-    /// must supply the password.
+    /// trailing whitespace stripped).  Alternatives, exactly one
+    /// must apply: `BRANDMEISTER_PASSWORD` env var,
+    /// `[network].password_file` in config, `[network].password`
+    /// inline.
     #[arg(long, value_name = "FILE")]
     password_file: Option<PathBuf>,
+
+    /// Read the Brandmeister Halligan API key from this file
+    /// (single line, trailing whitespace stripped).  Alternatives:
+    /// `BRANDMEISTER_API_KEY` env var, `[brandmeister_api].api_key_file`
+    /// in config, `[brandmeister_api].api_key` inline.
+    #[arg(long, value_name = "FILE")]
+    api_key_file: Option<PathBuf>,
 }
 
-const PASSWORD_ENV: &str = "BM_BRIDGE_PASSWORD";
+const PASSWORD_ENV: &str = "BRANDMEISTER_PASSWORD";
 const API_KEY_ENV: &str = "BRANDMEISTER_API_KEY";
 
 fn make_profile(profile: &Network) -> Box<dyn network::NetworkProfile> {
@@ -214,21 +221,26 @@ async fn async_main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let password_file_source = match &args.password_file {
+    let password_cli_file = match &args.password_file {
         Some(path) => config::read_password_file(path)?,
         None => None,
     };
-    let password_env_source = std::env::var(PASSWORD_ENV)
+    let password_env = std::env::var(PASSWORD_ENV)
         .ok()
         .map(secrecy::SecretString::from);
-    let api_key_env_source = std::env::var(API_KEY_ENV)
+    let api_key_cli_file = match &args.api_key_file {
+        Some(path) => config::read_api_key_file(path)?,
+        None => None,
+    };
+    let api_key_env = std::env::var(API_KEY_ENV)
         .ok()
         .map(secrecy::SecretString::from);
     let config = config::RuntimeConfig::load(
         &args.config,
-        password_file_source,
-        password_env_source,
-        api_key_env_source,
+        password_cli_file,
+        password_env,
+        api_key_cli_file,
+        api_key_env,
     )
     .await?;
 

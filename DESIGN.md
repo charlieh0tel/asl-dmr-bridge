@@ -430,7 +430,7 @@ tx_timeout = "180s"           # force TX terminator after this
 profile = "brandmeister"
 host = "master.example.net"
 port = 62031
-password = "your-hotspot-password"   # or BM_BRIDGE_PASSWORD env / --password-file
+password = "your-hotspot-password"   # or password_file / BRANDMEISTER_PASSWORD env / --password-file
 keepalive_interval = "5s"
 keepalive_missed_limit = 3
 
@@ -445,7 +445,7 @@ keepalive_missed_limit = 3
 
 # Optional Brandmeister Halligan API integration.  See docs/BRANDMEISTER-API.md.
 # [brandmeister_api]
-# api_key = "..."             # or api_key_file / BRANDMEISTER_API_KEY
+# api_key = "..."             # or api_key_file / BRANDMEISTER_API_KEY env / --api-key-file
 # static_talkgroups_ts1 = [91, 3100]
 # static_talkgroups_ts2 = []
 # reconcile_interval = "0s"   # >0 to also reconcile periodically while running

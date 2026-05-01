@@ -44,7 +44,7 @@ pub(crate) enum ConfigError {
 
     #[error(
         "no BM password supplied (set [network].password in config, \
-         BM_BRIDGE_PASSWORD env var, or --password-file)"
+         BRANDMEISTER_PASSWORD env var, [network].password_file, or --password-file)"
     )]
     PasswordMissing,
 
@@ -361,14 +361,17 @@ pub(crate) struct NetworkConfig {
     pub(crate) profile: Network,
     pub(crate) host: String,
     pub(crate) port: u16,
-    /// One of three password sources (the others being
-    /// `--password-file` and `BM_BRIDGE_PASSWORD`).  Pass through
-    /// `resolve_password` at startup; that function takes ownership
-    /// and returns the resolved secret directly, so this field is
-    /// `None` for the rest of the process lifetime.  `SecretString`
-    /// keeps the value out of `Debug` and zeroizes on drop.
+    /// Inline password (one of four sources; see `resolve_password`).
+    /// `SecretString` keeps the value out of `Debug` and zeroizes on
+    /// drop.  Moved out at resolution time and left as `None`.
     #[serde(default)]
     pub(crate) password: Option<SecretString>,
+    /// Path to a single-line file containing the password.  Mirrors
+    /// `[brandmeister_api].api_key_file`.  Default packaged path is
+    /// `/etc/asl-dmr-bridge/password`; operators populate the file
+    /// (mode 600) and reference it from the config.
+    #[serde(default)]
+    pub(crate) password_file: Option<PathBuf>,
     #[serde(with = "humantime_serde")]
     pub(crate) keepalive_interval: Duration,
     pub(crate) keepalive_missed_limit: u32,
@@ -499,13 +502,14 @@ impl RuntimeConfig {
     /// partially-resolved `Config`.
     pub(crate) async fn load(
         path: &Path,
-        password_file: Option<SecretString>,
+        password_cli_file: Option<SecretString>,
         password_env: Option<SecretString>,
+        api_key_cli_file: Option<SecretString>,
         api_key_env: Option<SecretString>,
     ) -> Result<Self, ConfigError> {
         let mut config = Config::load(path).await?;
-        let password = resolve_password(&mut config, password_file, password_env)?;
-        let api_key = resolve_api_key(&mut config, api_key_env)?;
+        let password = resolve_password(&mut config, password_cli_file, password_env)?;
+        let api_key = resolve_api_key(&mut config, api_key_cli_file, api_key_env)?;
         Ok(config.resolve(password, api_key))
     }
 }
@@ -546,16 +550,16 @@ pub(crate) fn read_password_file(path: &Path) -> Result<Option<SecretString>, Co
     })
 }
 
-/// Resolve the BM password from any of three sources, in this
-/// priority order: `--password-file`, `BM_BRIDGE_PASSWORD` env var,
-/// `[network].password` in config.  Exactly one source must supply
-/// a non-empty value; zero is `PasswordMissing`, more than one is
-/// `PasswordAmbiguous` (catches operator confusion).  Returns the
-/// resolved secret directly so the caller holds a `SecretString`
+/// Resolve the BM password from any of four sources:
+/// `--password-file` CLI, `BRANDMEISTER_PASSWORD` env var,
+/// `[network].password_file` in config, `[network].password` inline.
+/// Exactly one must supply a non-empty value; zero is
+/// `PasswordMissing`, more than one is `PasswordAmbiguous`.  Returns
+/// the resolved secret directly so the caller holds a `SecretString`
 /// rather than an `Option<SecretString>` field invariant.
 pub(crate) fn resolve_password(
     config: &mut Config,
-    file_source: Option<SecretString>,
+    cli_file_source: Option<SecretString>,
     env_source: Option<SecretString>,
 ) -> Result<SecretString, ConfigError> {
     fn non_empty(s: SecretString) -> Option<SecretString> {
@@ -565,9 +569,14 @@ pub(crate) fn resolve_password(
             Some(s)
         }
     }
+    let config_file_source = match config.network.password_file.take() {
+        Some(path) => read_password_file(&path)?,
+        None => None,
+    };
     let candidates: Vec<(&'static str, SecretString)> = [
-        ("--password-file", file_source),
-        ("BM_BRIDGE_PASSWORD", env_source),
+        ("--password-file", cli_file_source),
+        ("BRANDMEISTER_PASSWORD", env_source),
+        ("config.toml [network].password_file", config_file_source),
         (
             "config.toml [network].password",
             config.network.password.take(),
@@ -607,13 +616,10 @@ pub(crate) fn read_api_key_file(path: &Path) -> Result<Option<SecretString>, Con
     })
 }
 
-/// Resolve the Brandmeister API key from up to three sources:
-/// `BRANDMEISTER_API_KEY` env var, `[brandmeister_api].api_key_file`,
-/// or `[brandmeister_api].api_key`.  At most one may be set
-/// (`api_key` and `api_key_file` are checked at config-validate time;
-/// the env var is the third candidate here).  Returns the resolved
-/// secret directly so callers don't depend on a put-back-into-Option
-/// invariant.
+/// Resolve the Brandmeister API key from up to four sources:
+/// `--api-key-file` CLI, `BRANDMEISTER_API_KEY` env var,
+/// `[brandmeister_api].api_key_file`, or `[brandmeister_api].api_key`.
+/// At most one may apply.  Returns the resolved secret directly.
 ///
 /// Unlike the BM password, the API key is *optional*: anonymous
 /// reads (peer profile log) work without it, so missing key just
@@ -621,9 +627,16 @@ pub(crate) fn read_api_key_file(path: &Path) -> Result<Option<SecretString>, Con
 /// The caller validates "key required for declared statics".
 pub(crate) fn resolve_api_key(
     config: &mut Config,
+    cli_file_source: Option<SecretString>,
     env_source: Option<SecretString>,
 ) -> Result<Option<SecretString>, ConfigError> {
     let Some(api_cfg) = config.brandmeister_api.as_mut() else {
+        if cli_file_source.is_some() || env_source.is_some() {
+            tracing::warn!(
+                "API key supplied via CLI / env but no [brandmeister_api] \
+                 section in config; key ignored"
+            );
+        }
         return Ok(None);
     };
     fn non_empty(s: SecretString) -> Option<SecretString> {
@@ -633,13 +646,14 @@ pub(crate) fn resolve_api_key(
             Some(s)
         }
     }
-    let file_source = match api_cfg.api_key_file.take() {
+    let config_file_source = match api_cfg.api_key_file.take() {
         Some(path) => read_api_key_file(&path)?,
         None => None,
     };
     let candidates: Vec<(&'static str, SecretString)> = [
+        ("--api-key-file", cli_file_source),
         ("BRANDMEISTER_API_KEY", env_source),
-        ("brandmeister_api.api_key_file", file_source),
+        ("brandmeister_api.api_key_file", config_file_source),
         ("brandmeister_api.api_key", api_cfg.api_key.take()),
     ]
     .into_iter()
