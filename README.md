@@ -5,8 +5,6 @@ Bridge AllStarLink / ASL3 to Brandmeister using Homebrew.
 ## Design
 
 See [DESIGN.md](DESIGN.md) for architecture and protocol details,
-[DESIGN-rust.md](DESIGN-rust.md) for cross-cutting Rust-specific
-notes (concurrency model, dependency choices),
 [docs/TEST-VECTORS.md](docs/TEST-VECTORS.md) for encoder test
 coverage,
 [docs/BRANDMEISTER-API.md](docs/BRANDMEISTER-API.md) for the

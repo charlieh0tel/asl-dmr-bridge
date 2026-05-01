@@ -4,8 +4,6 @@ Bridge an FM repeater (via AllStarLink / ASL3) to a DMR network by acting as a
 Homebrew-variant DMR peer. Initial target is Brandmeister; the network profile
 is abstracted so other networks (DMR+, TGIF) can be added later.
 
-See [DESIGN-rust.md](DESIGN-rust.md) for language-specific implementation detail.
-
 ---
 
 ## Physical Topology
@@ -469,6 +467,11 @@ headroom and pacers drain promptly.  If either appears in
 production, the consumer (usrp::tx_task or homebrew_client) is
 stalled.  Investigate before dismissing.
 
+The audio-tx side uses `mpsc::Sender::try_reserve_many` to reserve
+all three voice-burst slots atomically: a partial burst would
+produce an audible 20 ms gap mid-60 ms, so we drop the whole burst
+with one warning when the channel can't take all three.
+
 The DMRD-side warning specifically fires when `homebrew_client::run`
 is in reconnect backoff (no consumer draining `dmrd_out_rx`); that
 is by design -- voice frames queued during disconnect would be
@@ -480,3 +483,8 @@ call.** Cancel fires via `CancellationToken`; `spawn_blocking` keeps
 running until its blocking read returns.  Tokio main's
 `shutdown_timeout` caps the wait, but individual tasks may observe
 2s latency before exit during an active call.
+
+**Considered and rejected dependencies.**
+- `hmac`: BM uses plain SHA256, not HMAC.
+- `uuid`: stream IDs are u32, no UUIDs on the wire.
+- `bytes`: `Vec<u8>` and `&[u8]` suffice.
