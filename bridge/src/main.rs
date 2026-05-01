@@ -167,12 +167,21 @@ async fn subscriber_refresh(
     }
 }
 
+/// Cancels its token on drop, so a panic mid-handler still trips
+/// cancel instead of stranding the bridge.  Cancel is idempotent.
+struct CancelOnDrop(CancellationToken);
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 /// Spawn a task that cancels the token on SIGINT or SIGTERM.
-/// SIGTERM registration can fail in restricted sandboxes
-/// (seccomp, no rt_sigaction).  Log and fall through to SIGINT-only
-/// rather than panicking the runtime at startup.
+/// SIGTERM registration can fail in restricted sandboxes (seccomp,
+/// no rt_sigaction); fall through to SIGINT-only.
 fn spawn_signal_handler(cancel: CancellationToken) {
     tokio::spawn(async move {
+        let _guard = CancelOnDrop(cancel);
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(mut sigterm) => {
                 tokio::select! {
@@ -186,7 +195,6 @@ fn spawn_signal_handler(cancel: CancellationToken) {
                 info!("SIGINT received");
             }
         }
-        cancel.cancel();
     });
 }
 
