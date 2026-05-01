@@ -56,12 +56,9 @@ priority = "optional"
 depends = "$auto"
 assets = [
     ["target/release/asl-dmr-bridge", "usr/bin/", "755"],
-    ["../config.example.toml", "etc/asl-dmr-bridge/config.example.toml", "644"],
+    ["../config.example.toml", "usr/share/doc/asl-dmr-bridge/examples/config.example.toml", "644"],
     ["../packaging/asl-dmr-bridge.default", "etc/default/asl-dmr-bridge", "600"],
     ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "644"],
     ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "644"],
 ]
-conf-files = [
-    "/etc/asl-dmr-bridge/config.example.toml",
-    "/etc/default/asl-dmr-bridge",
-]
+conf-files = ["/etc/default/asl-dmr-bridge"]

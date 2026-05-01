@@ -77,7 +77,8 @@ cargo deb -p asl-dmr-bridge
 ```
 
 The packaged unit stays dormant via `ConditionPathExists` until
-`/etc/asl-dmr-bridge/config.toml` exists.
+`/etc/asl-dmr-bridge/config.toml` exists.  Template lives at
+`/usr/share/doc/asl-dmr-bridge/examples/config.example.toml`.
 
 ## Test tools
 
