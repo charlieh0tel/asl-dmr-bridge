@@ -29,7 +29,7 @@ sweeps.
 
 ### Normative (ETSI TS 102 361-1 V2.5.1)
 
-Local copy: `docs/ts_10236101v020501p.pdf`.
+Download from <https://www.etsi.org/deliver/etsi_ts/102300_102399/10236101/>.
 
 - **Table B.18** (RS(12,9) generator matrix): the 9 unit-vector
   messages `m = e_i` give us the parity on row `i`, columns 9..12.

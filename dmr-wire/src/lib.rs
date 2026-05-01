@@ -6,8 +6,9 @@
 //! Disassembly", and "DMR Frame Assembly".  Primary reference for
 //! the ETSI wire format is G4KLX DMRGateway: `DMRData.cpp`,
 //! `DMRSlotType.cpp`, `DMREMB.cpp`, `DMREmbeddedData.cpp`,
-//! `DMRFullLC.cpp`.  Normative spec in
-//! `docs/ts_10236101v020501p.pdf`.
+//! `DMRFullLC.cpp`.  Normative spec is ETSI TS 102 361-1 (v2.5.1
+//! is the version cross-referenced by `docs/TEST-VECTORS.md`),
+//! download from <https://www.etsi.org/deliver/etsi_ts/102300_102399/10236101/>.
 //!
 //! # FEC policy
 //!
