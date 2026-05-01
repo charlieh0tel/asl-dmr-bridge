@@ -1,38 +1,8 @@
 # asl-dmr-bridge
 
-Bridge an FM repeater (via AllStarLink / ASL3) to a DMR network by acting
-as a Homebrew-variant DMR peer. Initial target is Brandmeister.
+Bridge AllStarLink / ASL3 to Brandmeister using Homebrew.
 
-## Status
-
-Both DMR -> FM and FM -> DMR voice paths are live-tested against
-Brandmeister, with hardware AMBE-3000R (ThumbDV / AMBEserver) and
-mbelib (decode-only) backends verified end-to-end.
-
-FM -> DMR is listener-confirmed via the BM parrot service (see
-[docs/PARROT-TEST.md](docs/PARROT-TEST.md)): a recorded voice clip
-fed into the bridge round-trips through Brandmeister and comes back
-clearly intelligible.
-
-Working:
-- Brandmeister auth + keepalive (RPTL/RPTK/RPTC + RPTPING/MSTPONG)
-- Auto-reconnect with exponential backoff
-- Graceful shutdown (SIGINT/SIGTERM, sends RPTCL)
-- DMR -> FM voice: DMRD parse, burst disassembly, AMBE decode, USRP TX
-- FM -> DMR voice: USRP RX, AMBE encode, burst assembly, DMRD emit
-- Half-duplex PTT state machine (Idle / Rx / RxHang / Tx)
-- Configurable gateway direction (both / dmr_to_fm / fm_to_dmr)
-- Group and private (unit-to-unit) call addressing
-
-Workspace crates:
-- `ambe`            -- Vocoder trait and three backends (ThumbDV, AMBEserver, mbelib)
-- `brandmeister-api`-- Typed client for the BM Halligan REST API
-- `bmcli`           -- CLI over `brandmeister-api`
-- `dmr-events`      -- Bridge-presentation call-event types (CallMetadata, MetaEvent)
-- `dmr-subscriber`  -- DMR ID -> callsign / first-name lookup from a RadioID CSV
-- `dmr-types`       -- Shared on-air newtypes (DmrId, SubscriberId, Talkgroup, ColorCode, Slot)
-- `dmr-wire`        -- DMR L2 (DMRD packets, BPTC/RS/Hamming/QR FEC, voice task, PTT)
-- `usrp-wire`       -- USRP wire format (Frame parse/serialize, header constants)
+## Design
 
 See [DESIGN.md](DESIGN.md) for architecture and protocol details,
 [DESIGN-rust.md](DESIGN-rust.md) for cross-cutting Rust-specific
@@ -45,14 +15,6 @@ Halligan API integration (`bmcli` + bridge auto-provisioning),
 call-metadata wire shape, and
 [docs/TODO.md](docs/TODO.md) for tracked deferred work.
 Per-module detail lives in module-level rustdoc.
-
-## Brandmeister and peer bridging
-
-Brandmeister restricts use of the MMDVM/HBP peer protocol (which
-this bridge speaks) for bridging BM to other reflectors or DMR
-networks; OpenBridge and XLX Interlink are the BM-sanctioned
-inter-network protocols, and require coordination with BM.  Confirm
-your intended use with BM before deploying.
 
 ## Building
 
@@ -116,27 +78,6 @@ To build a `.deb` locally:
 ```
 cargo install cargo-deb
 cargo deb -p asl-dmr-bridge
-```
-
-The `.deb` installs `/usr/bin/asl-dmr-bridge`,
-`/etc/asl-dmr-bridge/config.example.toml`, an empty
-`/etc/default/asl-dmr-bridge` env file (mode 600, sourced by the
-unit for `BM_BRIDGE_PASSWORD` and friends), the systemd unit at
-`/lib/systemd/system/asl-dmr-bridge.service`, and a udev rule that
-sets the FTDI `latency_timer` to 1 ms for ThumbDV
-(`/lib/udev/rules.d/99-thumbdv.rules`).  Copy the example config to
-`/etc/asl-dmr-bridge/config.toml` and edit, then put the BM password
-in `/etc/default/asl-dmr-bridge` before starting the service.
-
-The systemd unit runs as a `DynamicUser` with empty
-`CapabilityBoundingSet` plus the standard sandboxing directives;
-`SupplementaryGroups=dialout` is preset so the dynamic user can open
-`/dev/ttyUSB*` for ThumbDV.  Drop that line from the unit if you only
-use the ambeserver or mbelib backends.
-
-```
-sudo systemctl enable --now asl-dmr-bridge
-sudo journalctl -fu asl-dmr-bridge
 ```
 
 ## Test tools
