@@ -223,6 +223,35 @@ mod tests {
         assert_eq!(&pkt[start..start + CALLSIGN_WIDTH], b"N0CALL  ");
     }
 
+    #[test]
+    fn config_packet_slot_byte_tracks_dmr_slot() {
+        // Both slot values must produce the corresponding ASCII digit
+        // in the slots field.  Locks the dmr.slot -> RPTC-byte mapping
+        // so a future "always-3" regression (which the original 2026-04
+        // bisection mistakenly suggested) fails loudly.
+        let slot_offset = TAG_RPTC.len()
+            + REPEATER_ID_WIRE_LEN
+            + CALLSIGN_WIDTH
+            + RX_FREQ_WIDTH
+            + TX_FREQ_WIDTH
+            + TX_POWER_WIDTH
+            + COLOR_CODE_WIDTH
+            + LATITUDE_WIDTH
+            + LONGITUDE_WIDTH
+            + HEIGHT_WIDTH
+            + LOCATION_WIDTH
+            + DESCRIPTION_WIDTH;
+
+        let mut cfg = test_config();
+        cfg.dmr.slot = Slot::One;
+        let pkt = Brandmeister.config_packet(&cfg);
+        assert_eq!(&pkt[slot_offset..slot_offset + SLOTS_WIDTH], b"1");
+
+        cfg.dmr.slot = Slot::Two;
+        let pkt = Brandmeister.config_packet(&cfg);
+        assert_eq!(&pkt[slot_offset..slot_offset + SLOTS_WIDTH], b"2");
+    }
+
     fn full_config() -> Config {
         toml::from_str(
             r#"
