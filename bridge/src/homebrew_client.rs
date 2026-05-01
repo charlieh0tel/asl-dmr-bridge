@@ -826,4 +826,87 @@ mod tests {
             assert_eq!(b.current(), BACKOFF_MAX);
         }
     }
+
+    // --- keepalive_loop ---
+    //
+    // 1h interval keeps the ticker quiet so the test doesn't race a
+    // ping send before recv classifies the master's reply.
+
+    const KEEPALIVE_TEST_CONFIG: &str = r#"
+        [repeater]
+        callsign = "N0CALL"
+        dmr_id = 1234567
+        src_id = 1234567
+        rx_freq = 434000000
+        tx_freq = 439000000
+
+        [usrp]
+        local_host = "127.0.0.1"
+        local_port = 34001
+        remote_host = "127.0.0.1"
+        remote_port = 34002
+
+        [vocoder]
+        backend = "mbelib"
+
+        [dmr]
+        slot = 1
+        talkgroup = 9
+        call_type = "group"
+        hang_time = "500ms"
+        stream_timeout = "5s"
+
+        [network]
+        profile = "brandmeister"
+        host = "test.local"
+        port = 62031
+        password = "pw"
+        keepalive_interval = "1h"
+        keepalive_missed_limit = 3
+    "#;
+
+    async fn run_keepalive_with_response(response: &[u8]) -> Result<(), NetworkError> {
+        let config: Config = toml::from_str(KEEPALIVE_TEST_CONFIG).unwrap();
+        let master = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let bridge = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let bridge_addr = bridge.local_addr().unwrap();
+        bridge.connect(master.local_addr().unwrap()).await.unwrap();
+
+        master.send_to(response, bridge_addr).await.unwrap();
+
+        let (dmrd_tx, _dmrd_rx) = mpsc::channel(8);
+        // Bind, don't drop: a dropped sender closes the channel and the
+        // loop exits via the `None` arm before reading from the socket.
+        let (_voice_out_tx, mut voice_out_rx) = mpsc::channel(8);
+        let (_ctl_out_tx, mut ctl_out_rx) = mpsc::unbounded_channel();
+        let cancel = CancellationToken::new();
+
+        keepalive_loop(
+            &bridge,
+            &config,
+            &dmrd_tx,
+            &mut voice_out_rx,
+            &mut ctl_out_rx,
+            cancel,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn keepalive_loop_returns_master_nak_on_mstnak() {
+        let result = run_keepalive_with_response(b"MSTNAK\x00\x12\xD6\x87").await;
+        assert!(
+            matches!(result, Err(NetworkError::MasterNak { stage: "keepalive" })),
+            "expected MasterNak{{stage:keepalive}}, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn keepalive_loop_returns_disconnect_on_mstcl() {
+        let result = run_keepalive_with_response(b"MSTCL\x00\x12\xD6\x87").await;
+        assert!(
+            matches!(result, Err(NetworkError::MasterDisconnect)),
+            "expected MasterDisconnect, got {result:?}"
+        );
+    }
 }
