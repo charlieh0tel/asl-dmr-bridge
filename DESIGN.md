@@ -430,59 +430,6 @@ keepalive_missed_limit = 3
 
 ---
 
-## ASL3 Configuration
-
-In `modules.conf`, load `chan_usrp`.
-
-In `usrp.conf`:
-```ini
-[usrp0]
-type=radio
-rxchan=Radio/usrp0
-txchan=Radio/usrp0
-host=127.0.0.1
-port=34001
-txport=34002
-```
-
-Connect to the repeater node in `rpt.conf` as you would any other link. Exact
-syntax depends on ASL3 version; consult ASL3 chan_usrp documentation.
-
----
-
-## Development Sequence
-
-Progress status:
-
-1. [x] **USRP loopback**: USRP RX/TX implemented; echo wired in main.
-2. [x] **AMBE crate**: ThumbDV, AMBEserver, mbelib backends.  All
-       three live-tested against real hardware (AMBE-3000R).
-       AmbeFrame carries raw on-air dibit stream (chip does its own
-       deinterleave + FEC); mbelib deinterleaves internally.
-3. [x] **DMR network auth**: RPTL/RPTK/RPTC handshake against Brandmeister
-       works; hotspot verified on BM dashboard; keepalive loop running;
-       auto-reconnect with exponential backoff; graceful SIGINT/SIGTERM
-       shutdown sends RPTCL.
-4. [x] **DMR -> ASL3**: live-tested against Brandmeister TG 91 on
-       2026-04-14.  DMRD parse, BPTC/Hamming/Golay/QR extraction,
-       AMBE decode via mbelib, USRP TX with paced 20 ms cadence.
-5. [~] **ASL3 -> DMR**: full encode path wired (BPTC voice LC header +
-       terminator, embedded LC fragments on bursts B-E, RS(12,9)
-       checksum, paced DMRD emission).  Byte-exact against 11 live
-       BM captures.  Chip encode path verified by loopback tests
-       (`encode_loopback.rs`: chip encode+decode self-consistent,
-       chip encode decodes via mbelib).  Not yet transmitted on-air
-       with a listener confirming.
-6. [x] **PTT polish**: hang timer, stream timeout, lost terminator
-       handling, tx timeout, graceful shutdown in each state.
-       Consolidated into `PttMachine` in `dmr-wire/src/voice/ptt.rs`.
-7. [x] **Slot/TG filter hardening**: `matches_config` drops traffic
-       that doesn't match configured slot, talkgroup, and call_type.
-8. [ ] **Network abstraction**: Brandmeister profile only; DMR+/TGIF
-       not implemented.
-
----
-
 ## Known Sharp Edges
 
 **BM RPTC validation.** BM validates specific RPTC fields by format, not
