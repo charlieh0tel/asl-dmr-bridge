@@ -6,6 +6,7 @@ license.workspace = true
 description = "Typed Rust client for the Brandmeister Halligan REST API (v2)."
 
 [dependencies]
+dmr-types.workspace = true
 reqwest.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 serde.workspace = true

@@ -449,7 +449,7 @@ async fn async_main() -> anyhow::Result<()> {
             && !api_cfg.reconcile_interval.is_zero()
         {
             bm_provision::periodic_provision(
-                config.repeater.dmr_id.as_u32(),
+                config.repeater.dmr_id,
                 api_cfg.clone(),
                 api_cfg.reconcile_interval,
                 cancel.clone(),

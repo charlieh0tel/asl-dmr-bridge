@@ -3,21 +3,17 @@
 //! Field names mirror the API's JSON exactly (camelCase, including the
 //! upstream typo `lastKownMaster`).  Unknown fields on responses are
 //! ignored so additive API changes don't break existing callers.
+//!
+//! IDs use the workspace newtypes from `dmr-types` (`DmrId`, `Talkgroup`,
+//! `Slot`) so the same validating types flow through the BM API client
+//! as through the rest of the workspace.
 
+use dmr_types::DmrId;
+use dmr_types::Slot;
+use dmr_types::Talkgroup;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
-
-/// Brandmeister DMR timeslot identifier on the wire (1 or 2).
-pub type Slot = u8;
-
-/// Brandmeister DMR talkgroup ID (24-bit on-air, but BM serializes as
-/// integer up to 32 bits).
-pub type TalkgroupId = u32;
-
-/// Brandmeister device (peer / hotspot / repeater) ID.  Hotspot IDs
-/// can exceed 24 bits (e.g., 9-digit US-style hotspot suffix).
-pub type DeviceId = u32;
 
 /// Static talkgroup subscription returned by GET /device/{id}/talkgroup
 /// and GET /device/{id}/profile (under `staticSubscriptions`).
@@ -28,18 +24,18 @@ pub type DeviceId = u32;
 /// upstream type drift.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StaticTalkgroup {
-    #[serde(deserialize_with = "de_u32_flexible")]
-    pub talkgroup: TalkgroupId,
+    #[serde(deserialize_with = "de_talkgroup_flexible")]
+    pub talkgroup: Talkgroup,
     /// Repeater (device) ID this static is bound to.  Always equal to
     /// the `{id}` path parameter when the response comes from the
     /// device endpoints, but BM includes it explicitly.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "de_opt_u32_flexible"
+        deserialize_with = "de_opt_dmr_id_flexible"
     )]
-    pub repeaterid: Option<DeviceId>,
-    #[serde(deserialize_with = "de_u8_flexible")]
+    pub repeaterid: Option<DmrId>,
+    #[serde(deserialize_with = "de_slot_flexible")]
     pub slot: Slot,
 }
 
@@ -75,6 +71,20 @@ fn de_opt_u32_flexible<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u32>, D
     }
 }
 
+fn de_talkgroup_flexible<'de, D: Deserializer<'de>>(d: D) -> Result<Talkgroup, D::Error> {
+    Talkgroup::try_from(de_u32_flexible(d)?).map_err(serde::de::Error::custom)
+}
+
+fn de_opt_dmr_id_flexible<'de, D: Deserializer<'de>>(d: D) -> Result<Option<DmrId>, D::Error> {
+    de_opt_u32_flexible(d)?
+        .map(|n| DmrId::try_from(n).map_err(serde::de::Error::custom))
+        .transpose()
+}
+
+fn de_slot_flexible<'de, D: Deserializer<'de>>(d: D) -> Result<Slot, D::Error> {
+    Slot::try_from(de_u8_flexible(d)?).map_err(serde::de::Error::custom)
+}
+
 /// Body for POST /device/{id}/talkgroup (add static).
 ///
 /// Note: the OpenAPI spec at api.brandmeister.network/api-docs lists
@@ -86,7 +96,7 @@ fn de_opt_u32_flexible<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u32>, D
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddStaticBody {
     #[serde(rename = "group")]
-    pub talkgroup: TalkgroupId,
+    pub talkgroup: Talkgroup,
     pub slot: Slot,
 }
 
@@ -96,7 +106,7 @@ pub struct AddStaticBody {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct Device {
-    pub id: DeviceId,
+    pub id: DmrId,
     pub callsign: String,
     /// Master ID the device was last seen on (note: upstream JSON
     /// field is `lastKownMaster`, a typo preserved for compatibility).
@@ -161,11 +171,12 @@ pub struct DeviceProfile {
 
 /// Talkgroup metadata returned by GET /talkgroup/{id}.  BM includes
 /// many optional fields (description, country, language); we surface
-/// the stable ones.
+/// the stable ones.  Renamed from `Talkgroup` so it doesn't shadow
+/// the bare-ID `dmr_types::Talkgroup`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[non_exhaustive]
-pub struct Talkgroup {
-    pub id: TalkgroupId,
+pub struct TalkgroupInfo {
+    pub id: Talkgroup,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -180,13 +191,21 @@ pub struct Talkgroup {
 mod tests {
     use super::*;
 
+    fn dmr_id(n: u32) -> DmrId {
+        DmrId::try_from(n).unwrap()
+    }
+
+    fn talkgroup(n: u32) -> Talkgroup {
+        Talkgroup::try_from(n).unwrap()
+    }
+
     #[test]
     fn static_talkgroup_decodes_with_repeaterid() {
         let json = r#"{"talkgroup": 91, "repeaterid": 310770201, "slot": 1}"#;
         let s: StaticTalkgroup = serde_json::from_str(json).unwrap();
-        assert_eq!(s.talkgroup, 91);
-        assert_eq!(s.repeaterid, Some(310770201));
-        assert_eq!(s.slot, 1);
+        assert_eq!(s.talkgroup, talkgroup(91));
+        assert_eq!(s.repeaterid, Some(dmr_id(310770201)));
+        assert_eq!(s.slot, Slot::One);
     }
 
     #[test]
@@ -196,7 +215,7 @@ mod tests {
         let json = r#"{"talkgroup": 9990, "slot": 2}"#;
         let s: StaticTalkgroup = serde_json::from_str(json).unwrap();
         assert!(s.repeaterid.is_none());
-        assert_eq!(s.slot, 2);
+        assert_eq!(s.slot, Slot::Two);
     }
 
     #[test]
@@ -206,9 +225,9 @@ mod tests {
         // Flexible deserializers must accept this form.
         let json = r#"{"talkgroup": "91", "slot": "1", "repeaterid": "310770201"}"#;
         let s: StaticTalkgroup = serde_json::from_str(json).unwrap();
-        assert_eq!(s.talkgroup, 91);
-        assert_eq!(s.slot, 1);
-        assert_eq!(s.repeaterid, Some(310770201));
+        assert_eq!(s.talkgroup, talkgroup(91));
+        assert_eq!(s.slot, Slot::One);
+        assert_eq!(s.repeaterid, Some(dmr_id(310770201)));
     }
 
     #[test]
@@ -217,8 +236,8 @@ mod tests {
         // "The group field is required."; only `group` works on the
         // wire even though the OpenAPI doc names the schema Talkgroup.
         let body = AddStaticBody {
-            talkgroup: 91,
-            slot: 1,
+            talkgroup: talkgroup(91),
+            slot: Slot::One,
         };
         let s = serde_json::to_string(&body).unwrap();
         assert_eq!(s, r#"{"group":91,"slot":1}"#);
@@ -231,7 +250,7 @@ mod tests {
         // wire.  Fail loudly if BM ever fixes it.
         let json = r#"{"id": 310770201, "callsign": "AI6KG", "lastKownMaster": 3104}"#;
         let d: Device = serde_json::from_str(json).unwrap();
-        assert_eq!(d.id, 310770201);
+        assert_eq!(d.id, dmr_id(310770201));
         assert_eq!(d.callsign, "AI6KG");
         assert_eq!(d.last_known_master, Some(3104));
     }
@@ -241,7 +260,7 @@ mod tests {
         // Additive API changes shouldn't break decoding.
         let json = r#"{"id": 1, "callsign": "X", "totallyNew": "value"}"#;
         let d: Device = serde_json::from_str(json).unwrap();
-        assert_eq!(d.id, 1);
+        assert_eq!(d.id, dmr_id(1));
     }
 
     #[test]
@@ -257,6 +276,6 @@ mod tests {
         }"#;
         let p: DeviceProfile = serde_json::from_str(json).unwrap();
         assert_eq!(p.static_subscriptions.len(), 1);
-        assert_eq!(p.static_subscriptions[0].talkgroup, 91);
+        assert_eq!(p.static_subscriptions[0].talkgroup, talkgroup(91));
     }
 }

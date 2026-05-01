@@ -18,9 +18,9 @@
 use std::time::Duration;
 
 use brandmeister_api::client::Client;
-use brandmeister_api::types::DeviceId;
-use brandmeister_api::types::Slot;
-use brandmeister_api::types::TalkgroupId;
+use dmr_types::DmrId;
+use dmr_types::Slot;
+use dmr_types::Talkgroup;
 use secrecy::ExposeSecret;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
@@ -34,7 +34,7 @@ use crate::config::Config;
 /// requested.  Errors are logged and swallowed -- the bridge does not
 /// gate on API success.
 pub(crate) async fn provision(config: &Config) {
-    let device_id: DeviceId = config.repeater.dmr_id.as_u32();
+    let device_id = config.repeater.dmr_id;
     let client = build_client(config.brandmeister_api.as_ref());
     run_once(&client, device_id, config.brandmeister_api.as_ref()).await;
 }
@@ -47,7 +47,7 @@ pub(crate) async fn provision(config: &Config) {
 /// up cleanly (process exits, systemd restarts).  All work is async
 /// reqwest -- no blocking, no separate task needed.
 pub(crate) async fn periodic_provision(
-    device_id: DeviceId,
+    device_id: DmrId,
     api_cfg: BrandmeisterApiConfig,
     interval: Duration,
     cancel: CancellationToken,
@@ -74,7 +74,7 @@ fn build_client(api_cfg: Option<&BrandmeisterApiConfig>) -> Client {
     }
 }
 
-async fn run_once(client: &Client, device_id: DeviceId, api_cfg: Option<&BrandmeisterApiConfig>) {
+async fn run_once(client: &Client, device_id: DmrId, api_cfg: Option<&BrandmeisterApiConfig>) {
     log_profile(client, device_id).await;
     if let Some(cfg) = api_cfg
         && cfg.api_key.is_some()
@@ -83,7 +83,7 @@ async fn run_once(client: &Client, device_id: DeviceId, api_cfg: Option<&Brandme
     }
 }
 
-async fn log_profile(client: &Client, device_id: DeviceId) {
+async fn log_profile(client: &Client, device_id: DmrId) {
     match client.device_profile(device_id).await {
         Ok(profile) => {
             let statics: Vec<String> = profile
@@ -92,7 +92,7 @@ async fn log_profile(client: &Client, device_id: DeviceId) {
                 .map(|s| format!("ts{}/{}", s.slot, s.talkgroup))
                 .collect();
             info!(
-                device_id,
+                device_id = %device_id,
                 statics = %statics.join(","),
                 dynamics_present = !profile.dynamic_subscriptions.is_null()
                     && !is_empty_object(&profile.dynamic_subscriptions),
@@ -102,7 +102,7 @@ async fn log_profile(client: &Client, device_id: DeviceId) {
             );
         }
         Err(e) => {
-            warn!(device_id, "Brandmeister peer profile fetch failed: {e}");
+            warn!(device_id = %device_id, "Brandmeister peer profile fetch failed: {e}");
         }
     }
 }
@@ -118,12 +118,12 @@ fn is_empty_object(v: &serde_json::Value) -> bool {
     }
 }
 
-async fn reconcile_statics(client: &Client, device_id: DeviceId, api_cfg: &BrandmeisterApiConfig) {
+async fn reconcile_statics(client: &Client, device_id: DmrId, api_cfg: &BrandmeisterApiConfig) {
     let current = match client.device_talkgroups(device_id).await {
         Ok(v) => v,
         Err(e) => {
             error!(
-                device_id,
+                device_id = %device_id,
                 "static-TG reconcile aborted, list fetch failed: {e}"
             );
             return;
@@ -131,45 +131,50 @@ async fn reconcile_statics(client: &Client, device_id: DeviceId, api_cfg: &Brand
     };
 
     if let Some(desired) = api_cfg.static_talkgroups_ts1.as_deref() {
-        reconcile_slot(client, device_id, 1, desired, &current).await;
+        reconcile_slot(client, device_id, Slot::One, desired, &current).await;
     }
     if let Some(desired) = api_cfg.static_talkgroups_ts2.as_deref() {
-        reconcile_slot(client, device_id, 2, desired, &current).await;
+        reconcile_slot(client, device_id, Slot::Two, desired, &current).await;
     }
 }
 
 async fn reconcile_slot(
     client: &Client,
-    device_id: DeviceId,
+    device_id: DmrId,
     slot: Slot,
-    desired: &[TalkgroupId],
+    desired: &[Talkgroup],
     current_all_slots: &[brandmeister_api::types::StaticTalkgroup],
 ) {
-    let current: Vec<TalkgroupId> = current_all_slots
+    let current: Vec<Talkgroup> = current_all_slots
         .iter()
         .filter(|s| s.slot == slot)
         .map(|s| s.talkgroup)
         .collect();
 
-    let to_add: Vec<TalkgroupId> = desired
+    let to_add: Vec<Talkgroup> = desired
         .iter()
         .copied()
         .filter(|tg| !current.contains(tg))
         .collect();
-    let to_remove: Vec<TalkgroupId> = current
+    let to_remove: Vec<Talkgroup> = current
         .iter()
         .copied()
         .filter(|tg| !desired.contains(tg))
         .collect();
 
     if to_add.is_empty() && to_remove.is_empty() {
-        info!(device_id, slot, current = ?current, "static TGs already match config");
+        info!(
+            device_id = %device_id,
+            slot = %slot,
+            current = ?current,
+            "static TGs already match config",
+        );
         return;
     }
 
     info!(
-        device_id,
-        slot,
+        device_id = %device_id,
+        slot = %slot,
         current = ?current,
         desired = ?desired,
         adds = ?to_add,
@@ -183,12 +188,12 @@ async fn reconcile_slot(
     // remove fails halfway, no spurious add happened.
     for tg in to_remove {
         if let Err(e) = client.remove_static_talkgroup(device_id, slot, tg).await {
-            error!(device_id, slot, tg, "remove static TG failed: {e}");
+            error!(device_id = %device_id, slot = %slot, tg = %tg, "remove static TG failed: {e}");
         }
     }
     for tg in to_add {
         if let Err(e) = client.add_static_talkgroup(device_id, slot, tg).await {
-            error!(device_id, slot, tg, "add static TG failed: {e}");
+            error!(device_id = %device_id, slot = %slot, tg = %tg, "add static TG failed: {e}");
         }
     }
 }
@@ -198,9 +203,13 @@ mod tests {
     use super::*;
     use brandmeister_api::types::StaticTalkgroup;
 
-    fn st(slot: u8, tg: u32) -> StaticTalkgroup {
+    fn talkgroup(n: u32) -> Talkgroup {
+        Talkgroup::try_from(n).unwrap()
+    }
+
+    fn static_talkgroup(slot: Slot, tg: u32) -> StaticTalkgroup {
         StaticTalkgroup {
-            talkgroup: tg,
+            talkgroup: talkgroup(tg),
             repeaterid: None,
             slot,
         }
@@ -210,20 +219,20 @@ mod tests {
     /// Returned tuple is (to_add, to_remove).
     fn diff(
         slot: Slot,
-        desired: &[TalkgroupId],
+        desired: &[Talkgroup],
         current_all_slots: &[StaticTalkgroup],
-    ) -> (Vec<TalkgroupId>, Vec<TalkgroupId>) {
-        let current: Vec<TalkgroupId> = current_all_slots
+    ) -> (Vec<Talkgroup>, Vec<Talkgroup>) {
+        let current: Vec<Talkgroup> = current_all_slots
             .iter()
             .filter(|s| s.slot == slot)
             .map(|s| s.talkgroup)
             .collect();
-        let to_add: Vec<TalkgroupId> = desired
+        let to_add: Vec<Talkgroup> = desired
             .iter()
             .copied()
             .filter(|tg| !current.contains(tg))
             .collect();
-        let to_remove: Vec<TalkgroupId> = current
+        let to_remove: Vec<Talkgroup> = current
             .iter()
             .copied()
             .filter(|tg| !desired.contains(tg))
@@ -233,8 +242,11 @@ mod tests {
 
     #[test]
     fn diff_no_change() {
-        let current = vec![st(1, 91), st(1, 3100)];
-        let (add, remove) = diff(1, &[91, 3100], &current);
+        let current = vec![
+            static_talkgroup(Slot::One, 91),
+            static_talkgroup(Slot::One, 3100),
+        ];
+        let (add, remove) = diff(Slot::One, &[talkgroup(91), talkgroup(3100)], &current);
         assert!(add.is_empty());
         assert!(remove.is_empty());
     }
@@ -242,32 +254,38 @@ mod tests {
     #[test]
     fn diff_pure_add() {
         let current = vec![];
-        let (add, remove) = diff(1, &[91], &current);
-        assert_eq!(add, vec![91]);
+        let (add, remove) = diff(Slot::One, &[talkgroup(91)], &current);
+        assert_eq!(add, vec![talkgroup(91)]);
         assert!(remove.is_empty());
     }
 
     #[test]
     fn diff_pure_remove() {
-        let current = vec![st(1, 91), st(1, 3100)];
-        let (add, remove) = diff(1, &[], &current);
+        let current = vec![
+            static_talkgroup(Slot::One, 91),
+            static_talkgroup(Slot::One, 3100),
+        ];
+        let (add, remove) = diff(Slot::One, &[], &current);
         assert!(add.is_empty());
-        assert_eq!(remove, vec![91, 3100]);
+        assert_eq!(remove, vec![talkgroup(91), talkgroup(3100)]);
     }
 
     #[test]
     fn diff_swap() {
-        let current = vec![st(1, 91)];
-        let (add, remove) = diff(1, &[3100], &current);
-        assert_eq!(add, vec![3100]);
-        assert_eq!(remove, vec![91]);
+        let current = vec![static_talkgroup(Slot::One, 91)];
+        let (add, remove) = diff(Slot::One, &[talkgroup(3100)], &current);
+        assert_eq!(add, vec![talkgroup(3100)]);
+        assert_eq!(remove, vec![talkgroup(91)]);
     }
 
     #[test]
     fn diff_ignores_other_slot() {
         // Reconciling TS1 must not touch TS2 statics.
-        let current = vec![st(1, 91), st(2, 9990)];
-        let (add, remove) = diff(1, &[91], &current);
+        let current = vec![
+            static_talkgroup(Slot::One, 91),
+            static_talkgroup(Slot::Two, 9990),
+        ];
+        let (add, remove) = diff(Slot::One, &[talkgroup(91)], &current);
         assert!(add.is_empty());
         assert!(remove.is_empty());
     }
@@ -306,8 +324,15 @@ mod tests {
             .token(SecretString::from("test-token"))
             .build();
 
-        let current = vec![st(1, 91)];
-        reconcile_slot(&client, 12345, 1, &[3100], &current).await;
+        let current = vec![static_talkgroup(Slot::One, 91)];
+        reconcile_slot(
+            &client,
+            DmrId::try_from(12345).unwrap(),
+            Slot::One,
+            &[talkgroup(3100)],
+            &current,
+        )
+        .await;
 
         let received = server.received_requests().await.unwrap();
         assert_eq!(received.len(), 2, "expected DELETE+POST, got {received:?}");

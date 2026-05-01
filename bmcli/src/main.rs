@@ -21,9 +21,9 @@ use clap::Subcommand;
 use secrecy::SecretString;
 
 use brandmeister_api::client::Client;
-use brandmeister_api::types::DeviceId;
-use brandmeister_api::types::Slot;
-use brandmeister_api::types::TalkgroupId;
+use dmr_types::DmrId;
+use dmr_types::Slot;
+use dmr_types::Talkgroup;
 
 const ENV_API_KEY: &str = "BRANDMEISTER_API_KEY";
 
@@ -50,7 +50,7 @@ enum Command {
 #[derive(Args)]
 struct DeviceArgs {
     /// Device (peer) ID.  E.g. 310770201 for an AI6KG hotspot.
-    id: DeviceId,
+    id: u32,
     #[command(subcommand)]
     cmd: DeviceCmd,
 }
@@ -74,7 +74,7 @@ enum DeviceCmd {
     /// Drop all dynamic subscriptions on a slot.  Requires API key.
     DropDynamic {
         #[arg(long)]
-        slot: Slot,
+        slot: u8,
     },
 }
 
@@ -83,23 +83,23 @@ enum StaticCmd {
     /// Add a static talkgroup subscription (slot + group).  Requires API key.
     Add {
         #[arg(long)]
-        slot: Slot,
+        slot: u8,
         #[arg(long)]
-        tg: TalkgroupId,
+        tg: u32,
     },
     /// Remove a static talkgroup subscription.  Requires API key.
     Remove {
         #[arg(long)]
-        slot: Slot,
+        slot: u8,
         #[arg(long)]
-        tg: TalkgroupId,
+        tg: u32,
     },
 }
 
 #[derive(Args)]
 struct TalkgroupArgs {
     /// Talkgroup ID.  E.g. 91 for worldwide chat, 9990 for parrot.
-    id: TalkgroupId,
+    id: u32,
     #[command(subcommand)]
     cmd: TalkgroupCmd,
 }
@@ -137,57 +137,58 @@ async fn run(cli: Cli) -> Result<()> {
 }
 
 async fn run_device(client: &Client, args: DeviceArgs) -> Result<()> {
+    let id = DmrId::try_from(args.id).context("device id")?;
     match args.cmd {
         DeviceCmd::Info => {
-            let dev = client.device(args.id).await?;
+            let dev = client.device(id).await?;
             print_json(&dev)
         }
         DeviceCmd::Profile => {
-            let prof = client.device_profile(args.id).await?;
+            let prof = client.device_profile(id).await?;
             print_json(&prof)
         }
         DeviceCmd::Statics => {
-            let statics = client.device_talkgroups(args.id).await?;
+            let statics = client.device_talkgroups(id).await?;
             print_json(&statics)
         }
         DeviceCmd::Static { cmd } => match cmd {
             StaticCmd::Add { slot, tg } => {
-                client.add_static_talkgroup(args.id, slot, tg).await?;
-                println!("added static TG {tg} on slot {slot} for device {}", args.id);
+                let slot = Slot::try_from(slot).context("slot")?;
+                let tg = Talkgroup::try_from(tg).context("talkgroup")?;
+                client.add_static_talkgroup(id, slot, tg).await?;
+                println!("added static TG {tg} on slot {slot} for device {id}");
                 Ok(())
             }
             StaticCmd::Remove { slot, tg } => {
-                client.remove_static_talkgroup(args.id, slot, tg).await?;
-                println!(
-                    "removed static TG {tg} on slot {slot} from device {}",
-                    args.id
-                );
+                let slot = Slot::try_from(slot).context("slot")?;
+                let tg = Talkgroup::try_from(tg).context("talkgroup")?;
+                client.remove_static_talkgroup(id, slot, tg).await?;
+                println!("removed static TG {tg} on slot {slot} from device {id}");
                 Ok(())
             }
         },
         DeviceCmd::GetRepeater => {
-            let v = client.get_repeater(args.id).await?;
+            let v = client.get_repeater(id).await?;
             print_json(&v)
         }
         DeviceCmd::DropDynamic { slot } => {
-            client.drop_dynamic_groups(args.id, slot).await?;
-            println!(
-                "dropped dynamic groups on slot {slot} for device {}",
-                args.id
-            );
+            let slot = Slot::try_from(slot).context("slot")?;
+            client.drop_dynamic_groups(id, slot).await?;
+            println!("dropped dynamic groups on slot {slot} for device {id}");
             Ok(())
         }
     }
 }
 
 async fn run_talkgroup(client: &Client, args: TalkgroupArgs) -> Result<()> {
+    let id = Talkgroup::try_from(args.id).context("talkgroup id")?;
     match args.cmd {
         TalkgroupCmd::Info => {
-            let tg = client.talkgroup(args.id).await?;
-            print_json(&tg)
+            let info = client.talkgroup(id).await?;
+            print_json(&info)
         }
         TalkgroupCmd::Devices => {
-            let devs = client.talkgroup_devices(args.id).await?;
+            let devs = client.talkgroup_devices(id).await?;
             print_json(&devs)
         }
     }

@@ -173,10 +173,10 @@ pub(crate) struct BrandmeisterApiConfig {
     /// missing TGs are POSTed, extras are DELETEd.  Empty list =
     /// remove all TS1 statics.  Omit (None) = leave TS1 untouched.
     #[serde(default)]
-    pub(crate) static_talkgroups_ts1: Option<Vec<u32>>,
+    pub(crate) static_talkgroups_ts1: Option<Vec<dmr_types::Talkgroup>>,
     /// Same semantics as `static_talkgroups_ts1`, for TS2.
     #[serde(default)]
-    pub(crate) static_talkgroups_ts2: Option<Vec<u32>>,
+    pub(crate) static_talkgroups_ts2: Option<Vec<dmr_types::Talkgroup>>,
     /// Optional periodic re-run of the startup peer-profile log +
     /// static-TG reconciliation.  Default `0` runs once at startup
     /// only.  A positive duration spawns a background task that

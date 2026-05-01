@@ -29,15 +29,16 @@ use secrecy::SecretString;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use dmr_types::DmrId;
+use dmr_types::Slot;
+use dmr_types::Talkgroup;
+
 use crate::error::ApiError;
 use crate::types::AddStaticBody;
 use crate::types::Device;
-use crate::types::DeviceId;
 use crate::types::DeviceProfile;
-use crate::types::Slot;
 use crate::types::StaticTalkgroup;
-use crate::types::Talkgroup;
-use crate::types::TalkgroupId;
+use crate::types::TalkgroupInfo;
 
 const DEFAULT_BASE_URL: &str = "https://api.brandmeister.network/v2/";
 
@@ -84,19 +85,19 @@ impl Client {
     // --- Device endpoints ---
 
     /// GET /device/{id} -- device info (no auth).
-    pub async fn device(&self, id: DeviceId) -> Result<Device, ApiError> {
+    pub async fn device(&self, id: DmrId) -> Result<Device, ApiError> {
         self.get_json(&format!("device/{id}"), false).await
     }
 
     /// GET /device/{id}/profile -- aggregate static / dynamic / timed
     /// / blocked / cluster subscriptions in one response.  No auth.
-    pub async fn device_profile(&self, id: DeviceId) -> Result<DeviceProfile, ApiError> {
+    pub async fn device_profile(&self, id: DmrId) -> Result<DeviceProfile, ApiError> {
         self.get_json(&format!("device/{id}/profile"), false).await
     }
 
     /// GET /device/{id}/talkgroup -- current static talkgroup
     /// subscriptions for the device.  No auth.
-    pub async fn device_talkgroups(&self, id: DeviceId) -> Result<Vec<StaticTalkgroup>, ApiError> {
+    pub async fn device_talkgroups(&self, id: DmrId) -> Result<Vec<StaticTalkgroup>, ApiError> {
         self.get_json(&format!("device/{id}/talkgroup"), false)
             .await
     }
@@ -105,9 +106,9 @@ impl Client {
     /// subscription.  Requires bearer auth.
     pub async fn add_static_talkgroup(
         &self,
-        id: DeviceId,
+        id: DmrId,
         slot: Slot,
-        talkgroup: TalkgroupId,
+        talkgroup: Talkgroup,
     ) -> Result<(), ApiError> {
         let body = AddStaticBody { talkgroup, slot };
         self.post_no_response(&format!("device/{id}/talkgroup"), &body, true)
@@ -118,9 +119,9 @@ impl Client {
     /// talkgroup subscription.  Requires bearer auth.
     pub async fn remove_static_talkgroup(
         &self,
-        id: DeviceId,
+        id: DmrId,
         slot: Slot,
-        talkgroup: TalkgroupId,
+        talkgroup: Talkgroup,
     ) -> Result<(), ApiError> {
         let path = format!("device/{id}/talkgroup/{slot}/{talkgroup}");
         self.send_no_response(Method::DELETE, &path, true).await
@@ -129,7 +130,7 @@ impl Client {
     /// GET /device/{id}/action/getRepeater -- live state from the
     /// master the repeater is connected to.  Returns the response as
     /// raw JSON; the master payload is not stably documented.
-    pub async fn get_repeater(&self, id: DeviceId) -> Result<serde_json::Value, ApiError> {
+    pub async fn get_repeater(&self, id: DmrId) -> Result<serde_json::Value, ApiError> {
         self.get_json(&format!("device/{id}/action/getRepeater"), true)
             .await
     }
@@ -137,7 +138,7 @@ impl Client {
     /// GET /device/{id}/action/dropDynamicGroups/{slot} -- clear all
     /// dynamic talkgroup subscriptions on the given slot.  Requires
     /// bearer auth.
-    pub async fn drop_dynamic_groups(&self, id: DeviceId, slot: Slot) -> Result<(), ApiError> {
+    pub async fn drop_dynamic_groups(&self, id: DmrId, slot: Slot) -> Result<(), ApiError> {
         self.send_no_response(
             Method::GET,
             &format!("device/{id}/action/dropDynamicGroups/{slot}"),
@@ -149,13 +150,13 @@ impl Client {
     // --- Talkgroup endpoints ---
 
     /// GET /talkgroup/{id} -- talkgroup metadata.  No auth.
-    pub async fn talkgroup(&self, id: TalkgroupId) -> Result<Talkgroup, ApiError> {
+    pub async fn talkgroup(&self, id: Talkgroup) -> Result<TalkgroupInfo, ApiError> {
         self.get_json(&format!("talkgroup/{id}"), false).await
     }
 
     /// GET /talkgroup/{id}/devices -- devices that have this talkgroup
     /// statically subscribed.  No auth.
-    pub async fn talkgroup_devices(&self, id: TalkgroupId) -> Result<Vec<Device>, ApiError> {
+    pub async fn talkgroup_devices(&self, id: Talkgroup) -> Result<Vec<Device>, ApiError> {
         self.get_json(&format!("talkgroup/{id}/devices"), false)
             .await
     }
@@ -383,6 +384,18 @@ mod tests {
     use wiremock::matchers::method;
     use wiremock::matchers::path;
 
+    fn dmr_id(n: u32) -> DmrId {
+        DmrId::try_from(n).unwrap()
+    }
+
+    fn talkgroup(n: u32) -> Talkgroup {
+        Talkgroup::try_from(n).unwrap()
+    }
+
+    fn slot(n: u8) -> Slot {
+        Slot::try_from(n).unwrap()
+    }
+
     fn make_client(server: &MockServer, with_token: bool) -> Client {
         let base = Url::parse(&format!("{}/", server.uri())).expect("server URI parses");
         let builder = Client::builder().base_url(base);
@@ -406,8 +419,11 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_client(&server, false);
-        let d = client.device(310770201).await.expect("device call ok");
-        assert_eq!(d.id, 310770201);
+        let d = client
+            .device(dmr_id(310770201))
+            .await
+            .expect("device call ok");
+        assert_eq!(d.id, dmr_id(310770201));
         assert_eq!(d.callsign, "AI6KG");
     }
 
@@ -427,11 +443,11 @@ mod tests {
             .await;
         let client = make_client(&server, false);
         let p = client
-            .device_profile(310770201)
+            .device_profile(dmr_id(310770201))
             .await
             .expect("profile call ok");
         assert_eq!(p.static_subscriptions.len(), 1);
-        assert_eq!(p.static_subscriptions[0].talkgroup, 91);
+        assert_eq!(p.static_subscriptions[0].talkgroup, talkgroup(91));
     }
 
     #[tokio::test]
@@ -447,12 +463,12 @@ mod tests {
             .await;
         let client = make_client(&server, false);
         let v = client
-            .device_talkgroups(12345)
+            .device_talkgroups(dmr_id(12345))
             .await
             .expect("talkgroups call ok");
         assert_eq!(v.len(), 2);
-        assert_eq!(v[0].talkgroup, 91);
-        assert_eq!(v[1].slot, 2);
+        assert_eq!(v[0].talkgroup, talkgroup(91));
+        assert_eq!(v[1].slot, Slot::Two);
     }
 
     #[tokio::test]
@@ -466,7 +482,7 @@ mod tests {
             .await;
         let client = make_client(&server, true);
         client
-            .add_static_talkgroup(12345, 1, 91)
+            .add_static_talkgroup(dmr_id(12345), slot(1), talkgroup(91))
             .await
             .expect("add ok");
     }
@@ -482,7 +498,7 @@ mod tests {
             .await;
         let client = make_client(&server, true);
         client
-            .remove_static_talkgroup(12345, 1, 91)
+            .remove_static_talkgroup(dmr_id(12345), slot(1), talkgroup(91))
             .await
             .expect("remove ok");
     }
@@ -500,7 +516,10 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_client(&server, true);
-        let v = client.get_repeater(12345).await.expect("getRepeater ok");
+        let v = client
+            .get_repeater(dmr_id(12345))
+            .await
+            .expect("getRepeater ok");
         assert_eq!(v["master"], 3104);
         assert_eq!(v["online"], true);
     }
@@ -515,7 +534,10 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_client(&server, true);
-        client.drop_dynamic_groups(12345, 1).await.expect("drop ok");
+        client
+            .drop_dynamic_groups(dmr_id(12345), slot(1))
+            .await
+            .expect("drop ok");
     }
 
     #[tokio::test]
@@ -530,8 +552,8 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_client(&server, false);
-        let t = client.talkgroup(91).await.expect("talkgroup ok");
-        assert_eq!(t.id, 91);
+        let t = client.talkgroup(talkgroup(91)).await.expect("talkgroup ok");
+        assert_eq!(t.id, talkgroup(91));
         assert_eq!(t.name.as_deref(), Some("Worldwide"));
     }
 
@@ -548,11 +570,11 @@ mod tests {
             .await;
         let client = make_client(&server, false);
         let v = client
-            .talkgroup_devices(91)
+            .talkgroup_devices(talkgroup(91))
             .await
             .expect("talkgroup_devices ok");
         assert_eq!(v.len(), 2);
-        assert_eq!(v[0].id, 1);
+        assert_eq!(v[0].id, dmr_id(1));
     }
 
     #[tokio::test]
@@ -564,7 +586,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_client(&server, false);
-        let err = client.device(9).await.expect_err("expected error");
+        let err = client.device(dmr_id(9)).await.expect_err("expected error");
         match err {
             ApiError::Http { status, body } => {
                 assert_eq!(status.as_u16(), 404);
@@ -587,7 +609,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = make_client(&server, false);
-        let err = client.device(1).await.expect_err("expected error");
+        let err = client.device(dmr_id(1)).await.expect_err("expected error");
         assert!(matches!(err, ApiError::Decode { .. }), "got {err:?}");
     }
 
@@ -595,7 +617,7 @@ mod tests {
     async fn protected_call_without_token_is_unauthenticated() {
         let client = Client::new();
         let err = client
-            .add_static_talkgroup(12345, 1, 91)
+            .add_static_talkgroup(dmr_id(12345), slot(1), talkgroup(91))
             .await
             .expect_err("expected error");
         assert!(matches!(err, ApiError::Unauthenticated), "got {err:?}");
