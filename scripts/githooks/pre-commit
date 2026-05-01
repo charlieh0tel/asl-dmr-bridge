@@ -1,0 +1,61 @@
+#!/bin/sh
+# pre-commit guard: blocks staged additions that contain personal DMR
+# IDs, bare credentials in `key = "..."` assignment form, or JWT-shape
+# tokens.  Excludes scripts/githooks/ so this hook itself can be edited
+# and committed without tripping its own checks.
+#
+# Wire it up once per clone with:
+#   git config core.hooksPath scripts/githooks
+#
+# Override only when you've verified the hit is intentional (e.g. a
+# documented public test JWT):
+#   git commit --no-verify
+
+set -e
+
+excluded='scripts/githooks/'
+diff=$(git diff --cached --diff-filter=AM -- ":(exclude)$excluded")
+
+added=$(printf '%s\n' "$diff" | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+
+if [ -z "$added" ]; then
+    exit 0
+fi
+
+fail=0
+report() {
+    label=$1
+    matches=$2
+    printf 'pre-commit: blocked by %s guard:\n' "$label" >&2
+    printf '%s\n' "$matches" | sed 's/^/  /' >&2
+    fail=1
+}
+
+# 1. Personal DMR IDs.  Hardcoded literals; the operator's actual
+# IDs do not belong in any committed file.
+ids=$(printf '%s\n' "$added" | grep -E '\b(310770201|3107702)\b' || true)
+[ -n "$ids" ] && report "personal-dmr-id" "$ids"
+
+# 2. password / api_key assignment with non-placeholder value.
+# Whitelist the obvious doc / test placeholders.
+allowed_re='"(your-hotspot-password|test|pw|secret|\.\.\.|REPLACE_ME|TODO)"'
+creds=$(printf '%s\n' "$added" \
+    | grep -E '(password|api_key)[[:space:]]*=[[:space:]]*"[^"]+"' \
+    | grep -vE "$allowed_re" || true)
+[ -n "$creds" ] && report "credential-assignment" "$creds"
+
+# 3. JWT shape: three base64url segments separated by dots.  Catches
+# Halligan API keys and similar tokens regardless of surrounding
+# syntax.
+jwts=$(printf '%s\n' "$added" \
+    | grep -E '[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}' || true)
+[ -n "$jwts" ] && report "jwt-shape" "$jwts"
+
+if [ "$fail" -ne 0 ]; then
+    cat >&2 <<'EOF'
+
+If a hit is a false positive, override with: git commit --no-verify
+Tighten or extend the rules in scripts/githooks/pre-commit.
+EOF
+    exit 1
+fi

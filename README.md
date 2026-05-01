@@ -98,6 +98,19 @@ cargo run --example usrp_send < voice.raw
 cargo run --example parrot_test
 ```
 
+## Pre-commit guard
+
+`scripts/githooks/pre-commit` is a small shell script that scans
+staged additions for personal DMR IDs, bare credentials, and JWT-
+shape tokens.  Wire it up once per clone:
+
+```
+git config core.hooksPath scripts/githooks
+```
+
+Override on a known-safe hit (e.g. a documented public test JWT)
+with `git commit --no-verify`.
+
 ## License
 
 Copyright (C) 2026 Christopher Hoover
