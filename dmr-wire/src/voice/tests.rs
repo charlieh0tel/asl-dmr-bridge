@@ -189,12 +189,24 @@ async fn rx_header_starts_rx() {
 
 #[tokio::test]
 async fn rx_voice_produces_usrp() {
+    // Each of the 3 AMBE codewords in the voice burst feeds StubVocoder,
+    // which emits the constant `[1000i16; VOICE_SAMPLES]`.  Asserting
+    // that every voice frame carries that exact constant catches a
+    // bug where the audio path passes the wrong samples through (e.g.
+    // a vocoder-output mix-up, sample-buffer reuse, or a silent-frame
+    // substitution).
     let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_dmrd(&header_dmrd(0xBB)).await;
     m.on_dmrd(&voice_dmrd(0xBB)).await;
     let mut count = 0;
-    while audio_rx.try_recv().is_ok() {
+    while let Ok(frame) = audio_rx.try_recv() {
         count += 1;
+        let samples = frame.samples.expect("voice frame must carry PCM samples");
+        assert!(
+            samples.iter().all(|&s| s == 1000),
+            "frame {count} samples don't match StubVocoder output: {:?}...",
+            &samples[..4]
+        );
     }
     assert_eq!(count, 3);
 }

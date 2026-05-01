@@ -380,6 +380,7 @@ mod tests {
     use wiremock::Mock;
     use wiremock::MockServer;
     use wiremock::ResponseTemplate;
+    use wiremock::matchers::body_json;
     use wiremock::matchers::header;
     use wiremock::matchers::method;
     use wiremock::matchers::path;
@@ -473,10 +474,15 @@ mod tests {
 
     #[tokio::test]
     async fn add_static_talkgroup_posts_with_auth() {
+        // Body shape lock: BM rejects {"talkgroup": ...} with HTTP 455
+        // and only `group` works on the wire; the matcher fails the
+        // test if the field name regresses or the slot/group order
+        // serializes differently.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/device/12345/talkgroup"))
             .and(header("authorization", "Bearer test-token"))
+            .and(body_json(serde_json::json!({"group": 91, "slot": 1})))
             .respond_with(ResponseTemplate::new(200))
             .mount(&server)
             .await;
