@@ -324,17 +324,32 @@ async fn http_error(resp: Response) -> ApiError {
     ApiError::Http { status, body }
 }
 
-fn truncate_body(mut s: String, max: usize) -> String {
-    if s.len() <= max {
-        return s;
+/// Sanitize an upstream HTTP body for safe inclusion in error chains
+/// and logs.  Each byte outside printable ASCII (0x20..=0x7E) becomes
+/// `\xHH`; this neutralizes terminal escape sequences, embedded
+/// newlines, and other control bytes that an attacker-controlled BM
+/// response could otherwise inject into operator logs.  Output is
+/// bounded at `max` chars with a trailing `...` marker on overflow.
+fn truncate_body(s: String, max: usize) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(s.len().min(max));
+    for b in s.bytes() {
+        let needs = if matches!(b, 0x20..=0x7E) { 1 } else { 4 };
+        if out.len() + needs > max {
+            if max >= 3 {
+                out.truncate(max - 3);
+                out.push_str("...");
+            }
+            return out;
+        }
+        match b {
+            0x20..=0x7E => out.push(b as char),
+            _ => {
+                let _ = write!(out, "\\x{b:02X}");
+            }
+        }
     }
-    let mut cut = max;
-    while !s.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    s.truncate(cut);
-    s.push_str("...");
-    s
+    out
 }
 
 #[cfg(test)]
@@ -356,21 +371,30 @@ mod tests {
     fn truncate_body_cuts_long_ascii_with_ellipsis() {
         let s = "x".repeat(300);
         let out = truncate_body(s, 256);
-        assert_eq!(out.len(), 256 + 3);
+        assert_eq!(out.len(), 256);
         assert!(out.ends_with("..."));
     }
 
     #[test]
-    fn truncate_body_respects_utf8_char_boundary() {
-        // 'é' is two bytes; if max lands inside it, cut backs up to
-        // the last char boundary so the string stays valid UTF-8.
+    fn truncate_body_escapes_non_ascii_bytes() {
+        // 'é' is two bytes (0xC3 0xA9); both are outside printable
+        // ASCII so each becomes \xHH.  Output is bounded ASCII.
         let mut s = String::new();
-        for _ in 0..200 {
+        for _ in 0..3 {
             s.push('é');
         }
-        let out = truncate_body(s, 257);
-        assert!(out.is_char_boundary(out.len() - 3));
-        assert!(out.ends_with("..."));
+        let out = truncate_body(s, 256);
+        assert_eq!(out, "\\xC3\\xA9\\xC3\\xA9\\xC3\\xA9");
+    }
+
+    #[test]
+    fn truncate_body_escapes_control_chars() {
+        // Embedded newline + ANSI escape sequence both get neutralized.
+        let s = "ok\n\x1b[31mred\x1b[0m".to_string();
+        let out = truncate_body(s, 256);
+        assert_eq!(out, "ok\\x0A\\x1B[31mred\\x1B[0m");
+        // Output contains no raw control bytes.
+        assert!(out.bytes().all(|b| (0x20..=0x7E).contains(&b)));
     }
 
     // --- HTTP method tests (wiremock) ---
