@@ -49,7 +49,8 @@ enum Command {
 
 #[derive(Args)]
 struct DeviceArgs {
-    /// Device (peer) ID.  E.g. 310770201 for an AI6KG hotspot.
+    /// Device (peer) ID.  E.g. a 7-digit DMR-MARC subscriber ID
+    /// or a 9-digit BM hotspot ID.
     id: u32,
     #[command(subcommand)]
     cmd: DeviceCmd,

@@ -19,7 +19,7 @@ use serde::Serialize;
 /// and GET /device/{id}/profile (under `staticSubscriptions`).
 ///
 /// BM serializes integer IDs as JSON strings on this endpoint
-/// (`{"talkgroup":"91","slot":"1","repeaterid":"310770201"}`).  The
+/// (`{"talkgroup":"91","slot":"1","repeaterid":"1234567"}`).  The
 /// flexible deserializers below accept either form to tolerate
 /// upstream type drift.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -201,10 +201,10 @@ mod tests {
 
     #[test]
     fn static_talkgroup_decodes_with_repeaterid() {
-        let json = r#"{"talkgroup": 91, "repeaterid": 310770201, "slot": 1}"#;
+        let json = r#"{"talkgroup": 91, "repeaterid": 1234567, "slot": 1}"#;
         let s: StaticTalkgroup = serde_json::from_str(json).unwrap();
         assert_eq!(s.talkgroup, talkgroup(91));
-        assert_eq!(s.repeaterid, Some(dmr_id(310770201)));
+        assert_eq!(s.repeaterid, Some(dmr_id(1234567)));
         assert_eq!(s.slot, Slot::One);
     }
 
@@ -221,13 +221,13 @@ mod tests {
     #[test]
     fn static_talkgroup_decodes_stringly_typed_ids() {
         // Live BM /device/{id}/talkgroup wraps numeric fields as
-        // strings: {"talkgroup":"91","slot":"1","repeaterid":"310770201"}.
+        // strings: {"talkgroup":"91","slot":"1","repeaterid":"1234567"}.
         // Flexible deserializers must accept this form.
-        let json = r#"{"talkgroup": "91", "slot": "1", "repeaterid": "310770201"}"#;
+        let json = r#"{"talkgroup": "91", "slot": "1", "repeaterid": "1234567"}"#;
         let s: StaticTalkgroup = serde_json::from_str(json).unwrap();
         assert_eq!(s.talkgroup, talkgroup(91));
         assert_eq!(s.slot, Slot::One);
-        assert_eq!(s.repeaterid, Some(dmr_id(310770201)));
+        assert_eq!(s.repeaterid, Some(dmr_id(1234567)));
     }
 
     #[test]
@@ -248,10 +248,10 @@ mod tests {
         // Upstream JSON field is `lastKownMaster` (typo).  The serde
         // rename keeps our Rust idiom while accepting the typo on the
         // wire.  Fail loudly if BM ever fixes it.
-        let json = r#"{"id": 310770201, "callsign": "AI6KG", "lastKownMaster": 3104}"#;
+        let json = r#"{"id": 1234567, "callsign": "N0CALL", "lastKownMaster": 3104}"#;
         let d: Device = serde_json::from_str(json).unwrap();
-        assert_eq!(d.id, dmr_id(310770201));
-        assert_eq!(d.callsign, "AI6KG");
+        assert_eq!(d.id, dmr_id(1234567));
+        assert_eq!(d.callsign, "N0CALL");
         assert_eq!(d.last_known_master, Some(3104));
     }
 

@@ -54,7 +54,7 @@ mod tests {
         // shape consumers depend on; a quiet schema change would
         // break dialplan parsers silently.
         let m = CallMetadata {
-            dmr_id: SubscriberId::try_from(3107702).unwrap(),
+            dmr_id: SubscriberId::try_from(1234567).unwrap(),
             tg: Talkgroup::try_from(91).unwrap(),
             slot: Slot::One,
             cc: ColorCode::try_from(1).unwrap(),
@@ -62,7 +62,7 @@ mod tests {
             name: None,
         };
         let s = serde_json::to_string(&m).unwrap();
-        assert_eq!(s, r#"{"dmr_id":3107702,"tg":91,"slot":1,"cc":1}"#);
+        assert_eq!(s, r#"{"dmr_id":1234567,"tg":91,"slot":1,"cc":1}"#);
     }
 
     #[test]
@@ -70,17 +70,17 @@ mod tests {
         // call/name present when the lookup hit; appear after the
         // bare DMR fields, in order.
         let m = CallMetadata {
-            dmr_id: SubscriberId::try_from(3107702).unwrap(),
+            dmr_id: SubscriberId::try_from(1234567).unwrap(),
             tg: Talkgroup::try_from(91).unwrap(),
             slot: Slot::One,
             cc: ColorCode::try_from(1).unwrap(),
-            call: Some("AI6KG".into()),
-            name: Some("Christopher".into()),
+            call: Some("N0CALL".into()),
+            name: Some("Test".into()),
         };
         let s = serde_json::to_string(&m).unwrap();
         assert_eq!(
             s,
-            r#"{"dmr_id":3107702,"tg":91,"slot":1,"cc":1,"call":"AI6KG","name":"Christopher"}"#
+            r#"{"dmr_id":1234567,"tg":91,"slot":1,"cc":1,"call":"N0CALL","name":"Test"}"#
         );
     }
 }

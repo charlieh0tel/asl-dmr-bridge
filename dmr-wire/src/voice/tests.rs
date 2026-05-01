@@ -149,10 +149,10 @@ fn matches_config_private_dst_eq_our_src_id() {
     let mut cfg = test_voice_config();
     cfg.call_type = CallType::Unit;
     cfg.talkgroup = Talkgroup::try_from(9990).unwrap();
-    cfg.src_id = SubscriberId::try_from(3107702).unwrap();
+    cfg.src_id = SubscriberId::try_from(1234567).unwrap();
     let mut pkt = voice_dmrd(1);
     pkt.call_type = CallType::Unit;
-    pkt.dst_id = 3107702;
+    pkt.dst_id = 1234567;
     pkt.src_id = 9990;
     assert!(matches_config(&pkt, &cfg));
 }
@@ -162,7 +162,7 @@ fn matches_config_private_dst_eq_talkgroup_rejects() {
     let mut cfg = test_voice_config();
     cfg.call_type = CallType::Unit;
     cfg.talkgroup = Talkgroup::try_from(9990).unwrap();
-    cfg.src_id = SubscriberId::try_from(3107702).unwrap();
+    cfg.src_id = SubscriberId::try_from(1234567).unwrap();
     let mut pkt = voice_dmrd(1);
     pkt.call_type = CallType::Unit;
     pkt.dst_id = 9990;
@@ -219,7 +219,7 @@ fn expect_call(rx: &mut mpsc::Receiver<MetaEvent>) -> dmr_events::CallMetadata {
 async fn rx_header_uses_callsign_lookup_when_provided() {
     let lookup: CallsignLookup = std::sync::Arc::new(|id| {
         if id == 12345 {
-            Some(("AI6KG".to_string(), "Chris".to_string()))
+            Some(("N0CALL".to_string(), "Test".to_string()))
         } else {
             None
         }
@@ -228,8 +228,8 @@ async fn rx_header_uses_callsign_lookup_when_provided() {
         make_machine_with_lookup(Some(lookup));
     m.on_dmrd(&header_dmrd(0xAA)).await;
     let meta = expect_call(&mut metadata_rx);
-    assert_eq!(meta.call.as_deref(), Some("AI6KG"));
-    assert_eq!(meta.name.as_deref(), Some("Chris"));
+    assert_eq!(meta.call.as_deref(), Some("N0CALL"));
+    assert_eq!(meta.name.as_deref(), Some("Test"));
 }
 
 #[tokio::test]
@@ -351,7 +351,7 @@ async fn tx_with_short_callsign_includes_ta_in_rotation() {
     // lc_rotation is [voice_lc, ta_header] and superframes
     // alternate.
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) =
-        make_machine_with_callsign("AI6KG");
+        make_machine_with_callsign("N0CALL");
     m.on_audio(&voice_audio()).await;
     let PttState::Tx(tx) = &m.state else {
         unreachable!()
@@ -389,7 +389,7 @@ async fn tx_superframe_idx_advances_on_vseq_wrap() {
     // Send one full superframe worth of audio (6 bursts * 3 PCM
     // frames = 18 frames) and verify superframe_idx incremented.
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) =
-        make_machine_with_callsign("AI6KG");
+        make_machine_with_callsign("N0CALL");
     // 18 voice frames -> 6 bursts (one per FRAMES_PER_BURST=3
     // pcm frames) -> superframe_idx = 1 after wrap.
     for _ in 0..18 {
@@ -415,7 +415,7 @@ async fn tx_lc_rotation_alternates_across_superframes() {
     // notice with a DMR receiver.  Keying off vseq=1 (fragment 0)
     // since fragment 0 has the LCSS=1 distinct LC payload.
     let (mut m, _audio_rx, mut dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) =
-        make_machine_with_callsign("AI6KG");
+        make_machine_with_callsign("N0CALL");
     // 36 PCM frames -> 12 bursts -> 2 full superframes.
     for _ in 0..36 {
         m.on_audio(&voice_audio()).await;

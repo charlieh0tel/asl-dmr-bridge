@@ -315,14 +315,14 @@ mod tests {
     #[test]
     #[should_panic(expected = "exceeds 24-bit max")]
     fn serialize_panics_on_src_id_over_24_bit() {
-        // A hotspot repeater_id like 310770201 (AI6KG-01) fits in
-        // 32 bits but NOT 24.  Must panic rather than silently
-        // truncate onto an impostor subscriber ID.
+        // A 9-digit hotspot repeater_id fits in 32 bits but NOT 24.
+        // Must panic rather than silently truncate onto an impostor
+        // subscriber ID.
         let d = Dmrd {
             seq: 0,
-            src_id: 310_770_201,
+            src_id: 100_000_001,
             dst_id: 91,
-            repeater_id: 310_770_201,
+            repeater_id: 100_000_001,
             slot: Slot::One,
             call_type: CallType::Group,
             frame_type: FrameType::Voice,

@@ -52,7 +52,8 @@ pub enum InvalidValue {
 ///
 /// Carries the full 32-bit range because the Homebrew protocol's
 /// `repeater_id` header field is 4 bytes wide and Brandmeister hotspot
-/// IDs (e.g. AI6KG-01 = 310770201) legitimately exceed 24 bits.
+/// IDs (the 9-digit form, e.g. country-code 310 + suffix) legitimately
+/// exceed 24 bits.
 ///
 /// The 24-bit on-air `src_id`/`dst_id` fields (DMRD body, voice LC)
 /// are a DIFFERENT logical quantity -- use `SubscriberId` there.  For
@@ -119,9 +120,9 @@ impl Serialize for DmrId {
 
 /// On-air DMR subscriber ID (24-bit), used as the `src_id` in the
 /// DMRD wire body and the embedded LC.  Distinct from `DmrId`
-/// (32-bit Homebrew repeater identity): BM hotspot IDs like
-/// 310770201 exceed 24 bits and would alias onto an unrelated
-/// subscriber if used here.
+/// (32-bit Homebrew repeater identity): 9-digit BM hotspot IDs
+/// exceed 24 bits and would alias onto an unrelated subscriber if
+/// used here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SubscriberId(u32);
 
@@ -337,9 +338,10 @@ mod tests {
 
     #[test]
     fn dmr_id_large_accepted() {
-        // 310770201 is a real BM hotspot ID — exceeds 24-bit but valid for 4-byte fields.
-        let id = DmrId::try_from(310770201).unwrap();
-        assert_eq!(id.to_be_bytes(), 310770201u32.to_be_bytes());
+        // 9-digit hotspot IDs exceed 24-bit but are valid for the
+        // 4-byte repeater_id wire field.
+        let id = DmrId::try_from(100000001).unwrap();
+        assert_eq!(id.to_be_bytes(), 100000001u32.to_be_bytes());
     }
 
     #[test]

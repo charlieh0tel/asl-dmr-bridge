@@ -411,27 +411,27 @@ mod tests {
     async fn device_get_no_auth() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/device/310770201"))
+            .and(path("/device/1234567"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"id": 310770201, "callsign": "AI6KG"})),
+                    .set_body_json(serde_json::json!({"id": 1234567, "callsign": "N0CALL"})),
             )
             .mount(&server)
             .await;
         let client = make_client(&server, false);
         let d = client
-            .device(dmr_id(310770201))
+            .device(dmr_id(1234567))
             .await
             .expect("device call ok");
-        assert_eq!(d.id, dmr_id(310770201));
-        assert_eq!(d.callsign, "AI6KG");
+        assert_eq!(d.id, dmr_id(1234567));
+        assert_eq!(d.callsign, "N0CALL");
     }
 
     #[tokio::test]
     async fn device_profile_get_no_auth() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/device/310770201/profile"))
+            .and(path("/device/1234567/profile"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "staticSubscriptions": [{"talkgroup": 91, "slot": 1}],
                 "dynamicSubscriptions": {},
@@ -443,7 +443,7 @@ mod tests {
             .await;
         let client = make_client(&server, false);
         let p = client
-            .device_profile(dmr_id(310770201))
+            .device_profile(dmr_id(1234567))
             .await
             .expect("profile call ok");
         assert_eq!(p.static_subscriptions.len(), 1);

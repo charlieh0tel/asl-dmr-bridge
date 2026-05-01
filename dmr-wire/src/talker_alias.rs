@@ -102,20 +102,20 @@ mod tests {
 
     #[test]
     fn rejects_non_ascii() {
-        assert!(encode_ta_header_bits("AI6\u{00FC}KG").is_none());
+        assert!(encode_ta_header_bits("ABC\u{00FC}DE").is_none());
     }
 
     #[test]
-    fn ai6kg_matches_hand_derived_bytes() {
+    fn abcde_matches_hand_derived_bytes() {
         // Hand-derived from ETSI TS 102 361-2 §7.2.21:
         //   FLCO=4, FID=0
         //   TA_Format=0, TA_Length=5, then 49-bit TA_Data left-
-        //     justified holding 'A','I','6','K','G' (5 * 7 = 35 bits)
+        //     justified holding 'A','B','C','D','E' (5 * 7 = 35 bits)
         //     plus 14 zero pad bits.
-        // 'A'=0x41=0b1000001 'I'=0x49=0b1001001 '6'=0x36=0b0110110
-        // 'K'=0x4B=0b1001011 'G'=0x47=0b1000111
-        let lc = encode_ta_header_bytes("AI6KG");
-        assert_eq!(lc, [0x04, 0x00, 0x0B, 0x06, 0x4B, 0x69, 0x71, 0xC0, 0x00]);
+        // 'A'=0x41=0b1000001 'B'=0x42=0b1000010 'C'=0x43=0b1000011
+        // 'D'=0x44=0b1000100 'E'=0x45=0b1000101
+        let lc = encode_ta_header_bytes("ABCDE");
+        assert_eq!(lc, [0x04, 0x00, 0x0B, 0x06, 0x14, 0x38, 0x91, 0x40, 0x00]);
     }
 
     #[test]
@@ -153,8 +153,8 @@ mod tests {
     }
 
     #[test]
-    fn bits_output_matches_byte_packing_for_ai6kg() {
-        let bits = encode_ta_header_bits("AI6KG").unwrap();
+    fn bits_output_matches_byte_packing_for_abcde() {
+        let bits = encode_ta_header_bits("ABCDE").unwrap();
         // Spot-check: byte 0 = 0x04 -> bits 0..8 = 0,0,0,0,0,1,0,0
         assert_eq!(&bits[0..8], &[0, 0, 0, 0, 0, 1, 0, 0]);
         // byte 2 = 0x0B -> bits 16..24 = 0,0,0,0,1,0,1,1

@@ -15,14 +15,14 @@ consumers that strncpy the buffer don't read past the end).
 The JSON shape (no subscriber lookup configured):
 
 ```json
-{"dmr_id":3107702,"tg":91,"slot":1,"cc":1}
+{"dmr_id":1234567,"tg":91,"slot":1,"cc":1}
 ```
 
 With `[repeater].subscriber_file` pointing at a RadioID-style
 `user.csv`, hits add `call` and `name` (operator's first name):
 
 ```json
-{"dmr_id":3107702,"tg":91,"slot":1,"cc":1,"call":"AI6KG","name":"Christopher"}
+{"dmr_id":1234567,"tg":91,"slot":1,"cc":1,"call":"N0CALL","name":"Test"}
 ```
 
 The bridge does not fetch the CSV itself.  Download it once and

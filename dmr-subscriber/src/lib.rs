@@ -214,7 +214,7 @@ mod tests {
 
     const SAMPLE: &str = "\
 RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
-3107702,AI6KG,Christopher,Hoover,Mountain View,California,United States
+1234567,N0CALL,Test,User,Springfield,Illinois,United States
 3151238,W6XYZ,Jane,Doe,,California,United States
 5201886,GB7TST,,,Manchester,,United Kingdom
 ";
@@ -224,9 +224,9 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
         let subs = Subscribers::from_reader(SAMPLE.as_bytes()).unwrap();
         assert_eq!(subs.len(), 3);
 
-        let s = subs.get(3107702).expect("AI6KG present");
-        assert_eq!(s.callsign, "AI6KG");
-        assert_eq!(s.first_name, "Christopher");
+        let s = subs.get(1234567).expect("N0CALL present");
+        assert_eq!(s.callsign, "N0CALL");
+        assert_eq!(s.first_name, "Test");
         assert_eq!(s.country, "United States");
     }
 

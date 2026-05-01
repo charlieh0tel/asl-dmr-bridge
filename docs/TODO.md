@@ -24,7 +24,7 @@ appears.
 
 - **Talker alias TA Blocks (FLCO 5/6/7).**  Current scope is TA
   Header only (FLCO 4); covers callsigns up to 7 ASCII chars.
-  Adding TA Blocks lets us emit longer aliases ("AI6KG Christopher")
+  Adding TA Blocks lets us emit longer aliases ("N0CALL Operator")
   but takes ~4 superframes to deliver, so calls under ~1.4s see
   only partial TA.  ~100 LOC.  Trigger: a callsign over 7 chars or
   a desire to send name as well as call.

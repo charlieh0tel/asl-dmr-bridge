@@ -90,7 +90,7 @@ works regardless.
   OpenAPI doc claims.  `brandmeister-api` already handles this; if
   you ever see this error, you're hitting it directly via curl.
 - **Stringly-typed IDs.** `GET /device/{id}/talkgroup` returns
-  `{"talkgroup":"91","slot":"1","repeaterid":"310770201"}` (ints as
+  `{"talkgroup":"91","slot":"1","repeaterid":"100000001"}` (ints as
   strings).  `brandmeister-api`'s deserializers accept either form.
 - **Reconciliation cadence.** Runs once at startup.  Set
   `[brandmeister_api].reconcile_interval` (e.g. `"1h"`) to also re-
@@ -103,14 +103,14 @@ works regardless.
 Confirm a peer's state from a fresh shell:
 
 ```
-cargo run -p bmcli -- device 310770201 profile
+cargo run -p bmcli -- device 100000001 profile
 ```
 
 Subscribe a peer to TG 91 on TS1, ad hoc:
 
 ```
 BRANDMEISTER_API_KEY="$(cat ~/.config/asl-dmr-bridge/bm.key)" \
-  cargo run -p bmcli -- device 310770201 static add --slot 1 --tg 91
+  cargo run -p bmcli -- device 100000001 static add --slot 1 --tg 91
 ```
 
 Make the bridge ensure that subscription on every start: put the

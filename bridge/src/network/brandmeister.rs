@@ -227,17 +227,17 @@ mod tests {
         toml::from_str(
             r#"
             [repeater]
-            callsign = "AI6KG"
-            dmr_id = 310770201
-            src_id = 3107702
+            callsign = "N0CALL"
+            dmr_id = 1234567
+            src_id = 1234567
             rx_freq = 434000000
             tx_freq = 439000000
             tx_power = "25"
             color_code = 7
-            latitude = 37.7749
-            longitude = -122.4194
+            latitude = 0.0
+            longitude = 0.0
             height = 50
-            location = "Mountain View"
+            location = "Anywhere"
             description = "Test bridge"
             url = "http://example.org"
 
@@ -280,16 +280,16 @@ mod tests {
         let pkt = Brandmeister.config_packet(&full_config());
         let mut expected: Vec<u8> = Vec::new();
         expected.extend_from_slice(b"RPTC");
-        expected.extend_from_slice(&[0x12, 0x85, 0xFA, 0x19]); // dmr_id 310770201 BE
-        expected.extend_from_slice(b"AI6KG   "); // callsign (8)
+        expected.extend_from_slice(&[0x00, 0x12, 0xD6, 0x87]); // dmr_id 1234567 BE
+        expected.extend_from_slice(b"N0CALL  "); // callsign (8)
         expected.extend_from_slice(b"434000000"); // rx_freq (9)
         expected.extend_from_slice(b"439000000"); // tx_freq (9)
         expected.extend_from_slice(b"25"); // tx_power (2)
         expected.extend_from_slice(b"07"); // color_code (2)
-        expected.extend_from_slice(b"+37.7749"); // latitude (8)
-        expected.extend_from_slice(b"-122.4194"); // longitude (9)
+        expected.extend_from_slice(b"+00.0000"); // latitude (8)
+        expected.extend_from_slice(b"+000.0000"); // longitude (9)
         expected.extend_from_slice(b"050"); // height (3)
-        expected.extend_from_slice(b"Mountain View       "); // location (20)
+        expected.extend_from_slice(b"Anywhere            "); // location (20)
         expected.extend_from_slice(b"Test bridge        "); // description (19)
         expected.extend_from_slice(b"1"); // slots (1)
         let mut url = b"http://example.org".to_vec();
