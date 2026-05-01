@@ -7,6 +7,7 @@ description = "DMR ID -> callsign / operator name lookup, loaded from a RadioID-
 
 [dependencies]
 csv.workspace = true
+dmr-types.workspace = true
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tracing.workspace = true

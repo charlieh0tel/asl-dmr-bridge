@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::SystemTime;
 
+use dmr_types::SubscriberId;
 use serde::Deserialize;
 use thiserror::Error;
 use tracing::debug;
@@ -41,7 +42,7 @@ const STALE_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// callers can `is_empty()` if they care.
 #[derive(Debug, Clone)]
 pub struct Subscriber {
-    pub dmr_id: u32,
+    pub dmr_id: SubscriberId,
     pub callsign: String,
     pub first_name: String,
     pub last_name: String,
@@ -74,7 +75,7 @@ pub enum LoadError {
 /// and share via `Arc`.
 #[derive(Debug, Clone, Default)]
 pub struct Subscribers {
-    by_id: HashMap<u32, Subscriber>,
+    by_id: HashMap<SubscriberId, Subscriber>,
 }
 
 impl Subscribers {
@@ -108,9 +109,17 @@ impl Subscribers {
         let mut bad_rows = 0usize;
         for record in rdr.deserialize::<CsvRow>() {
             match record {
-                Ok(row) => {
-                    by_id.insert(row.radio_id, row.into_subscriber());
-                }
+                Ok(row) => match SubscriberId::try_from(row.radio_id) {
+                    Ok(id) => {
+                        by_id.insert(id, row.into_subscriber(id));
+                    }
+                    Err(_) => {
+                        bad_rows += 1;
+                        if bad_rows <= 5 {
+                            warn!("skipping out-of-range RADIO_ID {}", row.radio_id);
+                        }
+                    }
+                },
                 Err(e) => {
                     bad_rows += 1;
                     if bad_rows <= 5 {
@@ -125,10 +134,13 @@ impl Subscribers {
         Ok(Self { by_id })
     }
 
-    /// Look up a subscriber by on-air DMR ID.
+    /// Look up a subscriber by on-air DMR ID.  Raw `u32` accepted for
+    /// ergonomics; out-of-range values miss without erroring.
     #[must_use]
     pub fn get(&self, dmr_id: u32) -> Option<&Subscriber> {
-        self.by_id.get(&dmr_id)
+        SubscriberId::try_from(dmr_id)
+            .ok()
+            .and_then(|id| self.by_id.get(&id))
     }
 
     #[must_use]
@@ -183,9 +195,9 @@ struct CsvRow {
 }
 
 impl CsvRow {
-    fn into_subscriber(self) -> Subscriber {
+    fn into_subscriber(self, dmr_id: SubscriberId) -> Subscriber {
         Subscriber {
-            dmr_id: self.radio_id,
+            dmr_id,
             callsign: self.callsign,
             first_name: self.first_name,
             last_name: self.last_name,

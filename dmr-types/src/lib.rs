@@ -63,7 +63,7 @@ pub enum InvalidValue {
 /// `to_be_bytes_3` enforces that invariant with a deliberate `assert!`
 /// so a mis-routed repeater_id crashes loudly in test/dev rather than
 /// silently emitting impostor traffic in production.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DmrId(u32);
 
 impl DmrId {
@@ -122,7 +122,7 @@ impl Serialize for DmrId {
 /// (32-bit Homebrew repeater identity): BM hotspot IDs like
 /// 310770201 exceed 24 bits and would alias onto an unrelated
 /// subscriber if used here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SubscriberId(u32);
 
 impl SubscriberId {
@@ -163,7 +163,7 @@ impl Serialize for SubscriberId {
 }
 
 /// DMR talkgroup ID.  Non-zero, fits in 24 bits (DMRD dst_id width).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Talkgroup(u32);
 
 impl Talkgroup {
@@ -210,7 +210,7 @@ impl Serialize for Talkgroup {
 }
 
 /// DMR color code (0-15).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ColorCode(u8);
 
 impl ColorCode {
@@ -257,7 +257,7 @@ impl Serialize for ColorCode {
 /// DMR timeslot (TS1 or TS2).  Wire-format helpers (flag-byte
 /// packing) live in `dmr-wire`; this enum is the cross-crate
 /// identifier shared by config, metadata, and protocol layers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Slot {
     One,
     Two,
