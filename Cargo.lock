@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "ambe"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "mbelib-sys",
  "proptest",
@@ -58,7 +58,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "asl-dmr-bridge"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "ambe",
  "anyhow",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "bmcli"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "brandmeister-api",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "brandmeister-api"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dmr-types",
  "reqwest",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-events"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dmr-types",
  "serde",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-subscriber"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "csv",
  "dmr-types",
@@ -505,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-types"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-wire"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "ambe",
  "dmr-events",
@@ -1249,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "mbelib-sys"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "cc",
 ]
@@ -2525,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "usrp-wire"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "thiserror 2.0.18",
 ]

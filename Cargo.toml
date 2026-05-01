@@ -8,14 +8,14 @@ license = "GPL-2.0-or-later"
 
 [workspace.dependencies]
 # Local crates -- relative paths so the workspace publishes coherently.
-ambe = { version = "1.1.0", path = "ambe" }
-brandmeister-api = { version = "1.1.0", path = "brandmeister-api" }
-dmr-subscriber = { version = "1.1.0", path = "dmr-subscriber" }
-dmr-types = { version = "1.1.0", path = "dmr-types" }
-dmr-events = { version = "1.1.0", path = "dmr-events" }
-dmr-wire = { version = "1.1.0", path = "dmr-wire" }
-mbelib-sys = { version = "1.1.0", path = "ambe/mbelib-sys" }
-usrp-wire = { version = "1.1.0", path = "usrp-wire" }
+ambe = { version = "1.2.0", path = "ambe" }
+brandmeister-api = { version = "1.2.0", path = "brandmeister-api" }
+dmr-subscriber = { version = "1.2.0", path = "dmr-subscriber" }
+dmr-types = { version = "1.2.0", path = "dmr-types" }
+dmr-events = { version = "1.2.0", path = "dmr-events" }
+dmr-wire = { version = "1.2.0", path = "dmr-wire" }
+mbelib-sys = { version = "1.2.0", path = "ambe/mbelib-sys" }
+usrp-wire = { version = "1.2.0", path = "usrp-wire" }
 
 # External deps.  Features that are "always wanted" live here; features
 # specific to one consumer (tokio runtimes, signal handlers, etc.) stay
