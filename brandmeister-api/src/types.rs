@@ -94,6 +94,7 @@ pub struct AddStaticBody {
 /// and `callsign` is optional in practice -- BM omits unset fields.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Device {
     pub id: DeviceId,
     pub callsign: String,
@@ -144,6 +145,7 @@ pub struct Device {
 /// needed without the lib over-committing to a structure that may
 /// drift.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct DeviceProfile {
     #[serde(rename = "staticSubscriptions", default)]
     pub static_subscriptions: Vec<StaticTalkgroup>,
@@ -161,6 +163,7 @@ pub struct DeviceProfile {
 /// many optional fields (description, country, language); we surface
 /// the stable ones.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct Talkgroup {
     pub id: TalkgroupId,
     #[serde(default)]

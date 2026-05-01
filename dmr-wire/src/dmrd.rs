@@ -73,6 +73,7 @@ pub enum DmrdError {
 /// `frame_type == DataSync`.  `src_id` and `dst_id` are 24-bit values
 /// zero-extended into u32.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Dmrd {
     pub seq: u8,
     pub src_id: u32,
