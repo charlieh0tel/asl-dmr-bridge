@@ -36,16 +36,13 @@ RUST_LOG=info asl-dmr-bridge config.toml
 The BM hotspot password can be supplied three ways (pick one):
 - `[network] password = "..."` in the config file (default).
 - `BM_BRIDGE_PASSWORD=...` env var.  The packaged systemd unit sources
-  `/etc/default/asl-dmr-bridge` (mode 600) for this -- the recommended
-  path on Debian/Ubuntu, since it keeps the secret out of the TOML
-  config (which is more likely to leak via backups, share-screens, etc.).
+  `/etc/default/asl-dmr-bridge` (mode 600).
 - `--password-file <path>` for a single-line password file.
 
-Setting more than one is a startup error -- pick a source and stick
-with it.
+Setting more than one is a startup error.
 
 Optional Brandmeister Halligan API integration: with a
-`[brandmeister_api]` section in the config (or just an API key in
+`[brandmeister_api]` section in the config (or an API key in
 `BRANDMEISTER_API_KEY`), the bridge logs the peer's BM-side
 subscription state at startup and -- when desired static talkgroup
 lists are supplied -- reconciles them on each run.  `bmcli` is a
