@@ -151,8 +151,10 @@ async fn subscriber_refresh(
                 ).await;
                 match load {
                     Ok(Ok(new_subs)) => {
-                        *state.write().expect("subscribers RwLock poisoned") =
-                            Arc::new(new_subs);
+                        // Recover from poisoning: only op under the lock
+                        // is an Arc swap, no torn state to protect.
+                        let mut guard = state.write().unwrap_or_else(|e| e.into_inner());
+                        *guard = Arc::new(new_subs);
                     }
                     Ok(Err(e)) => {
                         warn!(path = %path.display(), "subscriber reload failed: {e}");
@@ -291,7 +293,8 @@ async fn async_main() -> anyhow::Result<()> {
     let callsign_lookup: Option<CallsignLookup> = subscribers_state.as_ref().map(|state| {
         let state = state.clone();
         Arc::new(move |id| {
-            let snapshot = state.read().expect("subscribers RwLock poisoned").clone();
+            // Best-effort lookup: recover through poisoning.
+            let snapshot = state.read().unwrap_or_else(|e| e.into_inner()).clone();
             snapshot
                 .get(id)
                 .map(|s| (s.callsign.clone(), s.first_name.clone()))
