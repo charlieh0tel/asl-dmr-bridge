@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        install -d -m 755 /etc/asl-dmr-bridge
+        ;;
+esac
+
+#DEBHELPER#
+exit 0

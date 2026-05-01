@@ -60,7 +60,7 @@ Add a `[brandmeister_api]` section to the bridge config:
 [brandmeister_api]
 # Bearer JWT.  Pick exactly one source:
 api_key = "..."                                       # inline
-# api_key_file = "/etc/asl-dmr-bridge/bm-api.key"     # single-line file
+# api_key_file = "/path/to/key-file"                  # single-line file
 # or BRANDMEISTER_API_KEY env, or --api-key-file CLI
 
 # Pure-set reconciliation: declared list = final state at startup.

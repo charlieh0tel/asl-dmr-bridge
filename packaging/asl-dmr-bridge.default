@@ -1,4 +1,4 @@
-# Sourced by the systemd unit before privilege drop.  Mode 600.
+# Sourced by the systemd unit before fork.  Mode 600.
 
 # BRANDMEISTER_PASSWORD=changeme
 # BRANDMEISTER_API_KEY=
