@@ -503,6 +503,17 @@ is by design -- voice frames queued during disconnect would be
 discarded on reconnect anyway, so we drop them at the producer with
 a log line rather than stall voice_task.
 
+**DMRD egress is split into two channels: voice (bounded, 64 slots)
+and control (unbounded).**  Voice frames may drop under backpressure
+without breaking a call -- the receiver fills the gap with silence
+or comfort noise.  Control frames (voice LC header, terminator) must
+land or the receiving peer never sees the call boundaries: a missed
+header looks like a stream-timeout-recovered call; a missed
+terminator strands the peer's RX in hang state.  The unbounded
+control channel is therefore intentional: a brief stall on the
+homebrew side queues control frames rather than dropping them,
+which costs a little memory but never corrupts call semantics.
+
 **Shutdown can wait up to SERIAL_TIMEOUT on an in-flight vocoder
 call.** Cancel fires via `CancellationToken`; `spawn_blocking` keeps
 running until its blocking read returns.  Tokio main's
