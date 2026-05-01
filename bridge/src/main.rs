@@ -1,5 +1,5 @@
 mod agc;
-mod bm_provision;
+mod brandmeister_provision;
 #[expect(dead_code, reason = "call_type, hang_time consumed in Milestone 5")]
 mod config;
 mod homebrew_client;
@@ -255,7 +255,7 @@ async fn async_main() -> anyhow::Result<()> {
     tokio::select! {
         biased;
         _ = cancel.cancelled() => return Ok(()),
-        () = bm_provision::provision(&config) => {}
+        () = brandmeister_provision::provision(&config) => {}
     }
 
     // Optional AGC on the USRP-tx (digital -> analog) path.
@@ -447,7 +447,7 @@ async fn async_main() -> anyhow::Result<()> {
         if let Some(api_cfg) = config.brandmeister_api.as_ref()
             && !api_cfg.reconcile_interval.is_zero()
         {
-            bm_provision::periodic_provision(
+            brandmeister_provision::periodic_provision(
                 config.repeater.dmr_id,
                 api_cfg.clone(),
                 api_cfg.reconcile_interval,
