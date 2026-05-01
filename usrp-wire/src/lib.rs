@@ -76,6 +76,7 @@ pub enum UsrpError {
 /// in `serialize` well-defined and matches the on-wire u32 encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
+#[non_exhaustive]
 pub enum FrameType {
     Voice = 0,
     Dtmf = 1,
