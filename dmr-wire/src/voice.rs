@@ -260,11 +260,11 @@ pub async fn voice_task(
     stats_tx: Option<mpsc::Sender<StatsEvent>>,
     callsign_lookup: Option<CallsignLookup>,
     vocoder: Box<dyn Vocoder>,
-    cfg: VoiceConfig,
+    config: VoiceConfig,
     cancel: CancellationToken,
 ) {
     let mut m = ptt::PttMachine::new(
-        cfg,
+        config,
         vocoder,
         audio_tx,
         dmrd_voice_out,

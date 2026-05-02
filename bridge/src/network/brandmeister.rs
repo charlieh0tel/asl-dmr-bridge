@@ -105,48 +105,48 @@ impl NetworkProfile for Brandmeister {
         let cc = r.color_code.value();
         let height = r.height.unwrap_or(0).min(999);
 
-        let mut cfg = String::with_capacity(CONFIG_STRING_LEN);
-        cfg.push_str(&fmt_str(r.callsign.as_str(), CALLSIGN_WIDTH));
-        cfg.push_str(&fmt_str(&r.rx_freq.as_rptc_digits(), RX_FREQ_WIDTH));
-        cfg.push_str(&fmt_str(&r.tx_freq.as_rptc_digits(), TX_FREQ_WIDTH));
-        cfg.push_str(&fmt_str(or_default(&r.tx_power, "01"), TX_POWER_WIDTH));
+        let mut payload = String::with_capacity(CONFIG_STRING_LEN);
+        payload.push_str(&fmt_str(r.callsign.as_str(), CALLSIGN_WIDTH));
+        payload.push_str(&fmt_str(&r.rx_freq.as_rptc_digits(), RX_FREQ_WIDTH));
+        payload.push_str(&fmt_str(&r.tx_freq.as_rptc_digits(), TX_FREQ_WIDTH));
+        payload.push_str(&fmt_str(or_default(&r.tx_power, "01"), TX_POWER_WIDTH));
         // color_code (u8) and height (u32) format to fixed-width
         // ASCII via the std width specifier; no fmt_str padding pass
         // needed.  write! into String never fails.
-        write!(cfg, "{cc:0COLOR_CODE_WIDTH$}").expect("String::write_str is infallible");
-        cfg.push_str(&fmt_latlon(
+        write!(payload, "{cc:0COLOR_CODE_WIDTH$}").expect("String::write_str is infallible");
+        payload.push_str(&fmt_latlon(
             r.latitude.unwrap_or(0.0),
             LATITUDE_WIDTH,
             MAX_LATITUDE,
         ));
-        cfg.push_str(&fmt_latlon(
+        payload.push_str(&fmt_latlon(
             r.longitude.unwrap_or(0.0),
             LONGITUDE_WIDTH,
             MAX_LONGITUDE,
         ));
-        write!(cfg, "{height:0HEIGHT_WIDTH$}").expect("String::write_str is infallible");
-        cfg.push_str(&fmt_str(
+        write!(payload, "{height:0HEIGHT_WIDTH$}").expect("String::write_str is infallible");
+        payload.push_str(&fmt_str(
             or_default(&r.location, DEFAULT_LOCATION),
             LOCATION_WIDTH,
         ));
-        cfg.push_str(&fmt_str(
+        payload.push_str(&fmt_str(
             or_default(&r.description, DEFAULT_DESCRIPTION),
             DESCRIPTION_WIDTH,
         ));
-        cfg.push(match config.dmr.slot {
+        payload.push(match config.dmr.slot {
             Slot::One => '1',
             Slot::Two => '2',
         });
-        cfg.push_str(&fmt_str(&r.url, URL_WIDTH));
-        cfg.push_str(&fmt_str(SOFTWARE_ID, SOFTWARE_ID_WIDTH));
-        cfg.push_str(&fmt_str(PACKAGE_ID, PACKAGE_ID_WIDTH));
+        payload.push_str(&fmt_str(&r.url, URL_WIDTH));
+        payload.push_str(&fmt_str(SOFTWARE_ID, SOFTWARE_ID_WIDTH));
+        payload.push_str(&fmt_str(PACKAGE_ID, PACKAGE_ID_WIDTH));
 
-        assert_eq!(cfg.len(), CONFIG_STRING_LEN);
+        assert_eq!(payload.len(), CONFIG_STRING_LEN);
 
         let mut pkt = Vec::with_capacity(TAG_RPTC.len() + REPEATER_ID_WIRE_LEN + CONFIG_STRING_LEN);
         pkt.extend_from_slice(TAG_RPTC);
         pkt.extend_from_slice(&r.dmr_id.to_be_bytes());
-        pkt.extend_from_slice(cfg.as_bytes());
+        pkt.extend_from_slice(payload.as_bytes());
 
         pkt
     }

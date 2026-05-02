@@ -149,7 +149,7 @@ pub(crate) enum PttState {
 }
 
 pub(crate) struct PttMachine {
-    cfg: VoiceConfig,
+    config: VoiceConfig,
     vocoder: SharedVocoder,
     audio_tx: mpsc::Sender<AudioFrame>,
     dmrd_voice_out: mpsc::Sender<Vec<u8>>,
@@ -176,7 +176,7 @@ impl PttMachine {
         reason = "PttMachine owns both bounded voice and unbounded control DMR outputs alongside the existing voice-task wiring."
     )]
     pub(crate) fn new(
-        cfg: VoiceConfig,
+        config: VoiceConfig,
         vocoder: Box<dyn Vocoder>,
         audio_tx: mpsc::Sender<AudioFrame>,
         dmrd_voice_out: mpsc::Sender<Vec<u8>>,
@@ -187,7 +187,7 @@ impl PttMachine {
         cancel: CancellationToken,
     ) -> Self {
         Self {
-            cfg,
+            config,
             vocoder: Arc::new(Mutex::new(vocoder)),
             audio_tx,
             dmrd_voice_out,
@@ -232,7 +232,7 @@ impl PttMachine {
             dmr_id,
             tg,
             slot: pkt.slot,
-            cc: self.cfg.color_code,
+            cc: self.config.color_code,
             call,
             name,
         };
@@ -247,7 +247,7 @@ impl PttMachine {
 
     /// `true` if the configured call_type is a group call.
     fn is_group_call(&self) -> bool {
-        matches!(self.cfg.call_type, CallType::Group)
+        matches!(self.config.call_type, CallType::Group)
     }
 
     /// Take the current PTT state by value, leaving `Idle` in its
@@ -263,10 +263,10 @@ impl PttMachine {
     /// the hang expiry and the call's tx_timeout.
     pub(crate) fn deadline(&self) -> Instant {
         match &self.state {
-            PttState::Rx(rx) => rx.last_voice + self.cfg.stream_timeout,
+            PttState::Rx(rx) => rx.last_voice + self.config.stream_timeout,
             PttState::RxHang(dl) => *dl,
             PttState::Tx(tx) => {
-                let tx_timeout_dl = tx.started + self.cfg.tx_timeout;
+                let tx_timeout_dl = tx.started + self.config.tx_timeout;
                 tx.pending_terminate
                     .map(|hang| hang.min(tx_timeout_dl))
                     .unwrap_or(tx_timeout_dl)
@@ -309,19 +309,19 @@ impl PttMachine {
         let group = self.is_group_call();
         let lc = build_voice_lc(
             group,
-            self.cfg.talkgroup.as_u32(),
-            self.cfg.src_id.as_u32(),
+            self.config.talkgroup.as_u32(),
+            self.config.src_id.as_u32(),
             DATA_TYPE_VOICE_HEADER,
         );
         let burst = build_data_burst(
             &lc,
             DATA_TYPE_VOICE_HEADER,
-            self.cfg.color_code.value(),
+            self.config.color_code.value(),
             &BS_DATA_SYNC,
         );
         let pkt = build_dmrd(
             tx.dmrd_seq,
-            &self.cfg,
+            &self.config,
             tx.stream_id,
             FrameType::DataSync,
             DATA_TYPE_VOICE_HEADER,
@@ -335,19 +335,19 @@ impl PttMachine {
         let group = self.is_group_call();
         let lc = build_voice_lc(
             group,
-            self.cfg.talkgroup.as_u32(),
-            self.cfg.src_id.as_u32(),
+            self.config.talkgroup.as_u32(),
+            self.config.src_id.as_u32(),
             DATA_TYPE_VOICE_TERMINATOR,
         );
         let burst = build_data_burst(
             &lc,
             DATA_TYPE_VOICE_TERMINATOR,
-            self.cfg.color_code.value(),
+            self.config.color_code.value(),
             &BS_DATA_SYNC,
         );
         let pkt = build_dmrd(
             tx.dmrd_seq,
-            &self.cfg,
+            &self.config,
             tx.stream_id,
             FrameType::DataSync,
             DATA_TYPE_VOICE_TERMINATOR,
@@ -389,12 +389,12 @@ impl PttMachine {
                 let fragment_idx = (n - 1) as usize;
                 let lc_idx = (tx.superframe_idx as usize) % tx.lc_rotation.len();
                 build_emb_section(
-                    self.cfg.color_code.value(),
+                    self.config.color_code.value(),
                     lcss_for_fragment(fragment_idx),
                     &tx.lc_rotation[lc_idx][fragment_idx],
                 )
             }
-            _ => build_null_emb(self.cfg.color_code.value()),
+            _ => build_null_emb(self.config.color_code.value()),
         };
         let burst = assemble_burst(&ambe, &sync);
         let ft = if tx.vseq == 0 {
@@ -402,7 +402,7 @@ impl PttMachine {
         } else {
             FrameType::Voice
         };
-        let pkt = build_dmrd(tx.dmrd_seq, &self.cfg, tx.stream_id, ft, tx.vseq, burst);
+        let pkt = build_dmrd(tx.dmrd_seq, &self.config, tx.stream_id, ft, tx.vseq, burst);
         tx.dmrd_seq = tx.dmrd_seq.wrapping_add(1);
         let next_vseq = (tx.vseq + 1) % 6;
         if next_vseq == 0 {
@@ -504,10 +504,10 @@ impl PttMachine {
     }
 
     pub(crate) async fn on_dmrd(&mut self, pkt: &Dmrd) {
-        if self.cfg.gateway == Direction::FmToDmr {
+        if self.config.gateway == Direction::FmToDmr {
             return;
         }
-        if !matches_config(pkt, &self.cfg) {
+        if !matches_config(pkt, &self.config) {
             return;
         }
         if matches!(self.state, PttState::Tx(_)) {
@@ -561,7 +561,7 @@ impl PttMachine {
                         reason: TerminationReason::Normal,
                     });
                     let _ = self.audio_tx.send(make_unkey_frame()).await;
-                    self.state = PttState::RxHang(Instant::now() + self.cfg.hang_time);
+                    self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
                 }
             }
             FrameType::Voice | FrameType::VoiceSync => {
@@ -684,7 +684,7 @@ impl PttMachine {
     }
 
     pub(crate) async fn on_audio(&mut self, frame: &AudioFrame) {
-        if self.cfg.gateway == Direction::DmrToFm {
+        if self.config.gateway == Direction::DmrToFm {
             return;
         }
 
@@ -707,7 +707,7 @@ impl PttMachine {
                     return;
                 }
                 self.flush_tx(&mut tx).await;
-                if self.cfg.min_tx_hang.is_zero() {
+                if self.config.min_tx_hang.is_zero() {
                     let term = self.build_tx_terminator(&mut tx);
                     info!(stream_id = tx.stream_id, "TX terminator");
                     self.send_control_dmrd(term, "tx_terminator");
@@ -716,7 +716,7 @@ impl PttMachine {
                         reason: TerminationReason::Normal,
                     });
                 } else {
-                    tx.pending_terminate = Some(Instant::now() + self.cfg.min_tx_hang);
+                    tx.pending_terminate = Some(Instant::now() + self.config.min_tx_hang);
                     debug!(stream_id = tx.stream_id, "TX hang start");
                     self.state = PttState::Tx(tx);
                 }
@@ -740,8 +740,8 @@ impl PttMachine {
             let group = self.is_group_call();
             let lc96 = build_voice_lc(
                 group,
-                self.cfg.talkgroup.as_u32(),
-                self.cfg.src_id.as_u32(),
+                self.config.talkgroup.as_u32(),
+                self.config.src_id.as_u32(),
                 DATA_TYPE_VOICE_HEADER,
             );
             let lc_body: [u8; 72] = lc96[..72]
@@ -754,7 +754,7 @@ impl PttMachine {
             // talker-alias header.  TA disabled = single-entry vec,
             // strict voice-LC behavior.
             let mut lc_rotation = vec![voice_fragments];
-            if let Some(ta_bits) = talker_alias::encode_ta_header_bits(&self.cfg.callsign) {
+            if let Some(ta_bits) = talker_alias::encode_ta_header_bits(&self.config.callsign) {
                 lc_rotation.push(build_fragments(&ta_bits));
             }
 
@@ -771,9 +771,9 @@ impl PttMachine {
             info!(stream_id = tx.stream_id, "TX header");
             self.try_send_stats(StatsEvent::CallStart {
                 dir: CallDirection::FmToDmr,
-                src_id: self.cfg.src_id.as_u32(),
-                dst_id: self.cfg.talkgroup.as_u32(),
-                slot: self.cfg.slot,
+                src_id: self.config.src_id.as_u32(),
+                dst_id: self.config.talkgroup.as_u32(),
+                slot: self.config.slot,
             });
             let hdr = self.build_tx_header(&mut tx);
             self.send_control_dmrd(hdr, "tx_header");
@@ -820,7 +820,7 @@ impl PttMachine {
                     reason: TerminationReason::StreamTimeout,
                 });
                 let _ = self.audio_tx.send(make_unkey_frame()).await;
-                self.state = PttState::RxHang(Instant::now() + self.cfg.hang_time);
+                self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
             }
             PttState::RxHang(_) => {
                 debug!("RX hang expired");

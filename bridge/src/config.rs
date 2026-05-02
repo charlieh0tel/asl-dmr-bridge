@@ -71,23 +71,23 @@ pub(crate) enum ConfigError {
     KeepaliveIntervalZero,
 
     #[error("brandmeister_api.api_key and brandmeister_api.api_key_file both set (pick one)")]
-    BmApiKeyAmbiguous,
+    BrandmeisterApiKeyAmbiguous,
 
     #[error(
         "brandmeister_api static_talkgroups_ts{slot} declared but no API key supplied \
          (set api_key, api_key_file, or BRANDMEISTER_API_KEY env var)"
     )]
-    BmApiKeyMissingForStatics { slot: u8 },
+    BrandmeisterApiKeyMissingForStatics { slot: u8 },
 
     #[error("reading brandmeister_api.api_key_file {path}")]
-    BmApiKeyFile {
+    BrandmeisterApiKeyFile {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
 
     #[error("brandmeister_api.api_key_file {path} has multiple lines; expected single-line JWT")]
-    BmApiKeyFileMultiline { path: PathBuf },
+    BrandmeisterApiKeyFileMultiline { path: PathBuf },
 }
 
 /// Top-level configuration, mirrors DESIGN.md configuration schema.
@@ -661,11 +661,11 @@ pub(crate) fn resolve_password(
 /// parsing rules.
 pub(crate) fn read_api_key_file(path: &Path) -> Result<Option<SecretString>, ConfigError> {
     read_secret_file(path).map_err(|e| match e {
-        SecretFileError::Io(source) => ConfigError::BmApiKeyFile {
+        SecretFileError::Io(source) => ConfigError::BrandmeisterApiKeyFile {
             path: path.to_path_buf(),
             source,
         },
-        SecretFileError::Multiline => ConfigError::BmApiKeyFileMultiline {
+        SecretFileError::Multiline => ConfigError::BrandmeisterApiKeyFileMultiline {
             path: path.to_path_buf(),
         },
     })
@@ -720,10 +720,10 @@ pub(crate) fn resolve_api_key(
             // No key supplied -- enforce that no statics are declared
             // (we cannot reconcile without auth).
             if api_cfg.static_talkgroups_ts1.is_some() {
-                return Err(ConfigError::BmApiKeyMissingForStatics { slot: 1 });
+                return Err(ConfigError::BrandmeisterApiKeyMissingForStatics { slot: 1 });
             }
             if api_cfg.static_talkgroups_ts2.is_some() {
-                return Err(ConfigError::BmApiKeyMissingForStatics { slot: 2 });
+                return Err(ConfigError::BrandmeisterApiKeyMissingForStatics { slot: 2 });
             }
             Ok(None)
         }
@@ -735,7 +735,7 @@ pub(crate) fn resolve_api_key(
             tracing::info!(source, "loaded Brandmeister API key");
             Ok(Some(secret))
         }
-        _ => Err(ConfigError::BmApiKeyAmbiguous),
+        _ => Err(ConfigError::BrandmeisterApiKeyAmbiguous),
     }
 }
 

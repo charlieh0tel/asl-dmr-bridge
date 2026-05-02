@@ -377,7 +377,7 @@ async fn async_main() -> anyhow::Result<()> {
     let profile = make_profile(&config.network.profile);
     let vocoder = make_vocoder(&config.vocoder).await?;
 
-    let voice_cfg = dmr_wire::voice::VoiceConfig {
+    let voice_config = dmr_wire::voice::VoiceConfig {
         gateway: match config.dmr.gateway {
             config::GatewayMode::Both => dmr_wire::voice::Direction::Both,
             config::GatewayMode::DmrToFm => dmr_wire::voice::Direction::DmrToFm,
@@ -416,7 +416,7 @@ async fn async_main() -> anyhow::Result<()> {
             Some(stats_tx),
             callsign_lookup,
             vocoder,
-            voice_cfg,
+            voice_config,
             cancel.clone(),
         )
         .await;
@@ -460,14 +460,14 @@ async fn async_main() -> anyhow::Result<()> {
         cancel.cancel();
         anyhow::Ok(())
     };
-    let bm_reconcile_branch = async {
-        if let Some(api_cfg) = config.brandmeister_api.as_ref()
-            && !api_cfg.reconcile_interval.is_zero()
+    let brandmeister_reconcile_branch = async {
+        if let Some(api_config) = config.brandmeister_api.as_ref()
+            && !api_config.reconcile_interval.is_zero()
         {
             brandmeister_provision::periodic_provision(
                 config.repeater.dmr_id,
-                api_cfg.clone(),
-                api_cfg.reconcile_interval,
+                api_config.clone(),
+                api_config.reconcile_interval,
                 cancel.clone(),
             )
             .await;
@@ -529,19 +529,28 @@ async fn async_main() -> anyhow::Result<()> {
         cancel_for_tx.cancel();
         r
     };
-    let (r_rx, r_tx, r_hb, r_voice, r_sub, r_bm, r_stats, r_heartbeat) = tokio::join!(
+    let (r_rx, r_tx, r_homebrew, r_voice, r_subscriber, r_brandmeister, r_stats, r_heartbeat) = tokio::join!(
         rx,
         tx,
         homebrew,
         voice,
         subscriber_branch,
-        bm_reconcile_branch,
+        brandmeister_reconcile_branch,
         stats_consumer_branch,
         heartbeat_branch,
     );
-    if let Some(e) = [r_rx, r_tx, r_hb, r_voice, r_sub, r_bm, r_stats, r_heartbeat]
-        .into_iter()
-        .find_map(Result::err)
+    if let Some(e) = [
+        r_rx,
+        r_tx,
+        r_homebrew,
+        r_voice,
+        r_subscriber,
+        r_brandmeister,
+        r_stats,
+        r_heartbeat,
+    ]
+    .into_iter()
+    .find_map(Result::err)
     {
         return Err(e);
     }

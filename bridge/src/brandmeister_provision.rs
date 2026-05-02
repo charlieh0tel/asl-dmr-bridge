@@ -48,12 +48,12 @@ pub(crate) async fn provision(config: &RuntimeConfig) {
 /// reqwest -- no blocking, no separate task needed.
 pub(crate) async fn periodic_provision(
     device_id: DmrId,
-    api_cfg: ResolvedBrandmeisterApiConfig,
+    api_config: ResolvedBrandmeisterApiConfig,
     interval: Duration,
     cancel: CancellationToken,
 ) {
     info!(?interval, "BM API reconcile timer enabled");
-    let client = build_client(Some(&api_cfg));
+    let client = build_client(Some(&api_config));
     let mut ticker = tokio::time::interval(interval);
     // Avoid back-to-back catch-up runs if the runtime stalls.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -62,13 +62,13 @@ pub(crate) async fn periodic_provision(
         tokio::select! {
             biased;
             _ = cancel.cancelled() => return,
-            _ = ticker.tick() => run_once(&client, device_id, Some(&api_cfg)).await,
+            _ = ticker.tick() => run_once(&client, device_id, Some(&api_config)).await,
         }
     }
 }
 
-fn build_client(api_cfg: Option<&ResolvedBrandmeisterApiConfig>) -> Client {
-    match api_cfg.and_then(|c| c.api_key.as_ref()) {
+fn build_client(api_config: Option<&ResolvedBrandmeisterApiConfig>) -> Client {
+    match api_config.and_then(|c| c.api_key.as_ref()) {
         Some(token) => Client::with_token(token.expose_secret().to_owned().into()),
         None => Client::new(),
     }
@@ -77,13 +77,13 @@ fn build_client(api_cfg: Option<&ResolvedBrandmeisterApiConfig>) -> Client {
 async fn run_once(
     client: &Client,
     device_id: DmrId,
-    api_cfg: Option<&ResolvedBrandmeisterApiConfig>,
+    api_config: Option<&ResolvedBrandmeisterApiConfig>,
 ) {
     log_profile(client, device_id).await;
-    if let Some(cfg) = api_cfg
-        && cfg.api_key.is_some()
+    if let Some(config) = api_config
+        && config.api_key.is_some()
     {
-        reconcile_statics(client, device_id, cfg).await;
+        reconcile_statics(client, device_id, config).await;
     }
 }
 
@@ -125,7 +125,7 @@ fn is_empty_object(v: &serde_json::Value) -> bool {
 async fn reconcile_statics(
     client: &Client,
     device_id: DmrId,
-    api_cfg: &ResolvedBrandmeisterApiConfig,
+    api_config: &ResolvedBrandmeisterApiConfig,
 ) {
     let current = match client.device_talkgroups(device_id).await {
         Ok(v) => v,
@@ -138,10 +138,10 @@ async fn reconcile_statics(
         }
     };
 
-    if let Some(desired) = api_cfg.static_talkgroups_ts1.as_deref() {
+    if let Some(desired) = api_config.static_talkgroups_ts1.as_deref() {
         reconcile_slot(client, device_id, Slot::One, desired, &current).await;
     }
-    if let Some(desired) = api_cfg.static_talkgroups_ts2.as_deref() {
+    if let Some(desired) = api_config.static_talkgroups_ts2.as_deref() {
         reconcile_slot(client, device_id, Slot::Two, desired, &current).await;
     }
 }
