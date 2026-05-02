@@ -30,7 +30,6 @@ const DEFAULT_COLOR_CODE: u8 = 1;
 /// newtypes.  One enum across types so callers can match without
 /// importing per-type error names.
 #[derive(Debug, Error, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum InvalidValue {
     #[error("DMR ID must be non-zero")]
     DmrIdZero,

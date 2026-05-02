@@ -192,7 +192,6 @@ fn build_dmrd(
 /// `VoiceConfig` construction boundary and the DMR module stays free
 /// of application types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum Direction {
     /// Both directions: DMR <-> FM.
     Both,

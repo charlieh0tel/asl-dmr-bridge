@@ -55,7 +55,6 @@ pub const RECV_SLACK: usize = 64;
 pub const VOICE_FRAME_INTERVAL: Duration = Duration::from_millis(20);
 
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum UsrpError {
     #[error("packet too short: {0} bytes")]
     TooShort(usize),
@@ -76,7 +75,6 @@ pub enum UsrpError {
 /// in `serialize` well-defined and matches the on-wire u32 encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
-#[non_exhaustive]
 pub enum FrameType {
     Voice = 0,
     Dtmf = 1,

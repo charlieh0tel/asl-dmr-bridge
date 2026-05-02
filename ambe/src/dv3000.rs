@@ -55,7 +55,6 @@ const RATEP_DMR: [u8; 12] = [
 /// carry it typed across the backend boundary; the enclosing module
 /// `dv3000` is still `pub(crate)`, so effective visibility matches.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum ParseError {
     #[error("packet too short: {have} bytes, need {need}")]
     TooShort { have: usize, need: usize },

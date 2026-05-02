@@ -6,7 +6,6 @@ pub const HTTP_BODY_CAP_BYTES: usize = 256;
 
 /// Errors returned by the Brandmeister API client.
 #[derive(Debug, Error)]
-#[non_exhaustive]
 pub enum ApiError {
     /// Underlying transport / request error from `reqwest`.
     #[error("transport: {0}")]

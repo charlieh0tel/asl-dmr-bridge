@@ -60,7 +60,6 @@ pub struct Subscriber {
 
 /// Errors returned by `Subscribers::load`.
 #[derive(Debug, Error)]
-#[non_exhaustive]
 pub enum LoadError {
     #[error("opening subscriber CSV {path}")]
     Open {

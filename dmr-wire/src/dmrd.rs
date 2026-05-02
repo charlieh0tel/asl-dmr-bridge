@@ -29,24 +29,17 @@ const FLAG_FRAME_TYPE_MASK: u8 = 0x30;
 const FLAG_FRAME_TYPE_SHIFT: u32 = 4;
 const FLAG_DTYPE_VSEQ_MASK: u8 = 0x0F;
 
-/// Group vs unit (private) call.  `non_exhaustive` because the
-/// underlying flag bit is one of two values today, but the wider
-/// DMR-protocol family reserves combinations (e.g., direct-mode
-/// peer call) that a future profile could surface here.
+/// Group vs unit (private) call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum CallType {
     Group,
     Unit,
 }
 
-/// High-level DMRD frame class (bits 5:4 of flags).  `non_exhaustive`
-/// because the wire reserves four 2-bit values; today we surface
-/// three and reject the fourth as `DmrdError::ReservedFrameType`,
-/// but a future protocol extension could promote it to a real
-/// variant.
+/// High-level DMRD frame class (bits 5:4 of flags).  The wire reserves
+/// four 2-bit values; the fourth (reserved) is rejected as
+/// `DmrdError::ReservedFrameType` rather than surfaced as a variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum FrameType {
     /// Mid-superframe voice burst (A..F cycle carried in `dtype_vseq`).
     Voice,
@@ -58,7 +51,6 @@ pub enum FrameType {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum DmrdError {
     #[error("packet too short: {0} bytes (want {PACKET_SIZE})")]
     TooShort(usize),
@@ -73,7 +65,6 @@ pub enum DmrdError {
 /// `frame_type == DataSync`.  `src_id` and `dst_id` are 24-bit values
 /// zero-extended into u32.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct Dmrd {
     pub seq: u8,
     pub src_id: u32,

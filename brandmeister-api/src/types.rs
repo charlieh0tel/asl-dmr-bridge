@@ -104,7 +104,6 @@ pub struct AddStaticBody {
 /// and `callsign` is optional in practice -- BM omits unset fields.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct Device {
     pub id: DmrId,
     pub callsign: String,
@@ -155,7 +154,6 @@ pub struct Device {
 /// needed without the lib over-committing to a structure that may
 /// drift.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[non_exhaustive]
 pub struct DeviceProfile {
     #[serde(rename = "staticSubscriptions", default)]
     pub static_subscriptions: Vec<StaticTalkgroup>,
@@ -174,7 +172,6 @@ pub struct DeviceProfile {
 /// the stable ones.  Renamed from `Talkgroup` so it doesn't shadow
 /// the bare-ID `dmr_types::Talkgroup`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[non_exhaustive]
 pub struct TalkgroupInfo {
     pub id: Talkgroup,
     #[serde(default)]

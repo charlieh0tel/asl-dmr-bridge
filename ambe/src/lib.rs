@@ -37,7 +37,6 @@ pub type PcmFrame = [i16; PCM_SAMPLES];
 pub type AmbeFrame = [u8; AMBE_FRAME_SIZE];
 
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum VocoderError {
     #[error("encode failed: {0}")]
     Encode(String),
