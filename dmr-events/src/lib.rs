@@ -37,10 +37,91 @@ pub type CallsignLookup = Arc<dyn Fn(u32) -> Option<(String, String)> + Send + S
 /// `Clear` signals end-of-call.  The bridge layer translates these
 /// to USRP TEXT frames (JSON encoding for `Call`, "{}" for `Clear`).
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub enum MetaEvent {
     Call(CallMetadata),
     Clear,
+}
+
+/// Direction of a single voice call, as observed by the voice task.
+/// Distinct from the gateway-mode `Direction` (which can include
+/// `Both`); a single call only ever flows one way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallDirection {
+    /// FM (USRP) into DMR.  Bridge encodes PCM to AMBE, sends DMRD.
+    FmToDmr,
+    /// DMR into FM (USRP).  Bridge decodes AMBE from DMRD, sends PCM.
+    DmrToFm,
+}
+
+impl CallDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CallDirection::FmToDmr => "fm_to_dmr",
+            CallDirection::DmrToFm => "dmr_to_fm",
+        }
+    }
+}
+
+/// Why a call ended.  Drives the `reason` field in the per-call
+/// summary log; counters do not branch on this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminationReason {
+    /// RX header terminator received, or TX unkey emitted normally
+    /// (with optional min_tx_hang already expired).
+    Normal,
+    /// RX voice flow stalled past `stream_timeout`.
+    StreamTimeout,
+    /// TX call hit `tx_timeout` with no unkey.
+    TxTimeout,
+    /// Bridge cancellation (SIGINT / SIGTERM / fatal error in a
+    /// sibling task).
+    Shutdown,
+    /// Homebrew session was reset mid-TX; the in-flight call was
+    /// aborted with no terminator on the wire.
+    NetworkReset,
+}
+
+impl TerminationReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TerminationReason::Normal => "normal",
+            TerminationReason::StreamTimeout => "stream_timeout",
+            TerminationReason::TxTimeout => "tx_timeout",
+            TerminationReason::Shutdown => "shutdown",
+            TerminationReason::NetworkReset => "network_reset",
+        }
+    }
+}
+
+/// Stats events emitted by the voice task at every call boundary and
+/// per voice frame.  The bridge layer aggregates these into cumulative
+/// counters + per-call summary logs (see `bridge/src/stats.rs`).
+///
+/// Channel is bounded; the producer (voice task) `try_send`s and
+/// drops on full.  Dropping a `VoiceFrame` slightly understates
+/// counters; dropping a `CallStart` / `CallEnd` orphans a call from
+/// the per-call summary -- accepted as best-effort given the
+/// realistic event rate (~50 frames/s/dir, consumer is one
+/// non-blocking task per event).
+#[derive(Debug, Clone)]
+pub enum StatsEvent {
+    CallStart {
+        dir: CallDirection,
+        src_id: u32,
+        dst_id: u32,
+        slot: Slot,
+    },
+    VoiceFrame {
+        dir: CallDirection,
+        transcode: std::time::Duration,
+    },
+    Drop {
+        dir: CallDirection,
+    },
+    CallEnd {
+        dir: CallDirection,
+        reason: TerminationReason,
+    },
 }
 
 #[cfg(test)]

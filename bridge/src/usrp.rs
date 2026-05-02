@@ -154,10 +154,6 @@ pub(crate) async fn tx_task(
                         info!("metadata Clear");
                         "{}".to_string()
                     }
-                    other => {
-                        debug!(?other, "unknown MetaEvent variant; skipping");
-                        continue;
-                    }
                 };
                 let buf = Frame::serialize_text(seq, &text);
                 seq = seq.wrapping_add(1);

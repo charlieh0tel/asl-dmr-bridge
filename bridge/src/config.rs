@@ -110,6 +110,12 @@ pub(crate) struct Config {
     /// `vocoder.gain_out_db` see no behavior change.
     #[serde(default)]
     pub(crate) agc: AgcConfig,
+    /// Per-call summary log + periodic heartbeat counters.  Section
+    /// absent uses the defaults: 60s heartbeat, idle-suppress on,
+    /// 250ms minimum-call threshold for per-call lines.  See
+    /// `bridge/src/stats.rs`.
+    #[serde(default)]
+    pub(crate) stats: StatsConfig,
 }
 
 /// AGC parameters with sensible defaults; `enabled = false` skips
@@ -152,6 +158,50 @@ fn default_agc_release() -> Duration {
 }
 fn default_agc_max_gain_db() -> f32 {
     30.0
+}
+
+/// Per-call + heartbeat stats logging.  All fields optional; section
+/// absent leaves the bridge with the defaults.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StatsConfig {
+    /// Period for the cumulative-counters heartbeat log.  `0s` disables
+    /// the heartbeat entirely (per-call lines still emit).
+    #[serde(default = "default_stats_heartbeat_interval", with = "humantime_serde")]
+    pub(crate) heartbeat_interval: Duration,
+    /// When true, a heartbeat tick that saw zero new frames in either
+    /// direction since the previous tick is suppressed.  Predictable
+    /// cadence ops can prefer false; quiet logs prefer true.
+    #[serde(default = "default_stats_skip_idle_heartbeat")]
+    pub(crate) skip_idle_heartbeat: bool,
+    /// Per-call summary lines below this duration are suppressed.
+    /// Cumulative counters still see the call's frames + drops.
+    /// Filters out PTT-tap noise.
+    #[serde(
+        default = "default_stats_min_call_log_duration",
+        with = "humantime_serde"
+    )]
+    pub(crate) min_call_log_duration: Duration,
+}
+
+impl Default for StatsConfig {
+    fn default() -> Self {
+        Self {
+            heartbeat_interval: default_stats_heartbeat_interval(),
+            skip_idle_heartbeat: default_stats_skip_idle_heartbeat(),
+            min_call_log_duration: default_stats_min_call_log_duration(),
+        }
+    }
+}
+
+fn default_stats_heartbeat_interval() -> Duration {
+    Duration::from_secs(60)
+}
+fn default_stats_skip_idle_heartbeat() -> bool {
+    true
+}
+fn default_stats_min_call_log_duration() -> Duration {
+    Duration::from_millis(250)
 }
 
 /// Optional Brandmeister Halligan API integration.
@@ -398,6 +448,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) network: ResolvedNetworkConfig,
     pub(crate) brandmeister_api: Option<ResolvedBrandmeisterApiConfig>,
     pub(crate) agc: AgcConfig,
+    pub(crate) stats: StatsConfig,
 }
 
 /// Network section after password resolution.  Mirrors `NetworkConfig`
@@ -471,6 +522,7 @@ impl Config {
             network,
             brandmeister_api,
             agc,
+            stats,
         } = self;
         RuntimeConfig {
             repeater,
@@ -492,6 +544,7 @@ impl Config {
                 reconcile_interval: api.reconcile_interval,
             }),
             agc,
+            stats,
         }
     }
 }

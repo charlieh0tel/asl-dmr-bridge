@@ -15,9 +15,12 @@ use ambe::AmbeFrame;
 use ambe::PcmFrame;
 use ambe::Vocoder;
 use ambe::VocoderError;
+use dmr_events::CallDirection;
 use dmr_events::CallMetadata;
 use dmr_events::CallsignLookup;
 use dmr_events::MetaEvent;
+use dmr_events::StatsEvent;
+use dmr_events::TerminationReason;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -100,7 +103,15 @@ fn poisoned_err(stage: Stage) -> VocoderError {
 pub(crate) struct RxCall {
     pub(crate) stream_id: u32,
     src_id: u32,
+    dst_id: u32,
+    slot: dmr_types::Slot,
+    started: Instant,
     last_voice: Instant,
+    /// Last DMRD `seq` on a voice frame for this stream.  `None` until
+    /// the first voice frame; thereafter, `Some(s)` so the next frame
+    /// detects gaps via `pkt.seq.wrapping_sub(s + 1)`.  Wrapping deltas
+    /// >= 128 treated as reorder/dup and ignored.
+    last_seq: Option<u8>,
 }
 
 pub(crate) struct TxCall {
@@ -148,6 +159,10 @@ pub(crate) struct PttMachine {
     /// without backpressure: dropping a metadata frame is preferable
     /// to stalling the voice path.
     metadata_tx: mpsc::Sender<MetaEvent>,
+    /// Optional channel for stats events emitted at call boundaries
+    /// and per voice frame.  `None` disables emission entirely (no
+    /// allocation, no timing overhead).  See `dmr_events::StatsEvent`.
+    stats_tx: Option<mpsc::Sender<StatsEvent>>,
     /// Optional resolver from on-air DMR ID to (callsign, first-name).
     /// `None` skips enrichment; the JSON omits `call` / `name`.
     callsign_lookup: Option<CallsignLookup>,
@@ -167,6 +182,7 @@ impl PttMachine {
         dmrd_voice_out: mpsc::Sender<Vec<u8>>,
         dmrd_control_out: mpsc::UnboundedSender<Vec<u8>>,
         metadata_tx: mpsc::Sender<MetaEvent>,
+        stats_tx: Option<mpsc::Sender<StatsEvent>>,
         callsign_lookup: Option<CallsignLookup>,
         cancel: CancellationToken,
     ) -> Self {
@@ -177,9 +193,16 @@ impl PttMachine {
             dmrd_voice_out,
             dmrd_control_out,
             metadata_tx,
+            stats_tx,
             callsign_lookup,
             cancel,
             state: PttState::Idle,
+        }
+    }
+
+    fn try_send_stats(&self, evt: StatsEvent) {
+        if let Some(tx) = &self.stats_tx {
+            let _ = tx.try_send(evt);
         }
     }
 
@@ -338,11 +361,16 @@ impl PttMachine {
         &self,
         pcm: &[PcmFrame; FRAMES_PER_BURST],
         tx: &mut TxCall,
-    ) -> Option<Vec<u8>> {
+    ) -> Option<(Vec<u8>, [Duration; FRAMES_PER_BURST])> {
         let mut ambe = [ambe::AmbeFrame::default(); FRAMES_PER_BURST];
+        let mut transcode_times = [Duration::ZERO; FRAMES_PER_BURST];
         for (i, frame) in pcm.iter().enumerate() {
+            let t0 = Instant::now();
             match self.encode(*frame).await {
-                Ok(encoded) => ambe[i] = encoded,
+                Ok(encoded) => {
+                    ambe[i] = encoded;
+                    transcode_times[i] = t0.elapsed();
+                }
                 Err(e) => {
                     warn!(vseq = tx.vseq, sub = i, "encode error: {e}");
                     return None;
@@ -381,7 +409,7 @@ impl PttMachine {
             tx.superframe_idx = tx.superframe_idx.wrapping_add(1);
         }
         tx.vseq = next_vseq;
-        Some(pkt.serialize().to_vec())
+        Some((pkt.serialize().to_vec(), transcode_times))
     }
 
     /// try_send + warn-on-full for the bounded DMRD voice channel.
@@ -391,9 +419,40 @@ impl PttMachine {
     /// Blocking here would freeze the whole voice task -- both
     /// directions, since `voice_task` is single-threaded over its
     /// select loop.
-    fn try_send_voice_dmrd(&self, pkt: Vec<u8>, kind: &'static str) {
-        if self.dmrd_voice_out.try_send(pkt).is_err() {
+    ///
+    /// Folds in stats emission so frame counts stay in lockstep with
+    /// what reaches the wire: VoiceFrame on success, Drop on full.
+    fn try_send_voice_dmrd(
+        &self,
+        pkt: Vec<u8>,
+        transcode_times: [Duration; FRAMES_PER_BURST],
+        kind: &'static str,
+    ) {
+        if self.dmrd_voice_out.try_send(pkt).is_ok() {
+            for t in transcode_times {
+                self.try_send_stats(StatsEvent::VoiceFrame {
+                    dir: CallDirection::FmToDmr,
+                    transcode: t,
+                });
+            }
+        } else {
             warn!(kind, "DMRD out channel full, dropping packet");
+            for _ in 0..FRAMES_PER_BURST {
+                self.try_send_stats(StatsEvent::Drop {
+                    dir: CallDirection::FmToDmr,
+                });
+            }
+        }
+    }
+
+    /// Emit FRAMES_PER_BURST Drop events for an encode failure (whole
+    /// burst lost; per-frame transcode latencies are not recorded for
+    /// the partial-success prefix because the listener never hears it).
+    fn drop_burst_fm_to_dmr(&self) {
+        for _ in 0..FRAMES_PER_BURST {
+            self.try_send_stats(StatsEvent::Drop {
+                dir: CallDirection::FmToDmr,
+            });
         }
     }
 
@@ -415,8 +474,9 @@ impl PttMachine {
             .try_into()
             .expect("sliced to FRAMES_PER_BURST");
         tx.pcm_buf.clear();
-        if let Some(pkt) = self.build_tx_voice(&pcm, tx).await {
-            self.try_send_voice_dmrd(pkt, "tx_flush_voice");
+        match self.build_tx_voice(&pcm, tx).await {
+            Some((pkt, times)) => self.try_send_voice_dmrd(pkt, times, "tx_flush_voice"),
+            None => self.drop_burst_fm_to_dmr(),
         }
     }
 
@@ -437,6 +497,10 @@ impl PttMachine {
             buffered_pcm = tx.pcm_buf.len(),
             "Homebrew session reset during TX; restarting call on next audio"
         );
+        self.try_send_stats(StatsEvent::CallEnd {
+            dir: CallDirection::FmToDmr,
+            reason: TerminationReason::NetworkReset,
+        });
     }
 
     pub(crate) async fn on_dmrd(&mut self, pkt: &Dmrd) {
@@ -466,10 +530,21 @@ impl PttMachine {
                 );
                 check_voice_lc(pkt);
                 self.emit_call_metadata(pkt);
+                let now = Instant::now();
+                self.try_send_stats(StatsEvent::CallStart {
+                    dir: CallDirection::DmrToFm,
+                    src_id: pkt.src_id,
+                    dst_id: pkt.dst_id,
+                    slot: pkt.slot,
+                });
                 self.state = PttState::Rx(RxCall {
                     stream_id: pkt.stream_id,
                     src_id: pkt.src_id,
-                    last_voice: Instant::now(),
+                    dst_id: pkt.dst_id,
+                    slot: pkt.slot,
+                    started: now,
+                    last_voice: now,
+                    last_seq: None,
                 });
             }
             FrameType::DataSync if pkt.dtype_vseq == DATA_TYPE_VOICE_TERMINATOR => {
@@ -481,6 +556,10 @@ impl PttMachine {
                     info!(stream_id = pkt.stream_id, "RX terminator");
                     check_voice_lc(pkt);
                     self.emit_clear_metadata();
+                    self.try_send_stats(StatsEvent::CallEnd {
+                        dir: CallDirection::DmrToFm,
+                        reason: TerminationReason::Normal,
+                    });
                     let _ = self.audio_tx.send(make_unkey_frame()).await;
                     self.state = PttState::RxHang(Instant::now() + self.cfg.hang_time);
                 }
@@ -488,28 +567,72 @@ impl PttMachine {
             FrameType::Voice | FrameType::VoiceSync => {
                 // Update existing Rx or implicit-start from Idle/RxHang.
                 // Tx already excluded above, so the else branch covers
-                // only Idle/RxHang.  `emit_metadata` is deferred until
-                // after the borrow on self.state ends.
+                // only Idle/RxHang.  Emission of the call-boundary
+                // events is deferred until after the borrow on
+                // self.state ends.
                 let mut emit_metadata = false;
+                let mut emit_call_start = false;
+                let mut prior_call_end = false;
+                let mut seq_gap: u8 = 0;
+                let now = Instant::now();
                 if let PttState::Rx(rx) = &mut self.state {
                     if rx.stream_id != pkt.stream_id {
                         info!(old = rx.stream_id, new = pkt.stream_id, "RX stream change");
                         emit_metadata = true;
+                        emit_call_start = true;
+                        prior_call_end = true;
                         rx.stream_id = pkt.stream_id;
                         rx.src_id = pkt.src_id;
+                        rx.dst_id = pkt.dst_id;
+                        rx.slot = pkt.slot;
+                        rx.started = now;
+                        rx.last_seq = None;
+                    } else if let Some(last) = rx.last_seq {
+                        // Wrapping delta to expected (last+1).  0 = in
+                        // order; 1..128 = gap; >=128 = reorder/dup, no
+                        // count.  See RxCall.last_seq doc.
+                        let delta = pkt.seq.wrapping_sub(last.wrapping_add(1));
+                        if (1..128).contains(&delta) {
+                            seq_gap = delta;
+                        }
                     }
-                    rx.last_voice = Instant::now();
+                    rx.last_seq = Some(pkt.seq);
+                    rx.last_voice = now;
                 } else {
                     debug!(stream_id = pkt.stream_id, "RX implicit start");
                     emit_metadata = true;
+                    emit_call_start = true;
                     self.state = PttState::Rx(RxCall {
                         stream_id: pkt.stream_id,
                         src_id: pkt.src_id,
-                        last_voice: Instant::now(),
+                        dst_id: pkt.dst_id,
+                        slot: pkt.slot,
+                        started: now,
+                        last_voice: now,
+                        last_seq: Some(pkt.seq),
+                    });
+                }
+                if prior_call_end {
+                    self.try_send_stats(StatsEvent::CallEnd {
+                        dir: CallDirection::DmrToFm,
+                        reason: TerminationReason::Normal,
+                    });
+                }
+                if emit_call_start {
+                    self.try_send_stats(StatsEvent::CallStart {
+                        dir: CallDirection::DmrToFm,
+                        src_id: pkt.src_id,
+                        dst_id: pkt.dst_id,
+                        slot: pkt.slot,
                     });
                 }
                 if emit_metadata {
                     self.emit_call_metadata(pkt);
+                }
+                for _ in 0..seq_gap {
+                    self.try_send_stats(StatsEvent::Drop {
+                        dir: CallDirection::DmrToFm,
+                    });
                 }
 
                 let ambe_frames = extract_ambe(&pkt.dmr_data);
@@ -527,15 +650,30 @@ impl PttMachine {
                             stream_id = pkt.stream_id,
                             "audio tx channel full, dropping voice burst"
                         );
+                        for _ in 0..FRAMES_PER_BURST {
+                            self.try_send_stats(StatsEvent::Drop {
+                                dir: CallDirection::DmrToFm,
+                            });
+                        }
                         return;
                     }
                 };
                 for (i, ambe) in ambe_frames.iter().enumerate() {
                     let permit = permits.next().expect("reserved FRAMES_PER_BURST permits");
+                    let t0 = Instant::now();
                     match self.decode(*ambe).await {
-                        Ok(pcm) => permit.send(make_voice_frame(pcm)),
+                        Ok(pcm) => {
+                            self.try_send_stats(StatsEvent::VoiceFrame {
+                                dir: CallDirection::DmrToFm,
+                                transcode: t0.elapsed(),
+                            });
+                            permit.send(make_voice_frame(pcm));
+                        }
                         Err(e) => {
                             warn!(stream_id = pkt.stream_id, sub = i, "decode error: {e}");
+                            self.try_send_stats(StatsEvent::Drop {
+                                dir: CallDirection::DmrToFm,
+                            });
                             // permit drops, releasing its slot.
                         }
                     }
@@ -573,6 +711,10 @@ impl PttMachine {
                     let term = self.build_tx_terminator(&mut tx);
                     info!(stream_id = tx.stream_id, "TX terminator");
                     self.send_control_dmrd(term, "tx_terminator");
+                    self.try_send_stats(StatsEvent::CallEnd {
+                        dir: CallDirection::FmToDmr,
+                        reason: TerminationReason::Normal,
+                    });
                 } else {
                     tx.pending_terminate = Some(Instant::now() + self.cfg.min_tx_hang);
                     debug!(stream_id = tx.stream_id, "TX hang start");
@@ -627,6 +769,12 @@ impl PttMachine {
                 pending_terminate: None,
             };
             info!(stream_id = tx.stream_id, "TX header");
+            self.try_send_stats(StatsEvent::CallStart {
+                dir: CallDirection::FmToDmr,
+                src_id: self.cfg.src_id.as_u32(),
+                dst_id: self.cfg.talkgroup.as_u32(),
+                slot: self.cfg.slot,
+            });
             let hdr = self.build_tx_header(&mut tx);
             self.send_control_dmrd(hdr, "tx_header");
             tx.pcm_buf.push(audio);
@@ -651,9 +799,12 @@ impl PttMachine {
                 .expect("sliced to FRAMES_PER_BURST");
             tx.pcm_buf.clear();
             let vseq = tx.vseq;
-            if let Some(pkt) = self.build_tx_voice(&pcm, &mut tx).await {
-                debug!(stream_id = tx.stream_id, vseq, "TX voice");
-                self.try_send_voice_dmrd(pkt, "tx_voice");
+            match self.build_tx_voice(&pcm, &mut tx).await {
+                Some((pkt, times)) => {
+                    debug!(stream_id = tx.stream_id, vseq, "TX voice");
+                    self.try_send_voice_dmrd(pkt, times, "tx_voice");
+                }
+                None => self.drop_burst_fm_to_dmr(),
             }
         }
         self.state = PttState::Tx(tx);
@@ -664,6 +815,10 @@ impl PttMachine {
             PttState::Rx(rx) => {
                 warn!(stream_id = rx.stream_id, "RX stream timeout");
                 self.emit_clear_metadata();
+                self.try_send_stats(StatsEvent::CallEnd {
+                    dir: CallDirection::DmrToFm,
+                    reason: TerminationReason::StreamTimeout,
+                });
                 let _ = self.audio_tx.send(make_unkey_frame()).await;
                 self.state = PttState::RxHang(Instant::now() + self.cfg.hang_time);
             }
@@ -680,14 +835,20 @@ impl PttMachine {
                 // by an in-flight burst is preserved before the
                 // terminator fires.  Empty pcm_buf is a no-op flush.
                 let hang_expired = tx.pending_terminate.is_some_and(|dl| Instant::now() >= dl);
-                if hang_expired {
+                let reason = if hang_expired {
                     info!(stream_id = tx.stream_id, "TX hang expired -> terminator");
+                    TerminationReason::Normal
                 } else {
                     warn!(stream_id = tx.stream_id, "TX timeout");
-                }
+                    TerminationReason::TxTimeout
+                };
                 self.flush_tx(&mut tx).await;
                 let term = self.build_tx_terminator(&mut tx);
                 self.send_control_dmrd(term, "tx_timeout_terminator");
+                self.try_send_stats(StatsEvent::CallEnd {
+                    dir: CallDirection::FmToDmr,
+                    reason,
+                });
             }
             PttState::Idle => {}
         }
@@ -697,6 +858,10 @@ impl PttMachine {
         match self.take_state() {
             PttState::Rx(_) => {
                 self.emit_clear_metadata();
+                self.try_send_stats(StatsEvent::CallEnd {
+                    dir: CallDirection::DmrToFm,
+                    reason: TerminationReason::Shutdown,
+                });
                 let _ = self.audio_tx.send(make_unkey_frame()).await;
             }
             PttState::RxHang(_) => {
@@ -709,6 +874,10 @@ impl PttMachine {
                 self.flush_tx(&mut tx).await;
                 let term = self.build_tx_terminator(&mut tx);
                 self.send_control_dmrd(term, "tx_shutdown_terminator");
+                self.try_send_stats(StatsEvent::CallEnd {
+                    dir: CallDirection::FmToDmr,
+                    reason: TerminationReason::Shutdown,
+                });
             }
             PttState::Idle => {}
         }

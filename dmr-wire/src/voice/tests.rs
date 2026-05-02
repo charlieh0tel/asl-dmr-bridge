@@ -63,6 +63,7 @@ fn make_machine_with_lookup(callsign_lookup: Option<CallsignLookup>) -> TestMach
         dmrd_voice_out,
         dmrd_control_out,
         metadata_tx,
+        None,
         callsign_lookup,
         CancellationToken::new(),
     );
@@ -352,6 +353,7 @@ fn make_machine_with_callsign(callsign: &str) -> TestMachine {
         dmrd_control_out,
         metadata_tx,
         None,
+        None,
         CancellationToken::new(),
     );
     (m, audio_rx, dmrd_voice_rx, dmrd_control_rx, metadata_rx)
@@ -484,6 +486,7 @@ fn make_machine_with_min_tx_hang(hang: Duration) -> TestMachine {
         dmrd_voice_out,
         dmrd_control_out,
         metadata_tx,
+        None,
         None,
         CancellationToken::new(),
     );
@@ -775,6 +778,7 @@ impl Rig {
             dmrd_voice_out_tx,
             dmrd_control_out_tx,
             metadata_tx,
+            None,
             None,
             Box::new(StubVocoder),
             cfg,

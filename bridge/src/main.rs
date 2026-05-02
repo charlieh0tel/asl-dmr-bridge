@@ -4,6 +4,7 @@ mod brandmeister_provision;
 mod config;
 mod homebrew_client;
 mod network;
+mod stats;
 #[expect(
     dead_code,
     reason = "to_be_bytes_3, index, as_bytes consumed in Milestone 5"
@@ -374,6 +375,10 @@ async fn async_main() -> anyhow::Result<()> {
     // metadata is best-effort and dropping is preferable to stalling.
     let (metadata_tx, metadata_rx) = mpsc::channel::<dmr_events::MetaEvent>(8);
 
+    // Stats events: try_send, drop on full.  256 = ~5s headroom.
+    let (stats_tx, stats_rx) = mpsc::channel::<dmr_events::StatsEvent>(256);
+    let stats_state = Arc::new(stats::Stats::new());
+
     let profile = make_profile(&config.network.profile);
     let vocoder = make_vocoder(&config.vocoder).await?;
 
@@ -413,6 +418,7 @@ async fn async_main() -> anyhow::Result<()> {
             dmrd_voice_out_tx,
             dmrd_ctl_out_tx,
             metadata_tx,
+            Some(stats_tx),
             callsign_lookup,
             vocoder,
             voice_cfg,
@@ -476,6 +482,24 @@ async fn async_main() -> anyhow::Result<()> {
         cancel.cancel();
         anyhow::Ok(())
     };
+    let stats_consumer_branch = {
+        let stats_state = stats_state.clone();
+        let min = config.stats.min_call_log_duration;
+        async move {
+            stats::consume_events(stats_state, stats_rx, min).await;
+            anyhow::Ok(())
+        }
+    };
+    let heartbeat_branch = {
+        let stats_state = stats_state.clone();
+        let interval = config.stats.heartbeat_interval;
+        let skip_idle = config.stats.skip_idle_heartbeat;
+        let cancel = cancel.clone();
+        async move {
+            stats::heartbeat_task(stats_state, interval, skip_idle, cancel).await;
+            anyhow::Ok(())
+        }
+    };
     // rx + tx must `async move` to take ownership of `socket` (or a
     // clone) and the channel halves; cancel is cloned per branch so
     // the outer `cancel` stays available for the non-move branches.
@@ -510,15 +534,17 @@ async fn async_main() -> anyhow::Result<()> {
         cancel_for_tx.cancel();
         r
     };
-    let (r_rx, r_tx, r_hb, r_voice, r_sub, r_bm) = tokio::join!(
+    let (r_rx, r_tx, r_hb, r_voice, r_sub, r_bm, r_stats, r_heartbeat) = tokio::join!(
         rx,
         tx,
         homebrew,
         voice,
         subscriber_branch,
-        bm_reconcile_branch
+        bm_reconcile_branch,
+        stats_consumer_branch,
+        heartbeat_branch,
     );
-    if let Some(e) = [r_rx, r_tx, r_hb, r_voice, r_sub, r_bm]
+    if let Some(e) = [r_rx, r_tx, r_hb, r_voice, r_sub, r_bm, r_stats, r_heartbeat]
         .into_iter()
         .find_map(Result::err)
     {

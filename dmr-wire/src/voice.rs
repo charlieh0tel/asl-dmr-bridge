@@ -20,6 +20,7 @@ use ambe::PcmFrame;
 use ambe::Vocoder;
 use dmr_events::CallsignLookup;
 use dmr_events::MetaEvent;
+use dmr_events::StatsEvent;
 use dmr_types::ColorCode;
 use dmr_types::DmrId;
 use dmr_types::Slot;
@@ -256,6 +257,7 @@ pub async fn voice_task(
     dmrd_voice_out: mpsc::Sender<Vec<u8>>,
     dmrd_control_out: mpsc::UnboundedSender<Vec<u8>>,
     metadata_tx: mpsc::Sender<MetaEvent>,
+    stats_tx: Option<mpsc::Sender<StatsEvent>>,
     callsign_lookup: Option<CallsignLookup>,
     vocoder: Box<dyn Vocoder>,
     cfg: VoiceConfig,
@@ -268,6 +270,7 @@ pub async fn voice_task(
         dmrd_voice_out,
         dmrd_control_out,
         metadata_tx,
+        stats_tx,
         callsign_lookup,
         cancel.clone(),
     );
