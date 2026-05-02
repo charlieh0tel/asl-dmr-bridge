@@ -438,6 +438,8 @@ async fn async_main() -> anyhow::Result<()> {
         cancel.cancel();
         r
     };
+    // No-op branches park on cancel so they don't trip shutdown at
+    // startup.
     let subscriber_branch = async {
         if let (Some(state), Some(path)) = (
             subscribers_state.as_ref(),
@@ -451,6 +453,8 @@ async fn async_main() -> anyhow::Result<()> {
                 cancel.clone(),
             )
             .await;
+        } else {
+            cancel.cancelled().await;
         }
         cancel.cancel();
         anyhow::Ok(())
@@ -466,6 +470,8 @@ async fn async_main() -> anyhow::Result<()> {
                 cancel.clone(),
             )
             .await;
+        } else {
+            cancel.cancelled().await;
         }
         cancel.cancel();
         anyhow::Ok(())
