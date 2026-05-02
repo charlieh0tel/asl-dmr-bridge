@@ -6,17 +6,22 @@
 //!
 //! Usage:
 //!   arecord -f S16_LE -r 8000 -c 1 | cargo run --example usrp_send
-//!   cargo run --example usrp_send < /tmp/voice.raw
+//!   cargo run --example usrp_send -- --from-port 34002 < /tmp/voice.raw
 //!
 //! Default target is 127.0.0.1:34001 (the bridge's USRP listen port).
+//! Default --from-port is 34002 (the bridge's expected peer port);
+//! the bridge whitelists by source addr and drops packets from any
+//! other port.
 
 use std::env;
 use std::io::Read;
 use std::net::UdpSocket;
+use std::process::ExitCode;
 use std::thread;
 use std::time::Duration;
 
 const DEFAULT_TARGET: &str = "127.0.0.1:34001";
+const DEFAULT_FROM_PORT: u16 = 34002;
 
 const USRP_MAGIC: &[u8; 4] = b"USRP";
 const HEADER_SIZE: usize = 32;
@@ -37,11 +42,37 @@ fn build_header(seq: u32, keyup: bool, talkgroup: u32) -> [u8; HEADER_SIZE] {
     hdr
 }
 
-fn main() -> anyhow::Result<()> {
-    let target = env::args().nth(1).unwrap_or_else(|| DEFAULT_TARGET.into());
+fn parse_args() -> Result<(String, u16), String> {
+    let mut target: Option<String> = None;
+    let mut from_port: u16 = DEFAULT_FROM_PORT;
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--from-port" => {
+                let v = args
+                    .next()
+                    .ok_or_else(|| "--from-port requires a value".to_string())?;
+                from_port = v
+                    .parse()
+                    .map_err(|e| format!("--from-port {v}: {e}"))?;
+            }
+            "-h" | "--help" => {
+                return Err(format!(
+                    "usage: usrp_send [--from-port <port>] [target]\n  default target: {DEFAULT_TARGET}\n  default --from-port: {DEFAULT_FROM_PORT}"
+                ));
+            }
+            _ if target.is_none() => target = Some(arg),
+            _ => return Err(format!("unexpected argument: {arg}")),
+        }
+    }
+    Ok((target.unwrap_or_else(|| DEFAULT_TARGET.into()), from_port))
+}
 
-    let socket = UdpSocket::bind("0.0.0.0:0")?;
-    eprintln!("sending USRP to {target}");
+fn run() -> anyhow::Result<()> {
+    let (target, from_port) = parse_args().map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let socket = UdpSocket::bind(("0.0.0.0", from_port))?;
+    eprintln!("sending USRP to {target} from port {from_port}");
 
     let mut stdin = std::io::stdin().lock();
     let mut seq: u32 = 0;
@@ -75,4 +106,14 @@ fn main() -> anyhow::Result<()> {
     eprintln!("sent unkey after {frames_sent} frames");
 
     Ok(())
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }
