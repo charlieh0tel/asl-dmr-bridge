@@ -49,6 +49,12 @@ standalone CLI over the same API.  See
 [docs/BRANDMEISTER-API.md](docs/BRANDMEISTER-API.md) for the full
 guide and `config.example.toml` for the config schema.
 
+The bridge emits a per-call summary INFO line at every call's end
+(direction, frame count, drops, transcode p50/p99, termination
+reason) and a periodic cumulative-counter heartbeat.  See `[stats]`
+in `config.example.toml` to tune the heartbeat interval, idle-skip,
+and the per-call duration floor.
+
 See `config.example.toml` for the configuration schema.
 
 Key config fields:

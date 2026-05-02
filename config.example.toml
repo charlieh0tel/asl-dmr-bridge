@@ -114,3 +114,12 @@ keepalive_missed_limit = 3
 # # edits made while the bridge is up get corrected.  Default "0s"
 # # = startup-only.  Suggested for long-running deployments: "1h".
 # reconcile_interval = "0s"
+
+# Per-call summary log + cumulative-counter heartbeat.  Section
+# absent uses the defaults shown.  Per-call lines emit at every
+# call's end; the heartbeat is a periodic INFO with cumulative
+# counters per direction since process start.
+# [stats]
+# heartbeat_interval = "60s"        # 0s disables the heartbeat
+# skip_idle_heartbeat = true        # suppress ticks with no traffic
+# min_call_log_duration = "250ms"   # below this, the per-call line is suppressed

@@ -179,8 +179,9 @@ mod tests {
             remote_port = 34002
 
             [vocoder]
-            backend = "thumbdv"
-            serial_port = "/dev/ttyUSB0"
+            backend = "ambeserver"
+            host = "127.0.0.1"
+            port = 2460
 
             [dmr]
             slot = 1
@@ -284,8 +285,9 @@ mod tests {
             remote_port = 34002
 
             [vocoder]
-            backend = "thumbdv"
-            serial_port = "/dev/ttyUSB0"
+            backend = "ambeserver"
+            host = "127.0.0.1"
+            port = 2460
 
             [dmr]
             slot = 1

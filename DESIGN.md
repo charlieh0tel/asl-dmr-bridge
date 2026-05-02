@@ -449,6 +449,12 @@ keepalive_missed_limit = 3
 # static_talkgroups_ts1 = [91, 3100]
 # static_talkgroups_ts2 = []
 # reconcile_interval = "0s"   # >0 to also reconcile periodically while running
+
+# Per-call summary log + cumulative-counter heartbeat.  All defaults shown.
+# [stats]
+# heartbeat_interval = "60s"        # 0s disables the heartbeat
+# skip_idle_heartbeat = true        # suppress ticks with no traffic
+# min_call_log_duration = "250ms"   # below this, the per-call line is suppressed
 ```
 
 ---
