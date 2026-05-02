@@ -328,8 +328,10 @@ pub(crate) enum VocoderBackend {
 pub(crate) struct VocoderConfig {
     pub(crate) backend: VocoderBackend,
     /// Serial port path for ThumbDV (e.g. "/dev/ttyUSB0").
+    #[cfg(feature = "thumbdv")]
     pub(crate) serial_port: Option<String>,
     /// Serial baud rate for ThumbDV (default 460800).
+    #[cfg(feature = "thumbdv")]
     pub(crate) serial_baud: Option<u32>,
     /// AMBEserver host (when backend = "ambeserver").
     pub(crate) host: Option<String>,

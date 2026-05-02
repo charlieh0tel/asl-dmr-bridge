@@ -79,10 +79,6 @@ impl Callsign {
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
-
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
 }
 
 impl fmt::Display for Callsign {

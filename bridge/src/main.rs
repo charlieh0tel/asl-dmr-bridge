@@ -1,14 +1,9 @@
 mod agc;
 mod brandmeister_provision;
-#[expect(dead_code, reason = "call_type, hang_time consumed in Milestone 5")]
 mod config;
 mod homebrew_client;
 mod network;
 mod stats;
-#[expect(
-    dead_code,
-    reason = "to_be_bytes_3, index, as_bytes consumed in Milestone 5"
-)]
 mod types;
 mod usrp;
 

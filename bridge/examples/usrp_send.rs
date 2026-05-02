@@ -52,9 +52,7 @@ fn parse_args() -> Result<(String, u16), String> {
                 let v = args
                     .next()
                     .ok_or_else(|| "--from-port requires a value".to_string())?;
-                from_port = v
-                    .parse()
-                    .map_err(|e| format!("--from-port {v}: {e}"))?;
+                from_port = v.parse().map_err(|e| format!("--from-port {v}: {e}"))?;
             }
             "-h" | "--help" => {
                 return Err(format!(
