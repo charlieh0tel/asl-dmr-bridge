@@ -80,6 +80,12 @@ use super::new_stream_id;
 // the Arc<Mutex<>> only exists to satisfy spawn_blocking's 'static bound.
 type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 
+/// Beyond this gap, frame-repeat compensation costs more wire
+/// RTT than the burst budget allows and sounds broken past
+/// ~200 ms anyway; treat as a stream boundary (one on_ptt_up
+/// instead of per-frame compensation).
+const GAP_BOUNDARY_PACKETS: u8 = 3;
+
 /// Which side of the vocoder lock holder panicked.  Used to pick
 /// the correct `VocoderError` variant in `poisoned_err` without a
 /// fragile string match.
@@ -651,11 +657,12 @@ impl PttMachine {
                 }
 
                 let ambe_frames = extract_ambe(&pkt.dmr_data);
-                // Each lost packet = FRAMES_PER_BURST missing AMBE
-                // frames; fill with decode(None) before the real
-                // burst so the decoder advances state and the
-                // compensation audio lands in time order.
-                let gap_frames = FRAMES_PER_BURST * seq_gap as usize;
+                let gap_frames = if seq_gap > GAP_BOUNDARY_PACKETS {
+                    self.on_ptt_up();
+                    0
+                } else {
+                    FRAMES_PER_BURST * seq_gap as usize
+                };
                 let total_frames = FRAMES_PER_BURST + gap_frames;
                 // All-or-nothing reservation: per-frame try_send
                 // would let some frames sneak in while later ones
