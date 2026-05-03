@@ -7,9 +7,9 @@
 //! op stack, so graph-folded mel is viable for the real model.
 //! Fail: fall back to Rust-side mel front-end.
 //!
-//! Usage:
-//!     cargo run -p ambe --features neural --example tract_mel_smoke -- \
-//!         path/to/smoke_tract_mel/
+//! With no argument, runs against the in-tree bundle at
+//! `ambe/tests/fixtures/smoke_tract_mel/`.  Pass a path to a fresh
+//! export to test it before committing.
 
 use std::env;
 use std::fs;
@@ -94,13 +94,12 @@ fn run(bundle: &Path) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    let bundle = match env::args().nth(1) {
-        Some(p) => PathBuf::from(p),
-        None => {
-            eprintln!("usage: tract_mel_smoke <smoke_tract_mel_dir>");
-            return ExitCode::FAILURE;
-        }
-    };
+    let bundle = env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("smoke_tract_mel")
+    });
     match run(&bundle) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

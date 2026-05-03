@@ -56,3 +56,7 @@ required-features = ["testing", "thumbdv"]
 [[test]]
 name = "ambeserver_golden"
 required-features = ["testing"]
+
+[[test]]
+name = "tract_mel_smoke"
+required-features = ["neural"]
