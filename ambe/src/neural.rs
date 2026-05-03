@@ -190,7 +190,7 @@ impl Vocoder for NeuralVocoder {
         ))
     }
 
-    fn decode(&mut self, ambe: &AmbeFrame) -> Result<PcmFrame, VocoderError> {
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
         self.decoder.decode(ambe)
     }
 

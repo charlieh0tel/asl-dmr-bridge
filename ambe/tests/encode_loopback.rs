@@ -97,7 +97,7 @@ fn chip_encode_decode_self() {
         .collect();
     let out: Vec<PcmFrame> = ambe
         .iter()
-        .map(|a| chip.decode(a).expect("decode"))
+        .map(|a| chip.decode(Some(a)).expect("decode"))
         .collect();
     assert_voice_shaped(&out[WARMUP..], "chip->chip");
 }
@@ -113,7 +113,10 @@ fn chip_encode_mbelib_decode() {
         .iter()
         .map(|p| chip.encode(p).expect("encode"))
         .collect();
-    let out: Vec<PcmFrame> = ambe.iter().map(|a| mb.decode(a).expect("decode")).collect();
+    let out: Vec<PcmFrame> = ambe
+        .iter()
+        .map(|a| mb.decode(Some(a)).expect("decode"))
+        .collect();
     assert_voice_shaped(&out[WARMUP..], "chip->mbelib");
 }
 
@@ -133,7 +136,7 @@ fn gain_affects_decoded_amplitude() {
             .collect();
         let out: Vec<PcmFrame> = ambe
             .iter()
-            .map(|a| chip.decode(a).expect("decode"))
+            .map(|a| chip.decode(Some(a)).expect("decode"))
             .collect();
         rms(&out[WARMUP..])
     }

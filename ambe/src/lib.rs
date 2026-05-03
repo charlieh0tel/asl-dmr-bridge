@@ -65,7 +65,16 @@ pub enum VocoderError {
 /// Vocoder backend trait for PCM <-> AMBE+2 transcoding.
 pub trait Vocoder: Send {
     fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError>;
-    fn decode(&mut self, ambe: &AmbeFrame) -> Result<PcmFrame, VocoderError>;
+
+    /// Decode one AMBE frame to PCM.  `Some(&ambe)` is a real
+    /// received frame; `None` is a known-missing slot in the
+    /// stream (packet drop / erasure) and the decoder synthesizes
+    /// a compensation frame -- chip backends send a CMODE
+    /// LOST_FRAME packet so the chip emits a predictor frame-
+    /// repeat; mbelib runs its erasure path (reset + silence).
+    /// Either way, per-stream decoder state advances so the next
+    /// real frame isn't decoded against stale history.
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError>;
 
     /// Reset transient per-stream state (decoder predictor /
     /// smoother history, lookahead buffers).  Called by the bridge

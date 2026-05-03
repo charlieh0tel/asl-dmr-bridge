@@ -125,7 +125,7 @@ fn run(args: &Args) -> Result<(), String> {
         let mut frame = [0u8; CODED_BYTES];
         frame.copy_from_slice(&coded[i * CODED_BYTES..(i + 1) * CODED_BYTES]);
         let samples = vocoder
-            .decode(&frame)
+            .decode(Some(&frame))
             .map_err(|e| format!("decode frame {i}: {e}"))?;
         pcm.extend_from_slice(&samples);
         if !args.quiet && (i + 1) % 200 == 0 {

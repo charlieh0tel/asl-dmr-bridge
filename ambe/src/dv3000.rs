@@ -238,6 +238,35 @@ pub(crate) fn build_ambe(ambe: &AmbeFrame) -> Vec<u8> {
     buf
 }
 
+/// Build a DV3000 AMBE packet with `LOST_FRAME` set in the per-
+/// packet CMODE override (AMBE-3000R Users Manual §6.9, bit 2 of
+/// the channel-packet CMODE word).  The chip ignores the channel
+/// data and performs a frame repeat using its predictor, so the
+/// data bytes are sent as zeros.
+pub(crate) fn build_ambe_lost_frame() -> Vec<u8> {
+    /// Per-frame CMODE override telling the decoder this frame is
+    /// known-bad: ignore channel data, do a predictor frame-repeat.
+    const CMODE_LOST_FRAME: u16 = 0x0004;
+
+    // payload: chand_field(1) + num_bits(1) + data(AMBE_FRAME_SIZE)
+    //        + cmode_field(1) + cmode_value(2)
+    let payload_len = 1 + 1 + AMBE_FRAME_SIZE + 1 + 2;
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len);
+
+    buf.push(START_BYTE);
+    buf.extend_from_slice(&(payload_len as u16).to_be_bytes());
+    buf.push(TYPE_AMBE);
+
+    buf.push(FIELD_CHANNEL_DATA);
+    buf.push(AMBE_BITS);
+    buf.extend_from_slice(&[0u8; AMBE_FRAME_SIZE]);
+
+    buf.push(FIELD_CMODE);
+    buf.extend_from_slice(&CMODE_LOST_FRAME.to_be_bytes());
+
+    buf
+}
+
 /// Build a reset control packet.
 pub(crate) fn build_reset() -> Vec<u8> {
     let payload_len: u16 = 1;

@@ -280,10 +280,13 @@ impl PttMachine {
 
     // --- Vocoder (spawn_blocking + cancel race) ---
 
-    async fn decode(&self, ambe: AmbeFrame) -> Result<PcmFrame, VocoderError> {
+    /// `ambe = Some(frame)` decodes a real frame; `None` is a
+    /// known-missing slot in the stream (RX seq gap), so the
+    /// vocoder advances state and synthesizes compensation.
+    async fn decode(&self, ambe: Option<AmbeFrame>) -> Result<PcmFrame, VocoderError> {
         let v = self.vocoder.clone();
         let handle = tokio::task::spawn_blocking(move || match v.lock() {
-            Ok(mut guard) => guard.decode(&ambe),
+            Ok(mut guard) => guard.decode(ambe.as_ref()),
             Err(_) => Err(poisoned_err(Stage::Decode)),
         });
         tokio::select! {
@@ -648,14 +651,16 @@ impl PttMachine {
                 }
 
                 let ambe_frames = extract_ambe(&pkt.dmr_data);
-                // Reserve FRAMES_PER_BURST slots up-front and drop
-                // the whole burst if they don't all fit.  Per-frame
-                // try_send would let frames 1-2 of a 3-frame burst
-                // sneak in while frame 3 dropped, producing an
-                // audible 20 ms gap mid-burst on the FM side.  An
-                // all-or-nothing reservation keeps the burst whole
-                // or skips it cleanly.
-                let mut permits = match self.audio_tx.try_reserve_many(FRAMES_PER_BURST) {
+                // Each lost packet = FRAMES_PER_BURST missing AMBE
+                // frames; fill with decode(None) before the real
+                // burst so the decoder advances state and the
+                // compensation audio lands in time order.
+                let gap_frames = FRAMES_PER_BURST * seq_gap as usize;
+                let total_frames = FRAMES_PER_BURST + gap_frames;
+                // All-or-nothing reservation: per-frame try_send
+                // would let some frames sneak in while later ones
+                // dropped, producing an audible mid-burst gap.
+                let mut permits = match self.audio_tx.try_reserve_many(total_frames) {
                     Ok(p) => p,
                     Err(_) => {
                         warn!(
@@ -670,10 +675,20 @@ impl PttMachine {
                         return;
                     }
                 };
+                for _ in 0..gap_frames {
+                    let permit = permits.next().expect("reserved gap-fill permit");
+                    match self.decode(None).await {
+                        Ok(pcm) => permit.send(make_voice_frame(pcm)),
+                        Err(e) => {
+                            warn!(stream_id = pkt.stream_id, "lost-frame decode error: {e}");
+                            // permit drops, releasing its slot.
+                        }
+                    }
+                }
                 for (i, ambe) in ambe_frames.iter().enumerate() {
-                    let permit = permits.next().expect("reserved FRAMES_PER_BURST permits");
+                    let permit = permits.next().expect("reserved voice-burst permit");
                     let t0 = Instant::now();
-                    match self.decode(*ambe).await {
+                    match self.decode(Some(*ambe)).await {
                         Ok(pcm) => {
                             self.try_send_stats(StatsEvent::VoiceFrame {
                                 dir: CallDirection::DmrToFm,

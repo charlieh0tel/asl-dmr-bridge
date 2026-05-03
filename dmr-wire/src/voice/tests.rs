@@ -13,7 +13,7 @@ impl Vocoder for StubVocoder {
     fn encode(&mut self, _pcm: &PcmFrame) -> Result<ambe::AmbeFrame, ambe::VocoderError> {
         Ok([0xAA; ambe::AMBE_FRAME_SIZE])
     }
-    fn decode(&mut self, _ambe: &ambe::AmbeFrame) -> Result<PcmFrame, ambe::VocoderError> {
+    fn decode(&mut self, _ambe: Option<&ambe::AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
         Ok([1000i16; VOICE_SAMPLES])
     }
     fn reset(&mut self) {}

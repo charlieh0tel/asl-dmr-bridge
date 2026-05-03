@@ -88,7 +88,7 @@ fn real_amb_samples_decode() {
             amb.copy_from_slice(&frames[i * AMB_FRAME_LEN..(i + 1) * AMB_FRAME_LEN]);
             let frame = amb_to_ambe_frame(&amb);
             let pcm = vocoder
-                .decode(&frame)
+                .decode(Some(&frame))
                 .unwrap_or_else(|e| panic!("{name} frame {i}: {e}"));
             for s in pcm {
                 total_abs += u64::from(s.unsigned_abs());

@@ -109,8 +109,15 @@ impl Vocoder for AmbeServer {
         }
     }
 
-    fn decode(&mut self, ambe: &AmbeFrame) -> Result<PcmFrame, VocoderError> {
-        match self.send_recv(&dv3000::build_ambe(ambe))? {
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
+        // None -> CMODE LOST_FRAME packet so the chip ignores the
+        // (placeholder) channel data and emits a predictor frame-
+        // repeat (AMBE-3000R Users Manual §6.9, bit 2 = LOST_FRAME).
+        let pkt = match ambe {
+            Some(ambe) => dv3000::build_ambe(ambe),
+            None => dv3000::build_ambe_lost_frame(),
+        };
+        match self.send_recv(&pkt)? {
             dv3000::Packet::Audio(samples) => Ok(*samples),
             other => Err(VocoderError::Decode(format!(
                 "expected audio response, got {other:?}"

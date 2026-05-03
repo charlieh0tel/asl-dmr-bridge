@@ -63,7 +63,14 @@ impl Vocoder for Mbelib {
         Err(VocoderError::Unsupported("mbelib is decode-only"))
     }
 
-    fn decode(&mut self, ambe: &AmbeFrame) -> Result<PcmFrame, VocoderError> {
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
+        // None is a known erasure: mirror mbelib's internal `bad==2`
+        // path (reset MbeParms + emit silence).
+        let Some(ambe) = ambe else {
+            self.reset();
+            return Ok([0i16; crate::PCM_SAMPLES]);
+        };
+
         let bits = extract_source_bits(ambe);
         let mut ambe_d: [c_char; 49] = bits.map(|b| b as c_char);
         let mut aout_buf = [0i16; crate::PCM_SAMPLES];
@@ -126,7 +133,7 @@ mod tests {
     fn decode_silence() {
         let mut m = Mbelib::new();
         let silence = [0u8; AMBE_FRAME_SIZE];
-        let result = m.decode(&silence);
+        let result = m.decode(Some(&silence));
         assert!(result.is_ok());
     }
 
@@ -137,7 +144,7 @@ mod tests {
 
         let fresh = Mbelib::new();
         let mut dirty = Mbelib::new();
-        let _ = dirty.decode(&frame).unwrap();
+        let _ = dirty.decode(Some(&frame)).unwrap();
 
         // Sanity: decode actually mutates state -- otherwise reset()
         // would be vacuous and we'd want to know.
