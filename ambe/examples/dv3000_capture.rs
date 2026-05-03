@@ -195,9 +195,7 @@ fn encode_pass(
     // baseline.  Without this, frame 0 of pass 2 would inherit pass
     // 1's accumulated state and produce different bits than a fresh
     // start would.
-    client
-        .reset()
-        .map_err(|e| format!("{label}: reset: {e}"))?;
+    client.reset().map_err(|e| format!("{label}: reset: {e}"))?;
     client
         .set_ratep(ratep)
         .map_err(|e| format!("{label}: set_ratep: {e}"))?;
