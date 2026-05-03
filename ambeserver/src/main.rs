@@ -110,7 +110,11 @@ fn run(args: Args) -> Result<()> {
             debug!(%peer, holder = %h, "refusing concurrent client");
             continue;
         }
+        let prior = holder.map(|(h, _)| h);
         holder = Some((peer, now));
+        if prior != Some(peer) {
+            info!(%peer, "client took over chip");
+        }
         match chip.round_trip(pkt) {
             Ok(resp) => {
                 if let Err(e) = socket.send_to(&resp, peer) {
