@@ -1,4 +1,5 @@
 pub(crate) mod ambeserver;
+pub mod chip;
 // codeword is only used by the mbelib backend (deinterleave + 49-bit
 // source extraction); gate it on the same feature so non-mbelib
 // builds don't generate dead-code warnings.

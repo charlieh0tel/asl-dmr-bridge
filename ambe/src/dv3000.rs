@@ -77,8 +77,14 @@ pub enum ParseError {
 /// Parsed DV3000 packet.
 #[derive(Debug, Clone)]
 pub(crate) enum Packet {
-    /// AMBE+2 encoded audio data.
+    /// AMBE+2 channel-coded data, 72 bits / 9 bytes.  Default DMR
+    /// rate (index 33) returns this; routine `Vocoder::encode` expects
+    /// only this variant.
     Ambe(AmbeFrame),
+    /// AMBE+2 codec output at a non-72-bit rate (e.g. rate 34 raw,
+    /// 49 bits / 7 bytes).  Returned when the chip is configured for
+    /// a custom RATEP that emits a different bit count.
+    AmbeBits { bits: u8, data: Vec<u8> },
     /// PCM audio samples.
     Audio(Box<PcmFrame>),
     /// Control response (field_id, raw payload).
@@ -129,12 +135,11 @@ pub(crate) fn parse(buf: &[u8]) -> Result<(Packet, usize), ParseError> {
 }
 
 fn parse_ambe(payload: &[u8]) -> Result<Packet, ParseError> {
-    // field_id(1) + num_bits(1) + data(AMBE_FRAME_SIZE) + cmode(3)
-    let min_len = 2 + AMBE_FRAME_SIZE;
-    if payload.len() < min_len {
+    // field_id(1) + num_bits(1) + data(ceil(bits/8)) + optional cmode(3)
+    if payload.len() < 2 {
         return Err(ParseError::TooShort {
             have: payload.len(),
-            need: min_len,
+            need: 2,
         });
     }
     if payload[0] != FIELD_CHANNEL_DATA {
@@ -143,15 +148,25 @@ fn parse_ambe(payload: &[u8]) -> Result<Packet, ParseError> {
             got: payload[0],
         });
     }
-    if payload[1] != AMBE_BITS {
-        return Err(ParseError::BadBitCount {
-            expected: AMBE_BITS,
-            got: payload[1],
+    let bits = payload[1];
+    let data_bytes = bits.div_ceil(8) as usize;
+    if payload.len() < 2 + data_bytes {
+        return Err(ParseError::TooShort {
+            have: payload.len(),
+            need: 2 + data_bytes,
         });
     }
-    let mut frame = [0u8; AMBE_FRAME_SIZE];
-    frame.copy_from_slice(&payload[2..2 + AMBE_FRAME_SIZE]);
-    Ok(Packet::Ambe(frame))
+    let data = &payload[2..2 + data_bytes];
+    if bits == AMBE_BITS {
+        let mut frame = [0u8; AMBE_FRAME_SIZE];
+        frame.copy_from_slice(data);
+        Ok(Packet::Ambe(frame))
+    } else {
+        Ok(Packet::AmbeBits {
+            bits,
+            data: data.to_vec(),
+        })
+    }
 }
 
 fn parse_audio(payload: &[u8]) -> Result<Packet, ParseError> {
@@ -247,14 +262,19 @@ pub(crate) fn build_reset() -> Vec<u8> {
 
 /// Build a RATEP control packet for DMR (AMBE+2 3600x2450).
 pub(crate) fn build_ratep_dmr() -> Vec<u8> {
-    let payload_len = 1 + RATEP_DMR.len();
+    build_ratep_custom(&RATEP_DMR)
+}
+
+/// Build a RATEP control packet from a 12-byte custom RCW0..RCW5 array.
+pub(crate) fn build_ratep_custom(rcws: &[u8; 12]) -> Vec<u8> {
+    let payload_len = 1 + rcws.len();
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len);
 
     buf.push(START_BYTE);
     buf.extend_from_slice(&(payload_len as u16).to_be_bytes());
     buf.push(TYPE_CONTROL);
     buf.push(CONTROL_RATEP);
-    buf.extend_from_slice(&RATEP_DMR);
+    buf.extend_from_slice(rcws);
 
     buf
 }
