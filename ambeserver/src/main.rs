@@ -42,6 +42,70 @@ const RECV_BUF: usize = 4096;
 const EXCLUSIVE_HOLD: Duration = Duration::from_secs(1);
 
 const START_BYTE: u8 = 0x61;
+const TYPE_CONTROL: u8 = 0x00;
+const CONTROL_RATEP: u8 = 0x0A;
+const CONTROL_GAIN: u8 = 0x4B;
+const CONTROL_RESET: u8 = 0x33;
+
+/// Common AMBE-3000R rate indices, matched against the 12-byte
+/// RATEP payload (RCW0..RCW5).  Used only for log decoration; an
+/// unmatched payload prints as raw hex.
+const KNOWN_RATES: &[(&str, [u8; 12])] = &[
+    (
+        "DMR / P25 half-rate (idx 33)",
+        [
+            0x04, 0x31, 0x07, 0x54, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6F, 0x48,
+        ],
+    ),
+    (
+        "raw 2450 voice (idx 34)",
+        [
+            0x04, 0x31, 0x07, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70, 0x31,
+        ],
+    ),
+    (
+        "D-Star (idx 23)",
+        [
+            0x01, 0x30, 0x07, 0x63, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48,
+        ],
+    ),
+    (
+        "NXDN VHF / dPMR (idx 35)",
+        [
+            0x04, 0x2D, 0x07, 0x54, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79, 0x44,
+        ],
+    ),
+];
+
+fn rate_name(payload: &[u8; 12]) -> String {
+    for (name, rcws) in KNOWN_RATES {
+        if rcws == payload {
+            return (*name).to_string();
+        }
+    }
+    format!("custom rcws={payload:02x?}")
+}
+
+/// If the packet is a control packet we know about, return a short
+/// human-readable description for the log; otherwise None and we
+/// keep quiet.
+fn describe_control(buf: &[u8]) -> Option<String> {
+    if buf.len() < 5 || buf[0] != START_BYTE || buf[3] != TYPE_CONTROL {
+        return None;
+    }
+    match buf[4] {
+        CONTROL_RESET => Some("RESET".to_string()),
+        CONTROL_RATEP if buf.len() >= 5 + 12 => {
+            let mut payload = [0u8; 12];
+            payload.copy_from_slice(&buf[5..5 + 12]);
+            Some(format!("RATEP {}", rate_name(&payload)))
+        }
+        CONTROL_GAIN if buf.len() >= 5 + 2 => {
+            Some(format!("GAIN in={}dB out={}dB", buf[5] as i8, buf[6] as i8))
+        }
+        _ => None,
+    }
+}
 
 #[derive(Parser)]
 #[command(about = "UDP <-> AMBE-3000R serial proxy with one-holder exclusivity")]
@@ -114,6 +178,9 @@ fn run(args: Args) -> Result<()> {
         holder = Some((peer, now));
         if prior != Some(peer) {
             info!(%peer, "client took over chip");
+        }
+        if let Some(desc) = describe_control(pkt) {
+            info!(%peer, "{desc}");
         }
         match chip.round_trip(pkt) {
             Ok(resp) => {
