@@ -25,6 +25,7 @@ tract-onnx = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
+tracing-subscriber.workspace = true
 
 # `gen_golden` and the golden integration tests need the `testing`
 # feature to access TEST_FRAMES + decode_test_frames; mark
@@ -34,6 +35,14 @@ proptest.workspace = true
 [[example]]
 name = "gen_golden"
 required-features = ["testing"]
+
+[[example]]
+name = "onnx_smoke"
+required-features = ["neural"]
+
+[[example]]
+name = "tract_mel_smoke"
+required-features = ["neural"]
 
 
 [[test]]

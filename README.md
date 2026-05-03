@@ -24,8 +24,10 @@ cargo build --release
 Feature flags:
 - `--features mbelib` -- software AMBE decode via mbelib (decode only)
 - `--features thumbdv` -- ThumbDV serial backend (encode + decode)
+- `--features neural` -- neural-encoder backend via tract-loaded ONNX
+  (encode neural; decode delegated to mbelib; implies `mbelib`).
 
-Both can be combined: `--features mbelib,thumbdv`.
+Combinable: `--features mbelib,thumbdv,neural`.
 
 ## Usage
 

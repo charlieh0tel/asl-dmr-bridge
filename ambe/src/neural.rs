@@ -5,10 +5,20 @@
 //! to the inner `Mbelib` instance (the `neural` Cargo feature
 //! implies `mbelib`).
 //!
-//! Loading + inference are stubbed pending the first real ONNX
-//! export; see `docs/NEURAL-VOCODER.md` and the Phase 0 spec.
+//! This module currently implements load + metadata parsing;
+//! inference (encode pipeline) is stubbed pending the first ONNX
+//! export.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::str::FromStr;
+
+use tracing::info;
+use tract_onnx::pb;
+use tract_onnx::prelude::Framework;
+use tract_onnx::prelude::InferenceModelExt;
+use tract_onnx::prelude::TypedModel;
+use tract_onnx::prelude::TypedRunnableModel;
 
 use crate::AmbeFrame;
 use crate::PcmFrame;
@@ -17,14 +27,12 @@ use crate::VocoderError;
 use crate::mbelib::Mbelib;
 
 /// Field layout name carried in ONNX metadata (`nambe.layout`).
-#[expect(dead_code, reason = "consumed by load() when it lands")]
-pub(crate) const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";
+const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";
 
 /// Where the mel front-end runs: inside the ONNX graph, or in Rust
 /// before tract is invoked (decided per Phase 0 §0.0 smoke test;
 /// the chosen path is recorded in ONNX metadata as
 /// `nambe.frontend`).
-#[expect(dead_code, reason = "variants consumed by load() when it lands")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Frontend {
     /// Mel spectrogram is folded into the ONNX graph.  Harness
@@ -37,7 +45,6 @@ pub(crate) enum Frontend {
 
 /// Bit ordering of the model's 49-bit output, before chip-order
 /// permutation.  Only mbelib is supported at v1.
-#[expect(dead_code, reason = "variants consumed by load() when it lands")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BitOrder {
     /// mbelib `ambe_d[0..49]` order.
@@ -49,10 +56,7 @@ pub(crate) enum BitOrder {
 /// `ambe_d[]` positions, MSB-first.
 #[cfg_attr(
     not(test),
-    expect(
-        dead_code,
-        reason = "fields consumed by encode() scatter when it lands"
-    )
+    expect(dead_code, reason = "consumed by encode() scatter when it lands")
 )]
 pub(crate) struct Field {
     pub(crate) name: &'static str,
@@ -64,10 +68,6 @@ pub(crate) struct Field {
 /// DMR / P25 half-rate field layout.  Source of truth:
 /// `nambe/field_layout.py::FIELDS_DMR_3600X2450`.  Stable since
 /// project inception.  Total bits across all nine fields = 49.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "consumed by encode() scatter when it lands")
-)]
 pub(crate) const FIELDS_DMR_3600X2450: &[Field] = &[
     Field {
         name: "b0",
@@ -128,31 +128,63 @@ pub(crate) const FIELDS_DMR_3600X2450: &[Field] = &[
 /// Metadata read from the ONNX file at load time -- never hardcoded
 /// in Rust, so retraining / context-window changes / mel-parameter
 /// changes are swap-the-onnx events.
-#[expect(
-    dead_code,
-    reason = "populated when load() lands; consumed by encode()"
-)]
 pub(crate) struct NeuralMeta {
     pub(crate) layout: String,
     pub(crate) pcm_input_samples: usize,
     pub(crate) context_frames: usize,
     pub(crate) context_lookahead: usize,
     pub(crate) frontend: Frontend,
-    pub(crate) field_vq_sizes: [u16; 9],
     pub(crate) bit_order: BitOrder,
 }
 
-#[expect(dead_code, reason = "populated when load() lands")]
 pub(crate) struct NeuralVocoder {
+    #[expect(dead_code, reason = "consumed by encode() when inference lands")]
+    plan: TypedRunnableModel<TypedModel>,
+    #[expect(dead_code, reason = "consumed by encode() when inference lands")]
     meta: NeuralMeta,
     decoder: Mbelib,
 }
 
 impl NeuralVocoder {
-    pub(crate) fn open(_model_path: &Path) -> Result<Self, VocoderError> {
-        Err(VocoderError::Init(
-            "neural backend not yet implemented; awaiting first ONNX export".into(),
-        ))
+    pub(crate) fn open(model_path: &Path) -> Result<Self, VocoderError> {
+        let onnx = tract_onnx::onnx();
+
+        // Load proto first so we can read metadata_props.  parse()
+        // converts to InferenceModel.
+        let proto = onnx
+            .proto_model_for_path(model_path)
+            .map_err(|e| init_err(format!("load {}: {e}", model_path.display())))?;
+        let meta = parse_metadata(&proto)?;
+
+        let model = onnx
+            .parse(&proto, None)
+            .map_err(|e| init_err(format!("parse {}: {e}", model_path.display())))?
+            .model;
+
+        let plan = model
+            .into_typed()
+            .map_err(|e| init_err(format!("into_typed: {e}")))?
+            .into_optimized()
+            .map_err(|e| init_err(format!("optimize: {e}")))?
+            .into_runnable()
+            .map_err(|e| init_err(format!("into_runnable: {e}")))?;
+
+        info!(
+            path = %model_path.display(),
+            layout = %meta.layout,
+            frontend = ?meta.frontend,
+            bit_order = ?meta.bit_order,
+            pcm_input_samples = meta.pcm_input_samples,
+            context_frames = meta.context_frames,
+            context_lookahead = meta.context_lookahead,
+            "neural model loaded",
+        );
+
+        Ok(Self {
+            plan,
+            meta,
+            decoder: Mbelib::new(),
+        })
     }
 }
 
@@ -172,6 +204,102 @@ impl Vocoder for NeuralVocoder {
         // [TODO] @charlieh0tel: clear past/future PCM ring buffers
         // when the streaming harness lands.
     }
+}
+
+fn init_err(msg: String) -> VocoderError {
+    VocoderError::Init(msg)
+}
+
+fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
+    let props: HashMap<&str, &str> = proto
+        .metadata_props
+        .iter()
+        .map(|kv| (kv.key.as_str(), kv.value.as_str()))
+        .collect();
+
+    let layout = require(&props, "nambe.layout")?.to_string();
+    if layout != LAYOUT_DMR_3600X2450 {
+        return Err(init_err(format!(
+            "nambe.layout={layout:?}, expected {LAYOUT_DMR_3600X2450:?}"
+        )));
+    }
+
+    let pcm_input_samples = parse_kv(&props, "nambe.pcm_input_samples")?;
+    let context_frames = parse_kv(&props, "nambe.context_frames")?;
+    let context_lookahead = parse_kv(&props, "nambe.context_lookahead")?;
+
+    let frontend = match require(&props, "nambe.frontend")? {
+        "graph" => Frontend::Graph,
+        "rust_mel" => Frontend::RustMel,
+        other => {
+            return Err(init_err(format!(
+                "nambe.frontend={other:?}; expected 'graph' or 'rust_mel'"
+            )));
+        }
+    };
+
+    let bit_order = match require(&props, "nambe.field_bit_order")? {
+        "mbelib" => BitOrder::Mbelib,
+        other => {
+            return Err(init_err(format!(
+                "nambe.field_bit_order={other:?}; only 'mbelib' supported"
+            )));
+        }
+    };
+
+    let vq_sizes_str = require(&props, "nambe.field_vq_sizes")?;
+    let vq_sizes: Vec<u16> = vq_sizes_str
+        .split(',')
+        .map(|s| {
+            s.trim()
+                .parse::<u16>()
+                .map_err(|e| init_err(format!("nambe.field_vq_sizes: {e}")))
+        })
+        .collect::<Result<_, _>>()?;
+    if vq_sizes.len() != FIELDS_DMR_3600X2450.len() {
+        return Err(init_err(format!(
+            "nambe.field_vq_sizes: expected {} entries, got {}",
+            FIELDS_DMR_3600X2450.len(),
+            vq_sizes.len(),
+        )));
+    }
+    for (i, (declared, expected)) in vq_sizes
+        .iter()
+        .zip(FIELDS_DMR_3600X2450.iter().map(|f| f.vq_size))
+        .enumerate()
+    {
+        if *declared != expected {
+            return Err(init_err(format!(
+                "nambe.field_vq_sizes[{i}]={declared}, expected {expected} \
+                 (from FIELDS_DMR_3600X2450)"
+            )));
+        }
+    }
+
+    Ok(NeuralMeta {
+        layout,
+        pcm_input_samples,
+        context_frames,
+        context_lookahead,
+        frontend,
+        bit_order,
+    })
+}
+
+fn require<'a>(props: &HashMap<&str, &'a str>, key: &str) -> Result<&'a str, VocoderError> {
+    props
+        .get(key)
+        .copied()
+        .ok_or_else(|| init_err(format!("ONNX metadata missing required key {key:?}")))
+}
+
+fn parse_kv<T: FromStr>(props: &HashMap<&str, &str>, key: &str) -> Result<T, VocoderError>
+where
+    T::Err: std::fmt::Display,
+{
+    require(props, key)?
+        .parse()
+        .map_err(|e| init_err(format!("{key}: {e}")))
 }
 
 #[cfg(test)]

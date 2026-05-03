@@ -118,18 +118,23 @@ Configuration: `local_host`, `local_port`, `remote_host`, `remote_port`,
 ### AMBE Transcoder
 
 PCM <-> AMBE+2 transcoding. Implemented as a separate workspace crate (`ambe`)
-that abstracts over three backends behind a `Vocoder` trait:
+that abstracts over four backends behind a `Vocoder` trait:
 
 - **ThumbDV** (serial): DVSI AMBE-3000 over USB-serial, DV3000 packet protocol.
 - **AMBEserver** (UDP): network client for an existing AMBEserver daemon,
   same DV3000 packet protocol but over UDP (default port 2460).
 - **mbelib** (software, feature-gated): decode-only software vocoder via FFI.
   Encode not supported (mbelib encode quality is too poor for on-air use).
+- **neural** (feature-gated): tract-loaded ONNX encoder; decode delegates
+  to mbelib.
 
 DV3000 packet format (shared by ThumbDV and AMBEserver):
 - Start byte 0x61, 2-byte big-endian payload length, 1-byte type.
 - Types: 0x00 control, 0x01 AMBE, 0x02 audio.
 - AMBE+2 for DMR uses a specific RATEP (3600x2450) control configuration.
+
+`Vocoder::reset()` is called at every PTT-up boundary so a new stream
+doesn't inherit the previous stream's per-stream state.
 
 Frame sizes:
 - PCM: 160 samples x i16 = 320 bytes (20 ms at 8 kHz)
