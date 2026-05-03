@@ -30,6 +30,10 @@ proptest.workspace = true
 name = "gen_golden"
 required-features = ["testing"]
 
+[[example]]
+name = "dv3000_capture"
+required-features = ["thumbdv"]
+
 [[test]]
 name = "mbelib_golden"
 required-features = ["testing", "mbelib"]
