@@ -167,7 +167,14 @@ fn run(args: Args) -> Result<()> {
         let (n, peer) = socket.recv_from(&mut buf)?;
         let pkt = &buf[..n];
         let now = Instant::now();
-        if let Some((h, t)) = holder
+        let desc = describe_control(pkt);
+        // A RESET from any peer is an explicit "I want the chip"
+        // handshake -- always honor it.  Otherwise, while a holder is
+        // active (within EXCLUSIVE_HOLD), refuse other peers so they
+        // don't trample the holder's stream.
+        let is_reset = desc.as_deref() == Some("RESET");
+        if !is_reset
+            && let Some((h, t)) = holder
             && h != peer
             && now.duration_since(t) < EXCLUSIVE_HOLD
         {
@@ -179,7 +186,7 @@ fn run(args: Args) -> Result<()> {
         if prior != Some(peer) {
             info!(%peer, "client took over chip");
         }
-        if let Some(desc) = describe_control(pkt) {
+        if let Some(desc) = desc {
             info!(%peer, "{desc}");
         }
         match chip.round_trip(pkt) {
