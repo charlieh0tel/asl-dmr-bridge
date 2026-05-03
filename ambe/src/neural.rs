@@ -29,17 +29,12 @@ use crate::mbelib::Mbelib;
 /// Field layout name carried in ONNX metadata (`nambe.layout`).
 const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";
 
-/// Where the mel front-end runs: inside the ONNX graph, or in Rust
-/// before tract is invoked (decided per Phase 0 §0.0 smoke test;
-/// the chosen path is recorded in ONNX metadata as
-/// `nambe.frontend`).
+/// `nambe.frontend` value.  Only `Graph` is implemented; `RustMel`
+/// is parked (kept defined for re-enablement).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Frontend {
-    /// Mel spectrogram is folded into the ONNX graph.  Harness
-    /// passes raw PCM tensors through.
     Graph,
-    /// Mel spectrogram is computed in Rust (rustfft + constant
-    /// filterbank).  Mel parameters come from ONNX metadata.
+    #[expect(dead_code, reason = "parked; rejected at load time")]
     RustMel,
 }
 
@@ -230,10 +225,14 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
 
     let frontend = match require(&props, "nambe.frontend")? {
         "graph" => Frontend::Graph,
-        "rust_mel" => Frontend::RustMel,
+        "rust_mel" => {
+            return Err(init_err(
+                "nambe.frontend=\"rust_mel\": parked, not implemented".into(),
+            ));
+        }
         other => {
             return Err(init_err(format!(
-                "nambe.frontend={other:?}; expected 'graph' or 'rust_mel'"
+                "nambe.frontend={other:?}; expected 'graph'"
             )));
         }
     };
