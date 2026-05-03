@@ -31,6 +31,7 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -99,7 +100,7 @@ struct Chip {
 
 impl Chip {
     fn open(path: &str) -> Result<Self, CaptureError> {
-        let mut port = serialport::new(path, SERIAL_BAUD)
+        let port = serialport::new(path, SERIAL_BAUD)
             .timeout(SERIAL_TIMEOUT)
             .open()?;
         // Drain any stale bytes from prior consumers (e.g. ambeserver).
@@ -210,7 +211,7 @@ impl Chip {
     }
 }
 
-fn read_pcm_frames(path: &PathBuf) -> Result<Vec<[i16; PCM_SAMPLES]>, CaptureError> {
+fn read_pcm_frames(path: &Path) -> Result<Vec<[i16; PCM_SAMPLES]>, CaptureError> {
     let mut bytes = Vec::new();
     File::open(path)?.read_to_end(&mut bytes)?;
     if bytes.len() % PCM_FRAME_BYTES != 0 {
@@ -234,7 +235,7 @@ fn read_pcm_frames(path: &PathBuf) -> Result<Vec<[i16; PCM_SAMPLES]>, CaptureErr
     Ok(frames)
 }
 
-fn run(serial: &str, input: &PathBuf, prefix: &PathBuf) -> Result<(), CaptureError> {
+fn run(serial: &str, input: &Path, prefix: &Path) -> Result<(), CaptureError> {
     let frames = read_pcm_frames(input)?;
     eprintln!(
         "loaded {n} frames ({s:.2} s) from {path}",

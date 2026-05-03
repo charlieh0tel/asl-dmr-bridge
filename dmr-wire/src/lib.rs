@@ -51,6 +51,7 @@ pub(crate) mod rs;
 pub(crate) mod sync;
 pub(crate) mod talker_alias;
 pub mod voice;
+pub mod voice_channel;
 
 /// Maximum value of a 24-bit DMR on-air subscriber ID.
 const MAX_DMR_ID_24BIT: u32 = 0x00FF_FFFF;
