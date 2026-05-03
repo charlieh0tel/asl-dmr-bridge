@@ -9,6 +9,8 @@ pub(crate) mod codeword;
 pub(crate) mod dv3000;
 #[cfg(feature = "mbelib")]
 pub(crate) mod mbelib;
+#[cfg(feature = "neural")]
+pub(crate) mod neural;
 pub mod rates;
 #[cfg(feature = "thumbdv")]
 pub(crate) mod thumbdv;
@@ -103,4 +105,11 @@ pub fn open_thumbdv(
 #[cfg(feature = "mbelib")]
 pub fn open_mbelib() -> Box<dyn Vocoder> {
     Box::new(mbelib::Mbelib::new())
+}
+
+/// Construct a neural-vocoder backend from an ONNX model file.
+/// Encode is neural; decode delegates to mbelib.
+#[cfg(feature = "neural")]
+pub fn open_neural(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, VocoderError> {
+    Ok(Box::new(neural::NeuralVocoder::open(model_path)?))
 }

@@ -39,6 +39,7 @@ thiserror = "2.0.18"
 tokio = "1.52.1"
 tokio-util = { version = "0.7.18", features = ["rt"] }
 toml = "1.1.2"
+tract-onnx = "0.22.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"

@@ -7,6 +7,9 @@ license.workspace = true
 [features]
 mbelib = ["dep:mbelib-sys"]
 thumbdv = ["dep:serialport"]
+# Implies mbelib because the v1 neural backend delegates decode to
+# mbelib (encode-only neural model).
+neural = ["dep:tract-onnx", "mbelib"]
 # Exposes `test_harness` + `test_vectors` for integration tests and
 # the `gen_golden` example.  Off by default so the public API of the
 # crate doesn't include test-only code.
@@ -18,6 +21,7 @@ mbelib-sys = { workspace = true, optional = true }
 serialport = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
+tract-onnx = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
