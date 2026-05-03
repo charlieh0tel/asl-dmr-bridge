@@ -1,5 +1,5 @@
 [workspace]
-members = ["ambe", "ambe/mbelib-sys", "bmcli", "brandmeister-api", "bridge", "dmr-events", "dmr-subscriber", "dmr-types", "dmr-wire", "usrp-wire"]
+members = ["ambe", "ambe/mbelib-sys", "ambeserver", "bmcli", "brandmeister-api", "bridge", "dmr-events", "dmr-subscriber", "dmr-types", "dmr-wire", "usrp-wire"]
 resolver = "3"
 
 [workspace.package]
