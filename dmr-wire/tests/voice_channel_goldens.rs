@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use dmr_wire::voice_channel::CODED_BYTES;
 use dmr_wire::voice_channel::RAW_BYTES;
 use dmr_wire::voice_channel::channel_decode;
+use dmr_wire::voice_channel::channel_encode;
 
 const FIXTURES_REL: &str = "../ambe/tests/fixtures/channel_coding";
 
@@ -111,6 +112,46 @@ fn channel_decode_matches_chip_raw_bits() {
     );
     eprintln!(
         "channel_decode: all {} frames across {} utterances match chip",
+        total_frames,
+        utterances.len()
+    );
+}
+
+#[test]
+fn channel_encode_matches_chip_coded_bytes() {
+    let utterances = pairs();
+    let mut total_frames = 0usize;
+    let mut total_mismatches = 0usize;
+    for (name, coded, raw) in &utterances {
+        let n_frames = coded.len() / CODED_BYTES;
+        for i in 0..n_frames {
+            let mut raw_frame = [0u8; RAW_BYTES];
+            raw_frame.copy_from_slice(&raw[i * RAW_BYTES..(i + 1) * RAW_BYTES]);
+            let mut expected = [0u8; CODED_BYTES];
+            expected.copy_from_slice(&coded[i * CODED_BYTES..(i + 1) * CODED_BYTES]);
+            let encoded = channel_encode(&raw_frame);
+            if encoded != expected {
+                total_mismatches += 1;
+                if total_mismatches <= 5 {
+                    eprintln!(
+                        "{name} frame {i}: raw49={:02x?} expected coded72={:02x?} got={:02x?}",
+                        raw_frame, expected, encoded
+                    );
+                }
+            }
+            total_frames += 1;
+        }
+    }
+    assert_eq!(
+        total_mismatches,
+        0,
+        "{} / {} frames encoded incorrectly across {} utterances",
+        total_mismatches,
+        total_frames,
+        utterances.len()
+    );
+    eprintln!(
+        "channel_encode: all {} frames across {} utterances match chip",
         total_frames,
         utterances.len()
     );
