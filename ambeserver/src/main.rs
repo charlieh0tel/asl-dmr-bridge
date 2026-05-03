@@ -70,7 +70,7 @@ const KNOWN_RATES: &[(&str, [u8; 12])] = &[
         ],
     ),
     (
-        "NXDN VHF / dPMR (idx 35)",
+        "rate idx 35 (3400/2250/1150)",
         [
             0x04, 0x2D, 0x07, 0x54, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79, 0x44,
         ],
