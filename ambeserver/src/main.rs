@@ -23,6 +23,11 @@ use std::net::UdpSocket;
 use std::time::Duration;
 use std::time::Instant;
 
+use ambe::wire::CONTROL_GAIN;
+use ambe::wire::CONTROL_RATEP;
+use ambe::wire::CONTROL_RESET;
+use ambe::wire::START_BYTE;
+use ambe::wire::TYPE_CONTROL;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
@@ -41,51 +46,6 @@ const RECV_BUF: usize = 4096;
 /// enough that a crashed client doesn't wedge the chip.
 const EXCLUSIVE_HOLD: Duration = Duration::from_secs(1);
 
-const START_BYTE: u8 = 0x61;
-const TYPE_CONTROL: u8 = 0x00;
-const CONTROL_RATEP: u8 = 0x0A;
-const CONTROL_GAIN: u8 = 0x4B;
-const CONTROL_RESET: u8 = 0x33;
-
-/// Common AMBE-3000R rate indices, matched against the 12-byte
-/// RATEP payload (RCW0..RCW5).  Used only for log decoration; an
-/// unmatched payload prints as raw hex.
-const KNOWN_RATES: &[(&str, [u8; 12])] = &[
-    (
-        "DMR / P25 half-rate (idx 33)",
-        [
-            0x04, 0x31, 0x07, 0x54, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6F, 0x48,
-        ],
-    ),
-    (
-        "raw 2450 voice (idx 34)",
-        [
-            0x04, 0x31, 0x07, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70, 0x31,
-        ],
-    ),
-    (
-        "D-Star (idx 23)",
-        [
-            0x01, 0x30, 0x07, 0x63, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48,
-        ],
-    ),
-    (
-        "rate idx 35 (3400/2250/1150)",
-        [
-            0x04, 0x2D, 0x07, 0x54, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79, 0x44,
-        ],
-    ),
-];
-
-fn rate_name(payload: &[u8; 12]) -> String {
-    for (name, rcws) in KNOWN_RATES {
-        if rcws == payload {
-            return (*name).to_string();
-        }
-    }
-    format!("custom rcws={payload:02x?}")
-}
-
 /// If the packet is a control packet we know about, return a short
 /// human-readable description for the log; otherwise None and we
 /// keep quiet.
@@ -98,7 +58,10 @@ fn describe_control(buf: &[u8]) -> Option<String> {
         CONTROL_RATEP if buf.len() >= 5 + 12 => {
             let mut payload = [0u8; 12];
             payload.copy_from_slice(&buf[5..5 + 12]);
-            Some(format!("RATEP {}", rate_name(&payload)))
+            let name = ambe::rates::rate_name(&payload)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("custom rcws={payload:02x?}"));
+            Some(format!("RATEP {name}"))
         }
         CONTROL_GAIN if buf.len() >= 5 + 2 => {
             Some(format!("GAIN in={}dB out={}dB", buf[5] as i8, buf[6] as i8))
@@ -206,4 +169,72 @@ fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
     run(Args::parse())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ambe::rates::RATEP_DMR;
+    use ambe::rates::RATEP_RAW;
+
+    fn ratep_packet(rcws: &[u8; 12]) -> Vec<u8> {
+        let mut buf = vec![START_BYTE, 0x00, 0x0D, TYPE_CONTROL, CONTROL_RATEP];
+        buf.extend_from_slice(rcws);
+        buf
+    }
+
+    #[test]
+    fn describe_reset() {
+        let buf = [START_BYTE, 0x00, 0x01, TYPE_CONTROL, CONTROL_RESET];
+        assert_eq!(describe_control(&buf).as_deref(), Some("RESET"));
+    }
+
+    #[test]
+    fn describe_ratep_known_dmr() {
+        let buf = ratep_packet(&RATEP_DMR);
+        assert_eq!(
+            describe_control(&buf).as_deref(),
+            Some("RATEP DMR / P25 half-rate (idx 33)"),
+        );
+    }
+
+    #[test]
+    fn describe_ratep_known_raw() {
+        let buf = ratep_packet(&RATEP_RAW);
+        assert_eq!(
+            describe_control(&buf).as_deref(),
+            Some("RATEP raw 2450 voice (idx 34)"),
+        );
+    }
+
+    #[test]
+    fn describe_ratep_unknown_falls_back_to_hex() {
+        let buf = ratep_packet(&[0xAB; 12]);
+        let s = describe_control(&buf).expect("ratep");
+        assert!(s.starts_with("RATEP custom rcws="), "got: {s}");
+    }
+
+    #[test]
+    fn describe_gain() {
+        let buf = [
+            START_BYTE,
+            0x00,
+            0x03,
+            TYPE_CONTROL,
+            CONTROL_GAIN,
+            (-3i8) as u8,
+            6u8,
+        ];
+        assert_eq!(
+            describe_control(&buf).as_deref(),
+            Some("GAIN in=-3dB out=6dB"),
+        );
+    }
+
+    #[test]
+    fn describe_non_control_returns_none() {
+        // PKT_AMBE, not a control packet.
+        let buf = [START_BYTE, 0x00, 0x0B, 0x01, 0x01, 72];
+        assert!(describe_control(&buf).is_none());
+    }
 }

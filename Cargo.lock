@@ -37,6 +37,7 @@ dependencies = [
 name = "ambe"
 version = "1.3.0"
 dependencies = [
+ "clap",
  "mbelib-sys",
  "proptest",
  "serialport",
@@ -48,6 +49,7 @@ dependencies = [
 name = "ambeserver"
 version = "1.3.0"
 dependencies = [
+ "ambe",
  "anyhow",
  "clap",
  "serialport",

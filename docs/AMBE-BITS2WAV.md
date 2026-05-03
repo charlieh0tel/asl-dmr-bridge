@@ -21,8 +21,13 @@ serial, `mbelib` for the software decoder.
 ambe_bits2wav --input bits.bin --output audio.wav \
     [--backend ambeserver|thumbdv|mbelib] \
     [--ambeserver host:port] [--serial path] [--baud rate] \
+    [--gain-in dB] [--gain-out dB] \
     [--no-decode] [--quiet]
 ```
+
+The `--backend` / `--ambeserver` / `--serial` / `--baud` /
+`--gain-in` / `--gain-out` flags come from `ambe::cli` and are
+shared with `dv3000_capture`.
 
 | `--backend`  | Per-backend flags        | Default                |
 |--------------|--------------------------|------------------------|

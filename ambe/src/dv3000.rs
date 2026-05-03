@@ -13,27 +13,22 @@ use crate::AMBE_FRAME_SIZE;
 use crate::AmbeFrame;
 use crate::PCM_SAMPLES;
 use crate::PcmFrame;
+use crate::wire::CONTROL_GAIN;
+#[cfg(feature = "thumbdv")]
+use crate::wire::CONTROL_PRODID;
+use crate::wire::CONTROL_RATEP;
+use crate::wire::CONTROL_READY;
+use crate::wire::CONTROL_RESET;
+use crate::wire::HEADER_SIZE;
+use crate::wire::START_BYTE;
+use crate::wire::TYPE_AMBE;
+use crate::wire::TYPE_AUDIO;
+use crate::wire::TYPE_CONTROL;
 
 /// Max receive buffer for DV3000 packets.
 /// Largest packet is audio: header(4) + field_id(1) + num_samples(1)
 /// + samples(320) + cmode(3) = 329 bytes.
 pub(crate) const MAX_PACKET: usize = 512;
-
-pub(crate) const START_BYTE: u8 = 0x61;
-const HEADER_SIZE: usize = 4;
-
-/// DV3000 packet types.
-const TYPE_CONTROL: u8 = 0x00;
-const TYPE_AMBE: u8 = 0x01;
-const TYPE_AUDIO: u8 = 0x02;
-
-/// Control field IDs.
-const CONTROL_RATEP: u8 = 0x0A;
-const CONTROL_GAIN: u8 = 0x4B;
-const CONTROL_RESET: u8 = 0x33;
-const CONTROL_READY: u8 = 0x39;
-#[cfg(feature = "thumbdv")]
-const CONTROL_PRODID: u8 = 0x30;
 
 /// DV3000 gain range (dB), inclusive.  Values outside this range are
 /// clamped before being sent.  Matches serialDV's setGain clamp.
@@ -44,12 +39,6 @@ pub(crate) const GAIN_MAX_DB: i8 = 90;
 const FIELD_SPEECH_DATA: u8 = 0x00;
 const FIELD_CMODE: u8 = 0x02;
 const FIELD_CHANNEL_DATA: u8 = 0x01;
-
-/// AMBE+2 rate parameters for DMR (3600x2450).
-/// From serialDV dvcontroller.h DV3000_REQ_3600X2450_RATEP.
-const RATEP_DMR: [u8; 12] = [
-    0x04, 0x31, 0x07, 0x54, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6F, 0x48,
-];
 
 /// DV3000 packet parse error.  Public so `VocoderError::Parse` can
 /// carry it typed across the backend boundary; the enclosing module
@@ -262,7 +251,7 @@ pub(crate) fn build_reset() -> Vec<u8> {
 
 /// Build a RATEP control packet for DMR (AMBE+2 3600x2450).
 pub(crate) fn build_ratep_dmr() -> Vec<u8> {
-    build_ratep_custom(&RATEP_DMR)
+    build_ratep_custom(&crate::rates::RATEP_DMR)
 }
 
 /// Build a RATEP control packet from a 12-byte custom RCW0..RCW5 array.
@@ -369,7 +358,7 @@ mod tests {
         assert_eq!(buf[0], START_BYTE);
         assert_eq!(buf[3], TYPE_CONTROL);
         assert_eq!(buf[4], CONTROL_RATEP);
-        assert_eq!(&buf[5..], &RATEP_DMR);
+        assert_eq!(&buf[5..], &crate::rates::RATEP_DMR);
     }
 
     #[test]

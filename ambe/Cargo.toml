@@ -13,6 +13,7 @@ thumbdv = ["dep:serialport"]
 testing = []
 
 [dependencies]
+clap.workspace = true
 mbelib-sys = { workspace = true, optional = true }
 serialport = { workspace = true, optional = true }
 thiserror.workspace = true

@@ -15,6 +15,7 @@ use crate::PcmFrame;
 use crate::Vocoder;
 use crate::VocoderError;
 use crate::dv3000;
+use crate::wire;
 
 const DEFAULT_BAUD: u32 = 460_800;
 const SERIAL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -142,9 +143,9 @@ impl ThumbDv {
     }
 
     fn recv(&mut self) -> Result<dv3000::Packet, VocoderError> {
-        let mut header = [0u8; 4];
+        let mut header = [0u8; wire::HEADER_SIZE];
         self.port.read_exact(&mut header)?;
-        if header[0] != dv3000::START_BYTE {
+        if header[0] != wire::START_BYTE {
             return Err(VocoderError::Protocol(format!(
                 "bad start byte: 0x{:02x}",
                 header[0]
@@ -152,7 +153,7 @@ impl ThumbDv {
         }
 
         let payload_len = u16::from_be_bytes([header[1], header[2]]) as usize;
-        if payload_len + 4 > self.buf.len() {
+        if payload_len + wire::HEADER_SIZE > self.buf.len() {
             return Err(VocoderError::Protocol(format!(
                 "payload too large: {payload_len}"
             )));

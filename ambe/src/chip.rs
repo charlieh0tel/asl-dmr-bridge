@@ -9,14 +9,16 @@
 //! Two implementations:
 //!
 //! - `AmbeServerClient` (always available): UDP to a chip behind an
-//!   ambeserver.  Multi-tenant when the server tracks per-session
-//!   `RATEP` / `GAIN`.
-//! - `ThumbDvClient` (`thumbdv` feature): direct serial.  Single-
-//!   tenant -- exclusive serial-port access.
+//!   ambeserver.  The server gives one client at a time exclusive
+//!   access to the chip; concurrent peers are refused until the
+//!   current holder goes idle.
+//! - `ThumbDvClient` (`thumbdv` feature): direct serial.  Caller has
+//!   exclusive access to the serial device.
 
 use crate::PcmFrame;
 use crate::VocoderError;
 use crate::dv3000;
+use crate::wire;
 
 /// Low-level access to a DVSI AMBE-3000R chip.  Use this when you
 /// need to switch rates mid-session or inspect non-72-bit AMBE
@@ -49,12 +51,13 @@ pub trait ChipClient: Send {
 /// Build a `PKT_AMBE` packet for decode-direction with arbitrary bit
 /// count: header(4) + field_id(1) + num_bits(1) + data(ceil(bits/8)).
 fn build_ambe_for_bits(bits: u8, data: &[u8]) -> Vec<u8> {
+    const FIELD_CHANNEL_DATA: u8 = 0x01;
     let payload_len = 1 + 1 + data.len();
-    let mut buf = Vec::with_capacity(4 + payload_len);
-    buf.push(0x61); // START_BYTE
+    let mut buf = Vec::with_capacity(wire::HEADER_SIZE + payload_len);
+    buf.push(wire::START_BYTE);
     buf.extend_from_slice(&(payload_len as u16).to_be_bytes());
-    buf.push(0x01); // TYPE_AMBE
-    buf.push(0x01); // FIELD_CHANNEL_DATA
+    buf.push(wire::TYPE_AMBE);
+    buf.push(FIELD_CHANNEL_DATA);
     buf.push(bits);
     buf.extend_from_slice(data);
     buf
@@ -195,9 +198,9 @@ impl ThumbDvClient {
 
     fn recv(&mut self) -> Result<dv3000::Packet, VocoderError> {
         use std::io::Read as _;
-        let mut header = [0u8; 4];
+        let mut header = [0u8; wire::HEADER_SIZE];
         self.port.read_exact(&mut header)?;
-        if header[0] != 0x61 {
+        if header[0] != wire::START_BYTE {
             return Err(VocoderError::Protocol(format!(
                 "bad start byte: 0x{:02x}",
                 header[0]

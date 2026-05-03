@@ -9,152 +9,37 @@
 //!   <prefix>.coded72    concatenated 9-byte channel-coded frames
 //!   <prefix>.raw49      concatenated 7-byte raw codec frames
 //!
-//! Pick a transport:
-//!
-//!   # via an ambeserver (default; can share the chip)
-//!   cargo run -p ambe --example dv3000_capture -- \
-//!       --ambeserver 127.0.0.1:2460 input.pcm output_prefix
-//!
-//!   # direct serial (needs the thumbdv feature; takes exclusive chip)
-//!   cargo run -p ambe --features thumbdv --example dv3000_capture -- \
-//!       --serial /dev/ttyUSB0 input.pcm output_prefix
+//! Backend selection (`--backend ambeserver|thumbdv`) and per-backend
+//! connection options come from `ambe::cli`.  `mbelib` is rejected
+//! since it has no encode path.
 
-use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
-use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use ambe::chip::AmbeServerClient;
 use ambe::chip::ChipClient;
+use ambe::cli::ChipBackendArgs;
+use ambe::rates::RATEP_DMR;
+use ambe::rates::RATEP_RAW;
+use clap::Parser;
 
 const PCM_SAMPLES: usize = 160;
 const PCM_FRAME_BYTES: usize = PCM_SAMPLES * 2;
 const CODED_BYTES: usize = 9; // 72 bits
 const RAW_BYTES: usize = 7; // 49 bits, padded to ceil(49/8)
 
-/// Rate index 33: DMR / P25 half-rate, 2450 voice + 1150 FEC.
-const RATEP_DMR: [u8; 12] = [
-    0x04, 0x31, 0x07, 0x54, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6F, 0x48,
-];
-
-/// Rate index 34: raw 2450 voice, 0 FEC.
-const RATEP_RAW: [u8; 12] = [
-    0x04, 0x31, 0x07, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70, 0x31,
-];
-
-#[derive(Clone)]
-enum Transport {
-    Ambeserver(SocketAddr),
-    #[cfg(feature = "thumbdv")]
-    Serial {
-        path: String,
-        baud: Option<u32>,
-    },
-}
-
+#[derive(Parser)]
+#[command(about = "Capture (PCM, coded_72, raw_49) triples through a DVSI AMBE-3000R chip")]
 struct Args {
-    transport: Transport,
+    /// Input PCM file (8 kHz mono int16 LE, multiple of 320 bytes).
     input: PathBuf,
+    /// Output prefix; writes <prefix>.{pcm,coded72,raw49}.
     prefix: PathBuf,
-}
-
-fn usage() -> ! {
-    eprintln!(
-        "usage: dv3000_capture (--ambeserver host:port | --serial PATH [--baud N]) \\\n\
-         \tinput.pcm output_prefix\n\
-         \n\
-         Encodes input PCM through the chip in DMR rate (index 33) and\n\
-         raw rate (index 34); writes <prefix>.{{pcm,coded72,raw49}}."
-    );
-    std::process::exit(2)
-}
-
-fn parse_args() -> Args {
-    let mut transport: Option<Transport> = None;
-    let mut positional: Vec<String> = Vec::new();
-    let mut iter = env::args().skip(1);
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--ambeserver" => {
-                let v = iter.next().unwrap_or_else(|| usage());
-                let addr: SocketAddr = v.parse().unwrap_or_else(|e| {
-                    eprintln!("--ambeserver {v}: {e}");
-                    usage();
-                });
-                transport = Some(Transport::Ambeserver(addr));
-            }
-            "--serial" => {
-                let path = iter.next().unwrap_or_else(|| usage());
-                #[cfg(feature = "thumbdv")]
-                {
-                    transport = Some(Transport::Serial { path, baud: None });
-                }
-                #[cfg(not(feature = "thumbdv"))]
-                {
-                    let _ = path;
-                    eprintln!("--serial requires the thumbdv feature");
-                    std::process::exit(2);
-                }
-            }
-            #[cfg(feature = "thumbdv")]
-            "--baud" => {
-                let v = iter.next().unwrap_or_else(|| usage());
-                let baud: u32 = v.parse().unwrap_or_else(|_| {
-                    eprintln!("--baud must be an integer, got {v}");
-                    usage();
-                });
-                if let Some(Transport::Serial {
-                    baud: ref mut b, ..
-                }) = transport
-                {
-                    *b = Some(baud);
-                } else {
-                    eprintln!("--baud applies only with --serial");
-                    usage();
-                }
-            }
-            "-h" | "--help" => usage(),
-            _ if arg.starts_with("--") => {
-                eprintln!("unexpected argument: {arg}");
-                usage();
-            }
-            _ => positional.push(arg),
-        }
-    }
-    let transport = transport.unwrap_or_else(|| {
-        eprintln!("--ambeserver or --serial is required");
-        usage();
-    });
-    if positional.len() != 2 {
-        usage();
-    }
-    Args {
-        transport,
-        input: PathBuf::from(&positional[0]),
-        prefix: PathBuf::from(&positional[1]),
-    }
-}
-
-fn open_client(t: &Transport) -> Result<Box<dyn ChipClient>, String> {
-    match t {
-        Transport::Ambeserver(addr) => {
-            let c = AmbeServerClient::connect(*addr)
-                .map_err(|e| format!("connect ambeserver {addr}: {e}"))?;
-            eprintln!("connected to ambeserver at {addr}");
-            Ok(Box::new(c))
-        }
-        #[cfg(feature = "thumbdv")]
-        Transport::Serial { path, baud } => {
-            let c = ambe::chip::ThumbDvClient::open(path, *baud)
-                .map_err(|e| format!("open serial {path}: {e}"))?;
-            eprintln!("opened serial at {path}");
-            Ok(Box::new(c))
-        }
-    }
+    #[command(flatten)]
+    backend: ChipBackendArgs,
 }
 
 fn read_pcm_frames(path: &Path) -> Result<Vec<[i16; PCM_SAMPLES]>, String> {
@@ -184,6 +69,7 @@ fn read_pcm_frames(path: &Path) -> Result<Vec<[i16; PCM_SAMPLES]>, String> {
 
 fn encode_pass(
     client: &mut dyn ChipClient,
+    backend: &ChipBackendArgs,
     ratep: &[u8; 12],
     expected_bits: u8,
     expected_bytes: usize,
@@ -196,6 +82,9 @@ fn encode_pass(
     // 1's accumulated state and produce different bits than a fresh
     // start would.
     client.reset().map_err(|e| format!("{label}: reset: {e}"))?;
+    backend
+        .apply_gain(client)
+        .map_err(|e| format!("{label}: set_gain: {e}"))?;
     client
         .set_ratep(ratep)
         .map_err(|e| format!("{label}: set_ratep: {e}"))?;
@@ -227,9 +116,14 @@ fn run(args: &Args) -> Result<(), String> {
         n = frames.len(),
     );
 
-    let mut client = open_client(&args.transport)?;
+    let mut client = args
+        .backend
+        .open_chip_client()
+        .map_err(|e| format!("open backend: {e}"))?;
+    eprintln!("backend: {:?}", args.backend.backend);
     let coded = encode_pass(
         &mut *client,
+        &args.backend,
         &RATEP_DMR,
         72,
         CODED_BYTES,
@@ -238,6 +132,7 @@ fn run(args: &Args) -> Result<(), String> {
     )?;
     let raw = encode_pass(
         &mut *client,
+        &args.backend,
         &RATEP_RAW,
         49,
         RAW_BYTES,
@@ -274,7 +169,7 @@ fn run(args: &Args) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    let args = parse_args();
+    let args = Args::parse();
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

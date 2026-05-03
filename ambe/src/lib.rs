@@ -1,5 +1,6 @@
 pub(crate) mod ambeserver;
 pub mod chip;
+pub mod cli;
 // codeword is only used by the mbelib backend (deinterleave + 49-bit
 // source extraction); gate it on the same feature so non-mbelib
 // builds don't generate dead-code warnings.
@@ -8,8 +9,10 @@ pub(crate) mod codeword;
 pub(crate) mod dv3000;
 #[cfg(feature = "mbelib")]
 pub(crate) mod mbelib;
+pub mod rates;
 #[cfg(feature = "thumbdv")]
 pub(crate) mod thumbdv;
+pub mod wire;
 
 // `test_harness` + `test_vectors` exist only to feed the goldens'
 // integration tests + `gen_golden`; gated behind a dedicated
