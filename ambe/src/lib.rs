@@ -64,6 +64,12 @@ pub enum VocoderError {
 pub trait Vocoder: Send {
     fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError>;
     fn decode(&mut self, ambe: &AmbeFrame) -> Result<PcmFrame, VocoderError>;
+
+    /// Reset transient per-stream state (decoder predictor /
+    /// smoother history, lookahead buffers).  Called by the bridge
+    /// at PTT-up transitions so a new stream doesn't inherit the
+    /// previous stream's history.
+    fn reset(&mut self);
 }
 
 // Factory functions are the only way to construct a backend.  The

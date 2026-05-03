@@ -6,7 +6,6 @@
 //! Patent notice: AMBE is patented by DVSI. This backend is provided
 //! for educational and experimental purposes only.
 
-use std::mem::MaybeUninit;
 use std::os::raw::c_char;
 
 #[cfg(test)]
@@ -35,28 +34,26 @@ impl Default for Mbelib {
 
 impl Mbelib {
     pub(crate) fn new() -> Self {
-        // mbe_initMbeParms fully initializes all three MbeParms structs
-        // (w0, l, k, vl[57], ml[57], log2ml[57], phil[57], psil[57],
-        // gamma, un, repeat -- all scalar POD) before we observe any
-        // field.  MaybeUninit encodes that invariant explicitly; if
-        // a future mbelib upgrade added a field that init does not
-        // write, assume_init would surface it as UB to Miri and to
-        // sanitizer-built runs.
-        let mut cur_mp = MaybeUninit::<mbelib_sys::MbeParms>::uninit();
-        let mut prev_mp = MaybeUninit::<mbelib_sys::MbeParms>::uninit();
-        let mut prev_mp_enhanced = MaybeUninit::<mbelib_sys::MbeParms>::uninit();
-        // SAFETY: mbe_initMbeParms writes every field of each struct.
-        unsafe {
-            mbelib_sys::mbe_initMbeParms(
-                cur_mp.as_mut_ptr(),
-                prev_mp.as_mut_ptr(),
-                prev_mp_enhanced.as_mut_ptr(),
-            );
-            Self {
-                cur_mp: cur_mp.assume_init(),
-                prev_mp: prev_mp.assume_init(),
-                prev_mp_enhanced: prev_mp_enhanced.assume_init(),
-            }
+        // Zero the structs first, then have mbe_initMbeParms set the
+        // fields it actually writes.  mbe_initMbeParms does *not*
+        // touch the `un` field (it is dead code in mbelib's decoder,
+        // never read), so leaving the struct uninitialized would give
+        // `un` an indeterminate value that varies across instances.
+        // Zeroing makes a reset return the struct to a state that's
+        // byte-identical to a freshly-constructed one.
+        // SAFETY: MbeParms is plain POD (only floats and ints); the
+        // all-zeros bit pattern is a valid value of the type.
+        let (cur_mp, prev_mp, prev_mp_enhanced) = unsafe {
+            let mut cur = std::mem::zeroed::<mbelib_sys::MbeParms>();
+            let mut prev = std::mem::zeroed::<mbelib_sys::MbeParms>();
+            let mut prev_e = std::mem::zeroed::<mbelib_sys::MbeParms>();
+            mbelib_sys::mbe_initMbeParms(&mut cur, &mut prev, &mut prev_e);
+            (cur, prev, prev_e)
+        };
+        Self {
+            cur_mp,
+            prev_mp,
+            prev_mp_enhanced,
         }
     }
 }
@@ -90,6 +87,29 @@ impl Vocoder for Mbelib {
 
         Ok(aout_buf)
     }
+
+    /// Re-initialize the three MbeParms structs so the next decode
+    /// starts from a clean predictor / smoother history -- otherwise
+    /// the first frame of a new stream is decoded against the
+    /// previous stream's parameters.  Note: this does not reseed
+    /// libc rand(), which mbelib's synthesizer uses for unvoiced-
+    /// band phase randomization, so PCM output is not guaranteed
+    /// bit-equal across reset boundaries.  Decoder *state* is.
+    fn reset(&mut self) {
+        // Match `Self::new()`: zero then init, so post-reset state
+        // is byte-identical to a freshly-constructed instance.
+        // SAFETY: MbeParms is POD; all-zeros is a valid value.
+        unsafe {
+            std::ptr::write_bytes(&mut self.cur_mp, 0, 1);
+            std::ptr::write_bytes(&mut self.prev_mp, 0, 1);
+            std::ptr::write_bytes(&mut self.prev_mp_enhanced, 0, 1);
+            mbelib_sys::mbe_initMbeParms(
+                &mut self.cur_mp,
+                &mut self.prev_mp,
+                &mut self.prev_mp_enhanced,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -108,5 +128,42 @@ mod tests {
         let silence = [0u8; AMBE_FRAME_SIZE];
         let result = m.decode(&silence);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn reset_returns_to_initial_state() {
+        // Real chip-coded frame from utt000.coded72.
+        let frame: AmbeFrame = [0x95, 0x4b, 0xe6, 0x50, 0x03, 0x10, 0xb0, 0x07, 0x77];
+
+        let fresh = Mbelib::new();
+        let mut dirty = Mbelib::new();
+        let _ = dirty.decode(&frame).unwrap();
+
+        // Sanity: decode actually mutates state -- otherwise reset()
+        // would be vacuous and we'd want to know.
+        assert_ne!(
+            parms_bytes(&fresh.cur_mp),
+            parms_bytes(&dirty.cur_mp),
+            "decode left cur_mp untouched; predictor state isn't carrying"
+        );
+
+        dirty.reset();
+
+        assert_eq!(parms_bytes(&fresh.cur_mp), parms_bytes(&dirty.cur_mp));
+        assert_eq!(parms_bytes(&fresh.prev_mp), parms_bytes(&dirty.prev_mp));
+        assert_eq!(
+            parms_bytes(&fresh.prev_mp_enhanced),
+            parms_bytes(&dirty.prev_mp_enhanced),
+        );
+    }
+
+    fn parms_bytes(m: &mbelib_sys::MbeParms) -> &[u8] {
+        // SAFETY: MbeParms is POD; reading its bytes is well-defined.
+        unsafe {
+            std::slice::from_raw_parts(
+                (m as *const mbelib_sys::MbeParms).cast::<u8>(),
+                std::mem::size_of::<mbelib_sys::MbeParms>(),
+            )
+        }
     }
 }

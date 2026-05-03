@@ -75,6 +75,9 @@ use super::new_stream_id;
 /// `std::sync::Mutex` (not tokio's async Mutex) is correct here: the
 /// lock is only held inside the spawn_blocking closure, never across
 /// an `.await` point.
+//
+// [TODO] @charlieh0tel: replace with `Box<dyn Vocoder>` + block_in_place;
+// the Arc<Mutex<>> only exists to satisfy spawn_blocking's 'static bound.
 type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 
 /// Which side of the vocoder lock holder panicked.  Used to pick
@@ -301,6 +304,13 @@ impl PttMachine {
             _ = self.cancel.cancelled() => Err(VocoderError::Encode("cancelled".into())),
             result = handle => result.map_err(|e| VocoderError::Encode(format!("vocoder task failed: {e}")))?,
         }
+    }
+
+    /// Hook fired at every PTT-up boundary -- both TX (new TxCall)
+    /// and RX (new stream-id, including implicit start from
+    /// Idle/RxHang).
+    fn on_ptt_up(&self) {
+        self.vocoder.lock().expect("vocoder mutex poisoned").reset();
     }
 
     // --- TX burst builders ---
@@ -537,6 +547,7 @@ impl PttMachine {
                     dst_id: pkt.dst_id,
                     slot: pkt.slot,
                 });
+                self.on_ptt_up();
                 self.state = PttState::Rx(RxCall {
                     stream_id: pkt.stream_id,
                     src_id: pkt.src_id,
@@ -619,6 +630,7 @@ impl PttMachine {
                     });
                 }
                 if emit_call_start {
+                    self.on_ptt_up();
                     self.try_send_stats(StatsEvent::CallStart {
                         dir: CallDirection::DmrToFm,
                         src_id: pkt.src_id,
@@ -769,6 +781,7 @@ impl PttMachine {
                 pending_terminate: None,
             };
             info!(stream_id = tx.stream_id, "TX header");
+            self.on_ptt_up();
             self.try_send_stats(StatsEvent::CallStart {
                 dir: CallDirection::FmToDmr,
                 src_id: self.config.src_id.as_u32(),

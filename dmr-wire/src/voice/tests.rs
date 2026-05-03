@@ -16,6 +16,7 @@ impl Vocoder for StubVocoder {
     fn decode(&mut self, _ambe: &ambe::AmbeFrame) -> Result<PcmFrame, ambe::VocoderError> {
         Ok([1000i16; VOICE_SAMPLES])
     }
+    fn reset(&mut self) {}
 }
 
 type TestMachine = (

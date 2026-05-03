@@ -187,4 +187,8 @@ impl Vocoder for ThumbDv {
             ))),
         }
     }
+
+    // [TODO] @charlieh0tel: send chip RESET if field testing shows
+    // audible inter-stream artifacts; replay RATEP+gain after.
+    fn reset(&mut self) {}
 }
