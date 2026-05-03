@@ -164,6 +164,31 @@ fn unpack_msb_first(packed: &[u8; RAW_BYTES]) -> [u8; RAW_BITS] {
     out
 }
 
+/// Convert 49 source bits packed in mbelib's `ambe_d[]` order
+/// (MSB-first into 7 bytes, low 7 bits of byte 6 unused) to the
+/// chip's natural rate-34 packing.  Useful when the producer thinks
+/// in mbelib's bit numbering; pipe the result into `channel_encode`.
+pub fn permute_mbelib_to_chip(mbelib_packed: &[u8; RAW_BYTES]) -> [u8; RAW_BYTES] {
+    let mbelib_bits = unpack_msb_first(mbelib_packed);
+    let mut chip_bits = [0u8; RAW_BITS];
+    for (i, &b) in mbelib_bits.iter().enumerate() {
+        chip_bits[MBELIB_TO_CHIP[i]] = b;
+    }
+    pack_msb_first(&chip_bits)
+}
+
+/// Inverse of `permute_mbelib_to_chip`: take chip-order packed bits
+/// (e.g. `channel_decode` output) and rearrange to mbelib's `ambe_d[]`
+/// order.
+pub fn permute_chip_to_mbelib(chip_packed: &[u8; RAW_BYTES]) -> [u8; RAW_BYTES] {
+    let chip_bits = unpack_msb_first(chip_packed);
+    let mut mbelib_bits = [0u8; RAW_BITS];
+    for (i, slot) in mbelib_bits.iter_mut().enumerate() {
+        *slot = chip_bits[MBELIB_TO_CHIP[i]];
+    }
+    pack_msb_first(&mbelib_bits)
+}
+
 /// Decode 9 channel-coded bytes into 49 raw codec bits, packed
 /// MSB-first into 7 bytes in the chip's natural rate-34 output order
 /// (the order an AMBE-3000R produces when configured for raw 2450
@@ -316,6 +341,14 @@ mod tests {
             let coded = channel_encode(&masked);
             let decoded = channel_decode(&coded);
             prop_assert_eq!(decoded, masked);
+        }
+
+        #[test]
+        fn permute_round_trip(raw in any::<[u8; RAW_BYTES]>()) {
+            let mut masked = raw;
+            masked[6] &= 0x80;
+            prop_assert_eq!(permute_chip_to_mbelib(&permute_mbelib_to_chip(&masked)), masked);
+            prop_assert_eq!(permute_mbelib_to_chip(&permute_chip_to_mbelib(&masked)), masked);
         }
     }
 }
