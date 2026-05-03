@@ -297,6 +297,16 @@ pub fn channel_encode(raw: &[u8; RAW_BYTES]) -> [u8; CODED_BYTES] {
     interleave(&fr)
 }
 
+/// Encode 49 source bits in mbelib `ambe_d[]` order to a 9-byte
+/// channel-coded AMBE+2 frame.  Combines `pack_msb_first` +
+/// `permute_mbelib_to_chip` + `channel_encode`; useful for callers
+/// that produce 49 unpacked bits per frame (one byte per bit, 0/1).
+pub fn encode_from_ambe_d(ambe_d: &[u8; RAW_BITS]) -> [u8; CODED_BYTES] {
+    let mbelib_packed = pack_msb_first(ambe_d);
+    let chip_packed = permute_mbelib_to_chip(&mbelib_packed);
+    channel_encode(&chip_packed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +359,16 @@ mod tests {
             masked[6] &= 0x80;
             prop_assert_eq!(permute_chip_to_mbelib(&permute_mbelib_to_chip(&masked)), masked);
             prop_assert_eq!(permute_mbelib_to_chip(&permute_chip_to_mbelib(&masked)), masked);
+        }
+
+        #[test]
+        fn encode_from_ambe_d_round_trip(bits in any::<[bool; RAW_BITS]>()) {
+            let ambe_d: [u8; RAW_BITS] = bits.map(u8::from);
+            let coded = encode_from_ambe_d(&ambe_d);
+            let chip_packed = channel_decode(&coded);
+            let mbelib_packed = permute_chip_to_mbelib(&chip_packed);
+            let recovered = unpack_msb_first(&mbelib_packed);
+            prop_assert_eq!(recovered, ambe_d);
         }
     }
 }
