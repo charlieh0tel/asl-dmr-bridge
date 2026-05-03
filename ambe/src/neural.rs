@@ -128,6 +128,7 @@ pub(crate) struct NeuralMeta {
     pub(crate) pcm_input_samples: usize,
     pub(crate) context_frames: usize,
     pub(crate) context_lookahead: usize,
+    pub(crate) harness_lookback_samples: usize,
     pub(crate) frontend: Frontend,
     pub(crate) bit_order: BitOrder,
 }
@@ -172,6 +173,7 @@ impl NeuralVocoder {
             pcm_input_samples = meta.pcm_input_samples,
             context_frames = meta.context_frames,
             context_lookahead = meta.context_lookahead,
+            harness_lookback_samples = meta.harness_lookback_samples,
             "neural model loaded",
         );
 
@@ -205,6 +207,11 @@ fn init_err(msg: String) -> VocoderError {
     VocoderError::Init(msg)
 }
 
+/// Expected sample rate in Hz: PCM frames are 160 samples / 20 ms.
+const EXPECTED_SAMPLE_RATE: u32 = 8000;
+/// Expected PCM normalization mode (see `nambe/training/dataset.py:94`).
+const EXPECTED_PCM_NORMALIZATION: &str = "i16_div_32768";
+
 fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
     let props: HashMap<&str, &str> = proto
         .metadata_props
@@ -218,10 +225,31 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
             "nambe.layout={layout:?}, expected {LAYOUT_DMR_3600X2450:?}"
         )));
     }
+    expect_eq(
+        &props,
+        "nambe.sample_rate",
+        &EXPECTED_SAMPLE_RATE.to_string(),
+    )?;
+    expect_eq(
+        &props,
+        "nambe.pcm_normalization",
+        EXPECTED_PCM_NORMALIZATION,
+    )?;
+    let frame_hop_samples: usize = parse_kv(&props, "nambe.frame_hop_samples")?;
+    if frame_hop_samples != crate::PCM_SAMPLES {
+        return Err(init_err(format!(
+            "nambe.frame_hop_samples={frame_hop_samples}, expected {} \
+             (matches PCM_SAMPLES; the bridge feeds the model one
+             20 ms PCM frame per encode call)",
+            crate::PCM_SAMPLES,
+        )));
+    }
+    let opset = require(&props, "nambe.opset")?;
 
     let pcm_input_samples = parse_kv(&props, "nambe.pcm_input_samples")?;
     let context_frames = parse_kv(&props, "nambe.context_frames")?;
     let context_lookahead = parse_kv(&props, "nambe.context_lookahead")?;
+    let harness_lookback_samples = parse_kv(&props, "nambe.harness_lookback_samples")?;
 
     let frontend = match require(&props, "nambe.frontend")? {
         "graph" => Frontend::Graph,
@@ -245,6 +273,13 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
             )));
         }
     };
+
+    let expected_field_names: String = FIELDS_DMR_3600X2450
+        .iter()
+        .map(|f| f.name)
+        .collect::<Vec<_>>()
+        .join(",");
+    expect_eq(&props, "nambe.field_names", &expected_field_names)?;
 
     let vq_sizes_str = require(&props, "nambe.field_vq_sizes")?;
     let vq_sizes: Vec<u16> = vq_sizes_str
@@ -275,11 +310,18 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
         }
     }
 
+    // Provenance: read + log; not stored.  Opset is also logged
+    // here -- not strictly validated since tract is the real
+    // arbiter of which opset versions it can ingest.
+    let model_version = require(&props, "nambe.model_version")?;
+    info!(model_version, opset, "neural model provenance");
+
     Ok(NeuralMeta {
         layout,
         pcm_input_samples,
         context_frames,
         context_lookahead,
+        harness_lookback_samples,
         frontend,
         bit_order,
     })
@@ -290,6 +332,14 @@ fn require<'a>(props: &HashMap<&str, &'a str>, key: &str) -> Result<&'a str, Voc
         .get(key)
         .copied()
         .ok_or_else(|| init_err(format!("ONNX metadata missing required key {key:?}")))
+}
+
+fn expect_eq(props: &HashMap<&str, &str>, key: &str, expected: &str) -> Result<(), VocoderError> {
+    let got = require(props, key)?;
+    if got != expected {
+        return Err(init_err(format!("{key}={got:?}, expected {expected:?}")));
+    }
+    Ok(())
 }
 
 fn parse_kv<T: FromStr>(props: &HashMap<&str, &str>, key: &str) -> Result<T, VocoderError>
