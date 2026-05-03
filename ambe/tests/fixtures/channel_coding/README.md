@@ -24,12 +24,17 @@ speakers.
 
 ## Regenerate
 
-Stop any process holding the chip (e.g. `pkill ambeserver`), then for
-each input PCM:
+Run with the chip quiescent (no other clients holding it).  Either
+transport works:
 
 ```
+# via an ambeserver
+cargo run -p ambe --example dv3000_capture -- \
+    --ambeserver 127.0.0.1:2460 input.pcm output_prefix
+
+# direct serial (needs the thumbdv feature)
 cargo run -p ambe --features thumbdv --example dv3000_capture -- \
-    /dev/ttyUSB0 input.pcm output_prefix
+    --serial /dev/ttyUSB0 input.pcm output_prefix
 ```
 
 Outputs `output_prefix.{pcm,coded72,raw49}`.  Compress the `.pcm` with

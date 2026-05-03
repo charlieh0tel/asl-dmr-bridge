@@ -1,56 +1,40 @@
-//! Capture (PCM, coded_72, raw_49) triples from a DVSI AMBE-3000R chip
-//! for AMBE+2 channel-coding research.
+//! Capture (PCM, coded_72, raw_49) triples from a DVSI AMBE-3000R chip.
 //!
-//! Encodes the same PCM stream through the chip twice:
+//! Encodes the same PCM through the chip twice:
+//!   - rate index 33 (DMR / P25 half-rate) -> 9-byte channel-coded
+//!   - rate index 34 (raw 2450 voice, 0 FEC) -> 7-byte raw codec bits
 //!
-//! 1. Rate index 33 (DMR / P25 half-rate, 2450 voice + 1150 FEC) ->
-//!    9-byte channel-coded frames.
-//! 2. Rate index 34 (raw 2450 voice, 0 FEC) -> 7-byte raw codec
-//!    frames carrying the pre-FEC 49-bit speech bits.
-//!
-//! Output: three sibling files alongside the input,
-//!
-//!   <prefix>.pcm        copy of the input stream (sanity)
+//! Output, alongside the input:
+//!   <prefix>.pcm        copy of the input stream
 //!   <prefix>.coded72    concatenated 9-byte channel-coded frames
 //!   <prefix>.raw49      concatenated 7-byte raw codec frames
 //!
-//! Each frame slot at index `i` represents the same 20 ms of audio in
-//! both `.coded72` and `.raw49`, so `(raw49[i], coded72[i])` is one
-//! golden pair.
+//! Pick a transport:
 //!
-//! Usage:
+//!   # via an ambeserver (default; can share the chip)
+//!   cargo run -p ambe --example dv3000_capture -- \
+//!       --ambeserver 127.0.0.1:2460 input.pcm output_prefix
 //!
+//!   # direct serial (needs the thumbdv feature; takes exclusive chip)
 //!   cargo run -p ambe --features thumbdv --example dv3000_capture -- \
-//!     /dev/ttyUSB0 input.pcm output_prefix
-//!
-//! Requires the `thumbdv` feature.  Self-contained DV3000 protocol
-//! handling -- bypasses the production `Vocoder` trait so it can switch
-//! RATEP between passes without disturbing other crate consumers.
+//!       --serial /dev/ttyUSB0 input.pcm output_prefix
 
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Duration;
+
+use ambe::chip::AmbeServerClient;
+use ambe::chip::ChipClient;
 
 const PCM_SAMPLES: usize = 160;
 const PCM_FRAME_BYTES: usize = PCM_SAMPLES * 2;
-
-const START_BYTE: u8 = 0x61;
-const TYPE_CONTROL: u8 = 0x00;
-const TYPE_AMBE: u8 = 0x01;
-const TYPE_AUDIO: u8 = 0x02;
-
-const CONTROL_RATEP: u8 = 0x0A;
-const CONTROL_RESET: u8 = 0x33;
-const CONTROL_READY: u8 = 0x39;
-
-const FIELD_SPEECH_DATA: u8 = 0x00;
-const FIELD_CHANNEL_DATA: u8 = 0x01;
-const FIELD_CMODE: u8 = 0x02;
+const CODED_BYTES: usize = 9; // 72 bits
+const RAW_BYTES: usize = 7; // 49 bits, padded to ceil(49/8)
 
 /// Rate index 33: DMR / P25 half-rate, 2450 voice + 1150 FEC.
 const RATEP_DMR: [u8; 12] = [
@@ -62,169 +46,132 @@ const RATEP_RAW: [u8; 12] = [
     0x04, 0x31, 0x07, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70, 0x31,
 ];
 
-const CODED_BYTES: usize = 9; // 72 bits
-const RAW_BYTES: usize = 7; // 49 bits, padded to ceil(49/8)
-const SERIAL_BAUD: u32 = 460_800;
-const SERIAL_TIMEOUT: Duration = Duration::from_secs(2);
-
-#[derive(Debug)]
-enum CaptureError {
-    Io(std::io::Error),
-    Serial(serialport::Error),
-    Protocol(String),
+#[derive(Clone)]
+enum Transport {
+    Ambeserver(SocketAddr),
+    #[cfg(feature = "thumbdv")]
+    Serial {
+        path: String,
+        baud: Option<u32>,
+    },
 }
 
-impl From<std::io::Error> for CaptureError {
-    fn from(e: std::io::Error) -> Self {
-        CaptureError::Io(e)
-    }
-}
-impl From<serialport::Error> for CaptureError {
-    fn from(e: serialport::Error) -> Self {
-        CaptureError::Serial(e)
-    }
-}
-impl std::fmt::Display for CaptureError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CaptureError::Io(e) => write!(f, "I/O: {e}"),
-            CaptureError::Serial(e) => write!(f, "serial: {e}"),
-            CaptureError::Protocol(s) => write!(f, "protocol: {s}"),
-        }
-    }
+struct Args {
+    transport: Transport,
+    input: PathBuf,
+    prefix: PathBuf,
 }
 
-struct Chip {
-    port: Box<dyn serialport::SerialPort>,
+fn usage() -> ! {
+    eprintln!(
+        "usage: dv3000_capture (--ambeserver host:port | --serial PATH [--baud N]) \\\n\
+         \tinput.pcm output_prefix\n\
+         \n\
+         Encodes input PCM through the chip in DMR rate (index 33) and\n\
+         raw rate (index 34); writes <prefix>.{{pcm,coded72,raw49}}."
+    );
+    std::process::exit(2)
 }
 
-impl Chip {
-    fn open(path: &str) -> Result<Self, CaptureError> {
-        let port = serialport::new(path, SERIAL_BAUD)
-            .timeout(SERIAL_TIMEOUT)
-            .open()?;
-        // Drain any stale bytes from prior consumers (e.g. ambeserver).
-        port.clear(serialport::ClearBuffer::All)?;
-        Ok(Self { port })
+fn parse_args() -> Args {
+    let mut transport: Option<Transport> = None;
+    let mut positional: Vec<String> = Vec::new();
+    let mut iter = env::args().skip(1);
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--ambeserver" => {
+                let v = iter.next().unwrap_or_else(|| usage());
+                let addr: SocketAddr = v.parse().unwrap_or_else(|e| {
+                    eprintln!("--ambeserver {v}: {e}");
+                    usage();
+                });
+                transport = Some(Transport::Ambeserver(addr));
+            }
+            "--serial" => {
+                let path = iter.next().unwrap_or_else(|| usage());
+                #[cfg(feature = "thumbdv")]
+                {
+                    transport = Some(Transport::Serial { path, baud: None });
+                }
+                #[cfg(not(feature = "thumbdv"))]
+                {
+                    let _ = path;
+                    eprintln!("--serial requires the thumbdv feature");
+                    std::process::exit(2);
+                }
+            }
+            #[cfg(feature = "thumbdv")]
+            "--baud" => {
+                let v = iter.next().unwrap_or_else(|| usage());
+                let baud: u32 = v.parse().unwrap_or_else(|_| {
+                    eprintln!("--baud must be an integer, got {v}");
+                    usage();
+                });
+                if let Some(Transport::Serial {
+                    baud: ref mut b, ..
+                }) = transport
+                {
+                    *b = Some(baud);
+                } else {
+                    eprintln!("--baud applies only with --serial");
+                    usage();
+                }
+            }
+            "-h" | "--help" => usage(),
+            _ if arg.starts_with("--") => {
+                eprintln!("unexpected argument: {arg}");
+                usage();
+            }
+            _ => positional.push(arg),
+        }
     }
-
-    fn write_packet(&mut self, payload_type: u8, payload: &[u8]) -> Result<(), CaptureError> {
-        let mut buf = Vec::with_capacity(4 + payload.len());
-        buf.push(START_BYTE);
-        buf.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-        buf.push(payload_type);
-        buf.extend_from_slice(payload);
-        self.port.write_all(&buf)?;
-        self.port.flush()?;
-        Ok(())
+    let transport = transport.unwrap_or_else(|| {
+        eprintln!("--ambeserver or --serial is required");
+        usage();
+    });
+    if positional.len() != 2 {
+        usage();
     }
-
-    fn read_packet(&mut self) -> Result<(u8, Vec<u8>), CaptureError> {
-        let mut header = [0u8; 4];
-        self.port.read_exact(&mut header)?;
-        if header[0] != START_BYTE {
-            return Err(CaptureError::Protocol(format!(
-                "bad start byte 0x{:02x}",
-                header[0]
-            )));
-        }
-        let payload_len = u16::from_be_bytes([header[1], header[2]]) as usize;
-        let payload_type = header[3];
-        let mut payload = vec![0u8; payload_len];
-        self.port.read_exact(&mut payload)?;
-        Ok((payload_type, payload))
-    }
-
-    fn reset(&mut self) -> Result<(), CaptureError> {
-        self.write_packet(TYPE_CONTROL, &[CONTROL_RESET])?;
-        let (ty, payload) = self.read_packet()?;
-        if ty != TYPE_CONTROL || payload.first() != Some(&CONTROL_READY) {
-            return Err(CaptureError::Protocol(format!(
-                "expected READY after reset, got type=0x{ty:02x} payload[0]={:?}",
-                payload.first()
-            )));
-        }
-        Ok(())
-    }
-
-    fn set_ratep(&mut self, ratep: &[u8; 12]) -> Result<(), CaptureError> {
-        let mut payload = Vec::with_capacity(1 + ratep.len());
-        payload.push(CONTROL_RATEP);
-        payload.extend_from_slice(ratep);
-        self.write_packet(TYPE_CONTROL, &payload)?;
-        let (ty, resp) = self.read_packet()?;
-        if ty != TYPE_CONTROL || resp.first() != Some(&CONTROL_RATEP) {
-            return Err(CaptureError::Protocol(format!(
-                "expected RATEP ack, got type=0x{ty:02x} payload[0]={:?}",
-                resp.first()
-            )));
-        }
-        // Byte 1 of the RATEP response indicates error if non-zero.
-        if resp.get(1).copied().unwrap_or(0) != 0 {
-            return Err(CaptureError::Protocol(format!(
-                "RATEP rejected by chip: status={:?}",
-                resp.get(1)
-            )));
-        }
-        Ok(())
-    }
-
-    /// Encode one PCM frame, returning (bits, packed_data_bytes).  PCM is
-    /// 160 i16 samples; data length is `ceil(bits/8)`.
-    fn encode(&mut self, pcm: &[i16; PCM_SAMPLES]) -> Result<(u8, Vec<u8>), CaptureError> {
-        // PKT_AUDIO: field_id(1) + num_samples(1) + samples(320, big-endian) +
-        // cmode_field(1) + cmode(2)
-        let mut payload = Vec::with_capacity(1 + 1 + PCM_FRAME_BYTES + 1 + 2);
-        payload.push(FIELD_SPEECH_DATA);
-        payload.push(PCM_SAMPLES as u8);
-        for sample in pcm {
-            payload.extend_from_slice(&sample.to_be_bytes());
-        }
-        payload.push(FIELD_CMODE);
-        payload.extend_from_slice(&0u16.to_be_bytes());
-        self.write_packet(TYPE_AUDIO, &payload)?;
-
-        let (ty, resp) = self.read_packet()?;
-        if ty != TYPE_AMBE {
-            return Err(CaptureError::Protocol(format!(
-                "expected AMBE response, got type=0x{ty:02x}"
-            )));
-        }
-        if resp.first() != Some(&FIELD_CHANNEL_DATA) {
-            return Err(CaptureError::Protocol(format!(
-                "expected CHAND field, got 0x{:02x?}",
-                resp.first()
-            )));
-        }
-        let bits = *resp
-            .get(1)
-            .ok_or_else(|| CaptureError::Protocol("AMBE response missing bit count".into()))?;
-        let data_len = (bits as usize).div_ceil(8);
-        if resp.len() < 2 + data_len {
-            return Err(CaptureError::Protocol(format!(
-                "AMBE response truncated: bits={bits} need {} have {}",
-                2 + data_len,
-                resp.len()
-            )));
-        }
-        Ok((bits, resp[2..2 + data_len].to_vec()))
+    Args {
+        transport,
+        input: PathBuf::from(&positional[0]),
+        prefix: PathBuf::from(&positional[1]),
     }
 }
 
-fn read_pcm_frames(path: &Path) -> Result<Vec<[i16; PCM_SAMPLES]>, CaptureError> {
+fn open_client(t: &Transport) -> Result<Box<dyn ChipClient>, String> {
+    match t {
+        Transport::Ambeserver(addr) => {
+            let c = AmbeServerClient::connect(*addr)
+                .map_err(|e| format!("connect ambeserver {addr}: {e}"))?;
+            eprintln!("connected to ambeserver at {addr}");
+            Ok(Box::new(c))
+        }
+        #[cfg(feature = "thumbdv")]
+        Transport::Serial { path, baud } => {
+            let c = ambe::chip::ThumbDvClient::open(path, *baud)
+                .map_err(|e| format!("open serial {path}: {e}"))?;
+            eprintln!("opened serial at {path}");
+            Ok(Box::new(c))
+        }
+    }
+}
+
+fn read_pcm_frames(path: &Path) -> Result<Vec<[i16; PCM_SAMPLES]>, String> {
     let mut bytes = Vec::new();
-    File::open(path)?.read_to_end(&mut bytes)?;
-    if bytes.len() % PCM_FRAME_BYTES != 0 {
-        return Err(CaptureError::Protocol(format!(
-            "PCM file {} length {} is not a multiple of {} (one 20 ms frame); \
-             trim to whole frames before capture",
+    File::open(path)
+        .and_then(|mut f| f.read_to_end(&mut bytes))
+        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    if !bytes.len().is_multiple_of(PCM_FRAME_BYTES) {
+        return Err(format!(
+            "PCM file {} length {} is not a multiple of {} (one 20 ms frame)",
             path.display(),
             bytes.len(),
             PCM_FRAME_BYTES
-        )));
+        ));
     }
-    let n_frames = bytes.len() / PCM_FRAME_BYTES;
-    let mut frames = Vec::with_capacity(n_frames);
+    let n = bytes.len() / PCM_FRAME_BYTES;
+    let mut frames = Vec::with_capacity(n);
     for chunk in bytes.chunks_exact(PCM_FRAME_BYTES) {
         let mut frame = [0i16; PCM_SAMPLES];
         for (i, sample) in frame.iter_mut().enumerate() {
@@ -235,59 +182,74 @@ fn read_pcm_frames(path: &Path) -> Result<Vec<[i16; PCM_SAMPLES]>, CaptureError>
     Ok(frames)
 }
 
-fn run(serial: &str, input: &Path, prefix: &Path) -> Result<(), CaptureError> {
-    let frames = read_pcm_frames(input)?;
+fn encode_pass(
+    client: &mut dyn ChipClient,
+    ratep: &[u8; 12],
+    expected_bits: u8,
+    expected_bytes: usize,
+    frames: &[[i16; PCM_SAMPLES]],
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    eprintln!("pass: {label}");
+    // Reset wipes codec state so each pass starts from a known
+    // baseline.  Without this, frame 0 of pass 2 would inherit pass
+    // 1's accumulated state and produce different bits than a fresh
+    // start would.
+    client
+        .reset()
+        .map_err(|e| format!("{label}: reset: {e}"))?;
+    client
+        .set_ratep(ratep)
+        .map_err(|e| format!("{label}: set_ratep: {e}"))?;
+    let mut out = Vec::with_capacity(frames.len() * expected_bytes);
+    for (i, frame) in frames.iter().enumerate() {
+        let (bits, data) = client
+            .encode_raw(frame)
+            .map_err(|e| format!("{label}: frame {i}: {e}"))?;
+        if bits != expected_bits || data.len() != expected_bytes {
+            return Err(format!(
+                "{label}: frame {i}: expected {expected_bits} bits / {expected_bytes} bytes, got {bits} bits / {} bytes",
+                data.len()
+            ));
+        }
+        out.extend_from_slice(&data);
+        if (i + 1) % 200 == 0 || i + 1 == frames.len() {
+            eprintln!("  encoded {} / {}", i + 1, frames.len());
+        }
+    }
+    Ok(out)
+}
+
+fn run(args: &Args) -> Result<(), String> {
+    let frames = read_pcm_frames(&args.input)?;
     eprintln!(
-        "loaded {n} frames ({s:.2} s) from {path}",
+        "loaded {n} frames ({:.2} s) from {}",
+        frames.len() as f32 * 0.020,
+        args.input.display(),
         n = frames.len(),
-        s = frames.len() as f32 * 0.020,
-        path = input.display(),
     );
 
-    let mut chip = Chip::open(serial)?;
-    eprintln!("opened {serial}");
+    let mut client = open_client(&args.transport)?;
+    let coded = encode_pass(
+        &mut *client,
+        &RATEP_DMR,
+        72,
+        CODED_BYTES,
+        &frames,
+        "rate 33 (DMR)",
+    )?;
+    let raw = encode_pass(
+        &mut *client,
+        &RATEP_RAW,
+        49,
+        RAW_BYTES,
+        &frames,
+        "rate 34 (raw)",
+    )?;
 
-    // Pass 1: DMR rate (index 33), expect 9-byte / 72-bit frames.
-    chip.reset()?;
-    chip.set_ratep(&RATEP_DMR)?;
-    eprintln!("pass 1: rate 33 (DMR/FEC, 72-bit channel)");
-    let mut coded = Vec::with_capacity(frames.len() * CODED_BYTES);
-    for (i, frame) in frames.iter().enumerate() {
-        let (bits, data) = chip.encode(frame)?;
-        if bits != 72 || data.len() != CODED_BYTES {
-            return Err(CaptureError::Protocol(format!(
-                "frame {i}: expected 72 bits / {CODED_BYTES} bytes, got {bits} bits / {} bytes",
-                data.len()
-            )));
-        }
-        coded.extend_from_slice(&data);
-        if (i + 1) % 200 == 0 || i + 1 == frames.len() {
-            eprintln!("  encoded {} / {}", i + 1, frames.len());
-        }
-    }
-
-    // Pass 2: raw rate (index 34), expect 7-byte / 49-bit frames.
-    chip.reset()?;
-    chip.set_ratep(&RATEP_RAW)?;
-    eprintln!("pass 2: rate 34 (raw 2450, 49-bit speech-only)");
-    let mut raw = Vec::with_capacity(frames.len() * RAW_BYTES);
-    for (i, frame) in frames.iter().enumerate() {
-        let (bits, data) = chip.encode(frame)?;
-        if bits != 49 || data.len() != RAW_BYTES {
-            return Err(CaptureError::Protocol(format!(
-                "frame {i}: expected 49 bits / {RAW_BYTES} bytes, got {bits} bits / {} bytes",
-                data.len()
-            )));
-        }
-        raw.extend_from_slice(&data);
-        if (i + 1) % 200 == 0 || i + 1 == frames.len() {
-            eprintln!("  encoded {} / {}", i + 1, frames.len());
-        }
-    }
-
-    let pcm_path = prefix.with_extension("pcm");
-    let coded_path = prefix.with_extension("coded72");
-    let raw_path = prefix.with_extension("raw49");
+    let pcm_path = args.prefix.with_extension("pcm");
+    let coded_path = args.prefix.with_extension("coded72");
+    let raw_path = args.prefix.with_extension("raw49");
 
     let mut pcm_bytes = Vec::with_capacity(frames.len() * PCM_FRAME_BYTES);
     for frame in &frames {
@@ -295,9 +257,15 @@ fn run(serial: &str, input: &Path, prefix: &Path) -> Result<(), CaptureError> {
             pcm_bytes.extend_from_slice(&sample.to_le_bytes());
         }
     }
-    File::create(&pcm_path)?.write_all(&pcm_bytes)?;
-    File::create(&coded_path)?.write_all(&coded)?;
-    File::create(&raw_path)?.write_all(&raw)?;
+    File::create(&pcm_path)
+        .and_then(|mut f| f.write_all(&pcm_bytes))
+        .map_err(|e| format!("write {}: {e}", pcm_path.display()))?;
+    File::create(&coded_path)
+        .and_then(|mut f| f.write_all(&coded))
+        .map_err(|e| format!("write {}: {e}", coded_path.display()))?;
+    File::create(&raw_path)
+        .and_then(|mut f| f.write_all(&raw))
+        .map_err(|e| format!("write {}: {e}", raw_path.display()))?;
     eprintln!(
         "wrote {} / {} / {}",
         pcm_path.display(),
@@ -307,27 +275,9 @@ fn run(serial: &str, input: &Path, prefix: &Path) -> Result<(), CaptureError> {
     Ok(())
 }
 
-fn usage() -> ! {
-    eprintln!(
-        "usage: dv3000_capture <serial-path> <input.pcm> <output-prefix>\n\
-         \n\
-         Encodes the input PCM through the chip twice -- once at rate 33 (DMR/FEC,\n\
-         72-bit channel) and once at rate 34 (raw 2450, 49-bit speech-only) -- and\n\
-         writes <prefix>.pcm, <prefix>.coded72, <prefix>.raw49."
-    );
-    std::process::exit(1)
-}
-
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 4 {
-        usage();
-    }
-    let serial = &args[1];
-    let input = PathBuf::from(&args[2]);
-    let prefix = PathBuf::from(&args[3]);
-
-    match run(serial, &input, &prefix) {
+    let args = parse_args();
+    match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e}");
