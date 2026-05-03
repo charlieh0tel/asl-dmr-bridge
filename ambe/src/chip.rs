@@ -22,6 +22,11 @@ use crate::dv3000;
 /// need to switch rates mid-session or inspect non-72-bit AMBE
 /// responses.  For routine DMR encode/decode, `Vocoder` is simpler.
 pub trait ChipClient: Send {
+    /// Reset the chip to default state and wait for the READY ack.
+    /// Wipes codec state -- use at the start of a stream that needs
+    /// bit-exact output independent of prior chip activity.
+    fn reset(&mut self) -> Result<(), VocoderError>;
+
     /// Send a custom 12-byte RATEP control word (RCW0..RCW5).
     fn set_ratep(&mut self, rcws: &[u8; 12]) -> Result<(), VocoderError>;
 
@@ -89,6 +94,16 @@ impl AmbeServerClient {
 }
 
 impl ChipClient for AmbeServerClient {
+    fn reset(&mut self) -> Result<(), VocoderError> {
+        let response = self.send_recv(&dv3000::build_reset())?;
+        if !dv3000::is_ready(&response) {
+            return Err(VocoderError::Protocol(format!(
+                "expected READY after reset, got {response:?}"
+            )));
+        }
+        Ok(())
+    }
+
     fn set_ratep(&mut self, rcws: &[u8; 12]) -> Result<(), VocoderError> {
         let response = self.send_recv(&dv3000::build_ratep_custom(rcws))?;
         if !dv3000::is_ratep_ack(&response) {
@@ -208,6 +223,16 @@ impl ThumbDvClient {
 
 #[cfg(feature = "thumbdv")]
 impl ChipClient for ThumbDvClient {
+    fn reset(&mut self) -> Result<(), VocoderError> {
+        let r = self.send_recv(&dv3000::build_reset())?;
+        if !dv3000::is_ready(&r) {
+            return Err(VocoderError::Protocol(format!(
+                "expected READY after reset, got {r:?}"
+            )));
+        }
+        Ok(())
+    }
+
     fn set_ratep(&mut self, rcws: &[u8; 12]) -> Result<(), VocoderError> {
         let r = self.send_recv(&dv3000::build_ratep_custom(rcws))?;
         if !dv3000::is_ratep_ack(&r) {
