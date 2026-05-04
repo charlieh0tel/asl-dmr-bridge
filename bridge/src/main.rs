@@ -105,6 +105,18 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
         VocoderBackend::Mbelib => {
             anyhow::bail!("mbelib backend not compiled (enable the 'mbelib' feature)")
         }
+        #[cfg(feature = "neural")]
+        VocoderBackend::Neural => {
+            let path = config
+                .model_path
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("neural requires model_path"))?;
+            Ok(ambe::open_neural(path)?)
+        }
+        #[cfg(not(feature = "neural"))]
+        VocoderBackend::Neural => {
+            anyhow::bail!("neural backend not compiled (enable the 'neural' feature)")
+        }
     }
 }
 
@@ -397,6 +409,7 @@ async fn async_main() -> anyhow::Result<()> {
         src_id: config.repeater.src_id,
         color_code: config.repeater.color_code,
         callsign: config.repeater.callsign.as_str().to_string(),
+        pcm_record_dir: config.diagnostics.pcm_record_dir.clone(),
     };
 
     // Each branch trips `cancel` on its own exit (Ok, Err, or natural

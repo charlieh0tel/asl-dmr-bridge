@@ -41,6 +41,7 @@ fn test_voice_config() -> VoiceConfig {
         src_id: SubscriberId::try_from(12345).unwrap(),
         color_code: ColorCode::try_from(1).unwrap(),
         callsign: String::new(),
+        pcm_record_dir: None,
     }
 }
 

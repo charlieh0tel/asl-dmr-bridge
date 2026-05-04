@@ -235,6 +235,10 @@ pub struct VoiceConfig {
     /// string, >7 chars, or non-ASCII disables TA emission and the
     /// voice LC is sent every superframe.
     pub callsign: String,
+    /// Diagnostic PCM capture directory.  When `Some`, the bridge
+    /// writes per-call WAV files (8 kHz mono i16 LE) for encoder
+    /// input on TX calls and pre-AGC decoder output on RX calls.
+    pub pcm_record_dir: Option<std::path::PathBuf>,
 }
 
 // --- Main task ---

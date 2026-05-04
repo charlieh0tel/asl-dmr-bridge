@@ -116,6 +116,10 @@ pub(crate) struct Config {
     /// `bridge/src/stats.rs`.
     #[serde(default)]
     pub(crate) stats: StatsConfig,
+    /// Diagnostic capture knobs (per-call WAV recording, etc.).
+    /// Section absent = all diagnostics off.
+    #[serde(default)]
+    pub(crate) diagnostics: DiagnosticsConfig,
 }
 
 /// AGC parameters with sensible defaults; `enabled = false` skips
@@ -321,6 +325,7 @@ pub(crate) enum VocoderBackend {
     Thumbdv,
     Ambeserver,
     Mbelib,
+    Neural,
 }
 
 #[derive(Debug, Deserialize)]
@@ -337,11 +342,13 @@ pub(crate) struct VocoderConfig {
     pub(crate) host: Option<String>,
     /// AMBEserver port (when backend = "ambeserver", default 2460).
     pub(crate) port: Option<u16>,
+    /// ONNX model path (required when backend = "neural").
+    pub(crate) model_path: Option<std::path::PathBuf>,
     /// DV3000 chip input (encode) gain in dB, -90..=90.  Default 0.
-    /// Ignored by the mbelib backend.
+    /// Ignored by the mbelib and neural backends.
     pub(crate) gain_in_db: Option<i8>,
     /// DV3000 chip output (decode) gain in dB, -90..=90.  Default 0.
-    /// Ignored by the mbelib backend.
+    /// Ignored by the mbelib and neural backends.
     pub(crate) gain_out_db: Option<i8>,
 }
 
@@ -451,6 +458,17 @@ pub(crate) struct RuntimeConfig {
     pub(crate) brandmeister_api: Option<ResolvedBrandmeisterApiConfig>,
     pub(crate) agc: AgcConfig,
     pub(crate) stats: StatsConfig,
+    pub(crate) diagnostics: DiagnosticsConfig,
+}
+
+/// Diagnostic capture knobs.  All optional, off by default.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DiagnosticsConfig {
+    /// Per-call PCM capture directory.  When set, the bridge writes
+    /// 8 kHz mono int16 LE WAV files (one per call per direction).
+    #[serde(default)]
+    pub(crate) pcm_record_dir: Option<std::path::PathBuf>,
 }
 
 /// Network section after password resolution.  Mirrors `NetworkConfig`
@@ -525,6 +543,7 @@ impl Config {
             brandmeister_api,
             agc,
             stats,
+            diagnostics,
         } = self;
         RuntimeConfig {
             repeater,
@@ -547,6 +566,7 @@ impl Config {
             }),
             agc,
             stats,
+            diagnostics,
         }
     }
 }

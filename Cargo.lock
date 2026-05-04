@@ -116,6 +116,7 @@ dependencies = [
  "dmr-wire",
  "hex",
  "humantime-serde",
+ "pcm-utils",
  "proptest",
  "secrecy",
  "serde",
@@ -659,6 +660,7 @@ dependencies = [
  "dmr-events",
  "dmr-types",
  "hex",
+ "pcm-utils",
  "proptest",
  "thiserror 2.0.18",
  "tokio",
@@ -1933,6 +1935,10 @@ name = "pastey"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
+
+[[package]]
+name = "pcm-utils"
+version = "1.4.0"
 
 [[package]]
 name = "percent-encoding"

@@ -8,6 +8,7 @@ license.workspace = true
 ambe.workspace = true
 dmr-types.workspace = true
 dmr-events.workspace = true
+pcm-utils.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tokio-util.workspace = true

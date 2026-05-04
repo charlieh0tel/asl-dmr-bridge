@@ -8,6 +8,7 @@ description = "Bridge between AllStarLink (ASL3) FM repeaters and Brandmeister D
 [features]
 mbelib = ["ambe/mbelib"]
 thumbdv = ["ambe/thumbdv"]
+neural = ["ambe/neural"]
 # Forwards to `ambe/testing` so workspace-wide `cargo test --features
 # testing` reaches the goldens + gen_golden.
 testing = ["ambe/testing"]
@@ -19,6 +20,7 @@ dmr-subscriber.workspace = true
 dmr-types.workspace = true
 dmr-events.workspace = true
 dmr-wire.workspace = true
+pcm-utils.workspace = true
 usrp-wire.workspace = true
 anyhow.workspace = true
 clap.workspace = true

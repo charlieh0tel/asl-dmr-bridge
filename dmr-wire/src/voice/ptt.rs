@@ -7,9 +7,15 @@
 //! transitions.  Tests construct a `PttMachine` directly and drive
 //! events without spinning up the full select loop.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+
+use pcm_utils::levels;
+use pcm_utils::wav;
 
 use ambe::AmbeFrame;
 use ambe::PcmFrame;
@@ -177,6 +183,10 @@ pub(crate) struct PttMachine {
     callsign_lookup: Option<CallsignLookup>,
     cancel: CancellationToken,
     pub(crate) state: PttState,
+    tx_recorder: Option<wav::WavRecorder>,
+    rx_recorder: Option<wav::WavRecorder>,
+    tx_levels: levels::LevelAccumulator,
+    rx_levels: levels::LevelAccumulator,
 }
 
 impl PttMachine {
@@ -206,7 +216,49 @@ impl PttMachine {
             callsign_lookup,
             cancel,
             state: PttState::Idle,
+            tx_recorder: None,
+            rx_recorder: None,
+            tx_levels: levels::LevelAccumulator::default(),
+            rx_levels: levels::LevelAccumulator::default(),
         }
+    }
+
+    // --- Diagnostic recording + level accumulator lifecycle.
+    //     Strictly diagnostic concerns: vocoder reset stays in
+    //     `on_ptt_up()` and is the caller's separate responsibility.
+    //
+    // [TODO] @charlieh0tel: fold the per-call StatsEvent::CallStart
+    // / CallEnd emissions into these hooks too -- they fire at the
+    // same boundaries.  Hook signatures grow (src/dst/slot for
+    // start, reason for end) but each call site collapses to one
+    // method.
+
+    fn on_tx_call_start(&mut self, stream_id: u32) {
+        self.tx_levels = levels::LevelAccumulator::default();
+        self.tx_recorder =
+            open_wav_recorder(self.config.pcm_record_dir.as_deref(), "tx", stream_id);
+    }
+
+    fn on_tx_call_end(&mut self, stream_id: u32) {
+        log_call_levels("fm_to_dmr", "encode_in", stream_id, &self.tx_levels);
+        self.tx_recorder = None; // Drop finalizes.
+        self.tx_levels = levels::LevelAccumulator::default();
+    }
+
+    fn on_rx_call_start(&mut self, stream_id: u32) {
+        self.rx_levels = levels::LevelAccumulator::default();
+        self.rx_recorder =
+            open_wav_recorder(self.config.pcm_record_dir.as_deref(), "rx", stream_id);
+    }
+
+    fn on_rx_call_end(&mut self, stream_id: u32) {
+        log_call_levels("dmr_to_fm", "decode_out", stream_id, &self.rx_levels);
+        self.rx_recorder = None;
+        self.rx_levels = levels::LevelAccumulator::default();
+    }
+
+    fn record_tx_frame(&mut self, pcm: &PcmFrame) {
+        record_pcm(&mut self.tx_recorder, &mut self.tx_levels, pcm, "tx");
     }
 
     fn try_send_stats(&self, evt: StatsEvent) {
@@ -484,7 +536,7 @@ impl PttMachine {
         }
     }
 
-    async fn flush_tx(&self, tx: &mut TxCall) {
+    async fn flush_tx(&mut self, tx: &mut TxCall) {
         if tx.pcm_buf.is_empty() {
             return;
         }
@@ -493,6 +545,9 @@ impl PttMachine {
             .try_into()
             .expect("sliced to FRAMES_PER_BURST");
         tx.pcm_buf.clear();
+        for frame in &pcm {
+            self.record_tx_frame(frame);
+        }
         match self.build_tx_voice(&pcm, tx).await {
             Some((pkt, times)) => self.try_send_voice_dmrd(pkt, times, "tx_flush_voice"),
             None => self.drop_burst_fm_to_dmr(),
@@ -520,6 +575,7 @@ impl PttMachine {
             dir: CallDirection::FmToDmr,
             reason: TerminationReason::NetworkReset,
         });
+        self.on_tx_call_end(tx.stream_id);
     }
 
     pub(crate) async fn on_dmrd(&mut self, pkt: &Dmrd) {
@@ -557,6 +613,7 @@ impl PttMachine {
                     slot: pkt.slot,
                 });
                 self.on_ptt_up();
+                self.on_rx_call_start(pkt.stream_id);
                 self.state = PttState::Rx(RxCall {
                     stream_id: pkt.stream_id,
                     src_id: pkt.src_id,
@@ -580,6 +637,7 @@ impl PttMachine {
                         dir: CallDirection::DmrToFm,
                         reason: TerminationReason::Normal,
                     });
+                    self.on_rx_call_end(pkt.stream_id);
                     let _ = self.audio_tx.send(make_unkey_frame()).await;
                     self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
                 }
@@ -592,7 +650,7 @@ impl PttMachine {
                 // self.state ends.
                 let mut emit_metadata = false;
                 let mut emit_call_start = false;
-                let mut prior_call_end = false;
+                let mut prior_call_end: Option<u32> = None;
                 let mut seq_gap: u8 = 0;
                 let now = Instant::now();
                 if let PttState::Rx(rx) = &mut self.state {
@@ -600,7 +658,7 @@ impl PttMachine {
                         info!(old = rx.stream_id, new = pkt.stream_id, "RX stream change");
                         emit_metadata = true;
                         emit_call_start = true;
-                        prior_call_end = true;
+                        prior_call_end = Some(rx.stream_id);
                         rx.stream_id = pkt.stream_id;
                         rx.src_id = pkt.src_id;
                         rx.dst_id = pkt.dst_id;
@@ -632,14 +690,16 @@ impl PttMachine {
                         last_seq: Some(pkt.seq),
                     });
                 }
-                if prior_call_end {
+                if let Some(prior_sid) = prior_call_end {
                     self.try_send_stats(StatsEvent::CallEnd {
                         dir: CallDirection::DmrToFm,
                         reason: TerminationReason::Normal,
                     });
+                    self.on_rx_call_end(prior_sid);
                 }
                 if emit_call_start {
                     self.on_ptt_up();
+                    self.on_rx_call_start(pkt.stream_id);
                     self.try_send_stats(StatsEvent::CallStart {
                         dir: CallDirection::DmrToFm,
                         src_id: pkt.src_id,
@@ -682,10 +742,18 @@ impl PttMachine {
                         return;
                     }
                 };
+                // Take recorder + levels out of self so the per-
+                // frame work doesn't need `&mut self` while
+                // `permits` holds a shared borrow on self.audio_tx.
+                let mut rx_rec = self.rx_recorder.take();
+                let mut rx_acc = std::mem::take(&mut self.rx_levels);
                 for _ in 0..gap_frames {
                     let permit = permits.next().expect("reserved gap-fill permit");
                     match self.decode(None).await {
-                        Ok(pcm) => permit.send(make_voice_frame(pcm)),
+                        Ok(pcm) => {
+                            record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
+                            permit.send(make_voice_frame(pcm));
+                        }
                         Err(e) => {
                             warn!(stream_id = pkt.stream_id, "lost-frame decode error: {e}");
                             // permit drops, releasing its slot.
@@ -701,6 +769,7 @@ impl PttMachine {
                                 dir: CallDirection::DmrToFm,
                                 transcode: t0.elapsed(),
                             });
+                            record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
                             permit.send(make_voice_frame(pcm));
                         }
                         Err(e) => {
@@ -712,6 +781,8 @@ impl PttMachine {
                         }
                     }
                 }
+                self.rx_recorder = rx_rec;
+                self.rx_levels = rx_acc;
             }
             _ => {}
         }
@@ -749,6 +820,7 @@ impl PttMachine {
                         dir: CallDirection::FmToDmr,
                         reason: TerminationReason::Normal,
                     });
+                    self.on_tx_call_end(tx.stream_id);
                 } else {
                     tx.pending_terminate = Some(Instant::now() + self.config.min_tx_hang);
                     debug!(stream_id = tx.stream_id, "TX hang start");
@@ -804,6 +876,7 @@ impl PttMachine {
             };
             info!(stream_id = tx.stream_id, "TX header");
             self.on_ptt_up();
+            self.on_tx_call_start(tx.stream_id);
             self.try_send_stats(StatsEvent::CallStart {
                 dir: CallDirection::FmToDmr,
                 src_id: self.config.src_id.as_u32(),
@@ -833,6 +906,9 @@ impl PttMachine {
                 .try_into()
                 .expect("sliced to FRAMES_PER_BURST");
             tx.pcm_buf.clear();
+            for frame in &pcm {
+                self.record_tx_frame(frame);
+            }
             let vseq = tx.vseq;
             match self.build_tx_voice(&pcm, &mut tx).await {
                 Some((pkt, times)) => {
@@ -854,6 +930,7 @@ impl PttMachine {
                     dir: CallDirection::DmrToFm,
                     reason: TerminationReason::StreamTimeout,
                 });
+                self.on_rx_call_end(rx.stream_id);
                 let _ = self.audio_tx.send(make_unkey_frame()).await;
                 self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
             }
@@ -884,6 +961,7 @@ impl PttMachine {
                     dir: CallDirection::FmToDmr,
                     reason,
                 });
+                self.on_tx_call_end(tx.stream_id);
             }
             PttState::Idle => {}
         }
@@ -891,12 +969,13 @@ impl PttMachine {
 
     pub(crate) async fn on_shutdown(&mut self) {
         match self.take_state() {
-            PttState::Rx(_) => {
+            PttState::Rx(rx) => {
                 self.emit_clear_metadata();
                 self.try_send_stats(StatsEvent::CallEnd {
                     dir: CallDirection::DmrToFm,
                     reason: TerminationReason::Shutdown,
                 });
+                self.on_rx_call_end(rx.stream_id);
                 let _ = self.audio_tx.send(make_unkey_frame()).await;
             }
             PttState::RxHang(_) => {
@@ -913,8 +992,51 @@ impl PttMachine {
                     dir: CallDirection::FmToDmr,
                     reason: TerminationReason::Shutdown,
                 });
+                self.on_tx_call_end(tx.stream_id);
             }
             PttState::Idle => {}
         }
     }
+}
+
+fn record_pcm(
+    recorder: &mut Option<wav::WavRecorder>,
+    accumulator: &mut levels::LevelAccumulator,
+    pcm: &PcmFrame,
+    kind: &str,
+) {
+    accumulator.add_frame(pcm);
+    if let Some(rec) = recorder.as_mut()
+        && let Err(e) = rec.write(pcm)
+    {
+        warn!("{kind} pcm record write: {e}");
+        *recorder = None;
+    }
+}
+
+fn open_wav_recorder(dir: Option<&Path>, kind: &str, stream_id: u32) -> Option<wav::WavRecorder> {
+    let dir = dir?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("{kind}_{now_ms}_{stream_id}.wav"));
+    match wav::WavRecorder::create(&path) {
+        Ok(rec) => Some(rec),
+        Err(e) => {
+            warn!("open wav recorder {}: {e}", path.display());
+            None
+        }
+    }
+}
+
+fn log_call_levels(dir: &str, point: &str, stream_id: u32, levels: &levels::LevelAccumulator) {
+    let (peak, rms, voiced_rms) = levels.summary();
+    info!(
+        "call_levels dir={dir} point={point} stream_id={stream_id} \
+         peak={} rms={} voiced_rms={}",
+        levels::fmt_dbfs(peak),
+        levels::fmt_dbfs(rms),
+        levels::fmt_dbfs(voiced_rms),
+    );
 }

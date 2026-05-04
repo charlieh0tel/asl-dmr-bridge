@@ -24,6 +24,8 @@ use usrp_wire::RECV_SLACK;
 use usrp_wire::VOICE_FRAME_INTERVAL;
 
 use crate::agc::Agc;
+use pcm_utils::levels::LevelAccumulator;
+use pcm_utils::levels::fmt_dbfs;
 
 /// Receive USRP packets from the socket, strip the wire-only fields
 /// (seq, talkgroup, frame_type), and forward the resulting
@@ -123,6 +125,10 @@ pub(crate) async fn tx_task(
     // voice emit so pacing is absolute -- scheduler wake-up jitter
     // does not accumulate into drift.
     let mut next_voice_send: Option<Instant> = None;
+    // Per-call level accumulator on the post-AGC PCM (= what hits
+    // the FM peer).  Resets and emits a summary log on each unkey.
+    let mut agc_out_levels = LevelAccumulator::default();
+    let mut had_voice_in_call = false;
     loop {
         tokio::select! {
             biased;
@@ -195,6 +201,25 @@ pub(crate) async fn tx_task(
                     } else if let Some(buf) = samples.as_mut() {
                         agc_state.process(buf);
                     }
+                }
+
+                // Per-call AGC-out level accumulator: accumulate
+                // while keyed, summarize on unkey.
+                if audio.keyup {
+                    if let Some(buf) = samples.as_ref() {
+                        agc_out_levels.add_frame(buf);
+                        had_voice_in_call = true;
+                    }
+                } else if had_voice_in_call {
+                    let (peak, rms, voiced_rms) = agc_out_levels.summary();
+                    info!(
+                        "call_levels dir=dmr_to_fm point=agc_out peak={} rms={} voiced_rms={}",
+                        fmt_dbfs(peak),
+                        fmt_dbfs(rms),
+                        fmt_dbfs(voiced_rms),
+                    );
+                    agc_out_levels = LevelAccumulator::default();
+                    had_voice_in_call = false;
                 }
 
                 let frame = Frame {
