@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use tracing::info;
 use tract_onnx::pb;
@@ -20,7 +21,6 @@ use tract_onnx::prelude::TypedRunnableModel;
 use tract_onnx::prelude::tract_ndarray;
 use tract_onnx::prelude::tvec;
 
-use crate::AMBE_FRAME_SIZE;
 use crate::AmbeFrame;
 use crate::PCM_SAMPLES;
 use crate::PcmFrame;
@@ -57,6 +57,18 @@ pub(crate) struct Field {
     pub(crate) vq_size: u16,
     pub(crate) ambe_d: &'static [u8],
 }
+
+/// Channel-coded AMBE+2 frame-repeat sentinel (`b0=124`, others 0).
+/// Emitted during encoder warm-up so the receiver decodes a valid
+/// frame -> silence instead of garbage from raw-zero channel bits.
+pub(crate) static SILENCE_FRAME: LazyLock<AmbeFrame> = LazyLock::new(|| {
+    // 124 = 0b1111100, MSB-first into b0 positions [0,1,2,3,37,38,39].
+    let mut ambe_d = [0u8; 49];
+    for &p in &[0usize, 1, 2, 3, 37] {
+        ambe_d[p] = 1;
+    }
+    crate::voice_channel::encode_from_ambe_d(&ambe_d)
+});
 
 /// DMR / P25 half-rate field layout.  Source of truth:
 /// `nambe/field_layout.py::FIELDS_DMR_3600X2450`.  Stable since
@@ -252,7 +264,7 @@ impl Vocoder for NeuralVocoder {
             self.samples.pop_front();
         }
         if self.samples.len() < self.buffer_cap {
-            return Ok([0u8; AMBE_FRAME_SIZE]);
+            return Ok(*SILENCE_FRAME);
         }
         self.encode_real_frame()
     }
@@ -461,6 +473,26 @@ mod tests {
     fn field_layout_totals_49_bits() {
         let total: u8 = FIELDS_DMR_3600X2450.iter().map(|f| f.bits).sum();
         assert_eq!(total, 49);
+    }
+
+    #[test]
+    fn silence_sentinel_decodes_to_silence() {
+        // mbelib must honor b0=124 and emit ~zero PCM from a freshly-
+        // reset decoder.  If this fails, mbelib has a quirk and the
+        // warm-up bytes will produce noise on the wire.
+        let mut decoder = Mbelib::new();
+        let pcm = decoder.decode(Some(&SILENCE_FRAME)).unwrap();
+        let mean_sq: f64 =
+            pcm.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / pcm.len() as f64;
+        let rms_dbfs = if mean_sq > 0.0 {
+            10.0 * mean_sq.log10() - 20.0 * 32768.0_f64.log10()
+        } else {
+            f64::NEG_INFINITY
+        };
+        assert!(
+            rms_dbfs < -50.0,
+            "silence sentinel decoded to {rms_dbfs:.1}dBFS, expected < -50.0dBFS"
+        );
     }
 
     #[test]
