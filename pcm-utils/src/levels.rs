@@ -61,11 +61,14 @@ impl LevelAccumulator {
     }
 }
 
-/// Format a dBFS value for log output.  `-inf` (no samples, all
-/// silent) renders as `-infdBFS` so the unit is always present.
+/// Format a dBFS value for log output.  `-inf` (no samples / all
+/// silent) renders as `-infdBFS`; NaN renders as `NaNdBFS` so an
+/// upstream computation bug stays visible instead of being masked.
 pub fn fmt_dbfs(v: f64) -> String {
     if v.is_finite() {
         format!("{v:.1}dBFS")
+    } else if v.is_nan() {
+        "NaNdBFS".into()
     } else {
         "-infdBFS".into()
     }
@@ -197,6 +200,6 @@ mod tests {
         assert_eq!(fmt_dbfs(-12.345), "-12.3dBFS");
         assert_eq!(fmt_dbfs(0.0), "0.0dBFS");
         assert_eq!(fmt_dbfs(f64::NEG_INFINITY), "-infdBFS");
-        assert_eq!(fmt_dbfs(f64::NAN), "-infdBFS");
+        assert_eq!(fmt_dbfs(f64::NAN), "NaNdBFS");
     }
 }
