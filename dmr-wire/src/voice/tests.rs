@@ -322,6 +322,31 @@ async fn rx_stream_change_emits_new_metadata() {
 }
 
 #[tokio::test]
+async fn rx_stream_change_emits_unkey_for_prior_stream() {
+    // The audio_tx consumer (usrp::tx_task) keys per-call diagnostic
+    // recorders off keyup transitions; a stream change must surface
+    // as unkey(prior_sid) -> keyup(new_sid).
+    let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
+    m.on_dmrd(&voice_dmrd(0x111)).await;
+    while let Ok(f) = audio_rx.try_recv() {
+        assert_eq!(f.call_id, Some(0x111));
+        assert!(f.keyup);
+    }
+    m.on_dmrd(&voice_dmrd(0x222)).await;
+    let unkey = audio_rx
+        .try_recv()
+        .expect("expected unkey for prior stream");
+    assert!(
+        !unkey.keyup,
+        "first frame after stream change must be unkey"
+    );
+    assert_eq!(unkey.call_id, Some(0x111));
+    let next = audio_rx.try_recv().expect("expected new-stream voice");
+    assert!(next.keyup);
+    assert_eq!(next.call_id, Some(0x222));
+}
+
+#[tokio::test]
 async fn rx_hang_blocks_tx() {
     let (mut m, _audio_rx, mut dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.state = PttState::RxHang(Instant::now() + Duration::from_secs(10));

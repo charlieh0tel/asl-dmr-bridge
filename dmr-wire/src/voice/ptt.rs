@@ -685,6 +685,7 @@ impl PttMachine {
                         reason: TerminationReason::Normal,
                     });
                     self.on_rx_call_end(prior_sid);
+                    let _ = self.audio_tx.send(make_unkey_frame(Some(prior_sid))).await;
                 }
                 if emit_call_start {
                     self.on_ptt_up();
