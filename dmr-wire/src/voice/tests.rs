@@ -19,6 +19,20 @@ impl Vocoder for StubVocoder {
     fn reset(&mut self) {}
 }
 
+/// Encodes by panicking, simulating an FFI-side panic in a real
+/// vocoder.  Used to exercise the fatal-vocoder cancel path.
+struct PanickingVocoder;
+
+impl Vocoder for PanickingVocoder {
+    fn encode(&mut self, _pcm: &PcmFrame) -> Result<ambe::AmbeFrame, ambe::VocoderError> {
+        panic!("simulated vocoder panic")
+    }
+    fn decode(&mut self, _ambe: Option<&ambe::AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
+        Ok([0i16; VOICE_SAMPLES])
+    }
+    fn reset(&mut self) {}
+}
+
 type TestMachine = (
     PttMachine,
     mpsc::Receiver<AudioFrame>,
@@ -1030,4 +1044,31 @@ async fn integration_network_reset_restarts_tx_with_fresh_header() {
     assert_ne!(hdr.stream_id, first_hdr.stream_id);
 
     rig.shutdown().await;
+}
+
+#[tokio::test]
+async fn vocoder_panic_cancels_voice_task() {
+    let cancel = CancellationToken::new();
+    let (audio_tx, _audio_rx) = mpsc::channel(16);
+    let (dmrd_voice_out, _dmrd_voice_rx) = mpsc::channel(16);
+    let (dmrd_control_out, _dmrd_control_rx) = mpsc::unbounded_channel();
+    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
+    let mut m = PttMachine::new(
+        test_voice_config(),
+        Box::new(PanickingVocoder),
+        audio_tx,
+        dmrd_voice_out,
+        dmrd_control_out,
+        metadata_tx,
+        None,
+        None,
+        cancel.clone(),
+    );
+    for _ in 0..FRAMES_PER_BURST {
+        m.on_audio(&voice_audio()).await;
+    }
+    assert!(
+        cancel.is_cancelled(),
+        "vocoder panic must cancel the task for orderly shutdown"
+    );
 }

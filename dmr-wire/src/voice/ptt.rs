@@ -321,6 +321,17 @@ impl PttMachine {
 
     // --- Vocoder (spawn_blocking + cancel race) ---
 
+    /// Vocoder panic / poisoned Mutex is unrecoverable: chip protocol
+    /// state is mid-frame and decoder predictor history is corrupt.
+    /// Cancel the task so `voice_task` exits via `on_shutdown` and
+    /// peers see a clean call-end before the supervisor restarts us.
+    fn fatal_vocoder(&self, what: &str) {
+        if !self.cancel.is_cancelled() {
+            tracing::error!("vocoder unusable: {what}; cancelling voice_task");
+            self.cancel.cancel();
+        }
+    }
+
     /// `ambe = Some(frame)` decodes a real frame; `None` is a
     /// known-missing slot in the stream (RX seq gap), so the
     /// vocoder advances state and synthesizes compensation.
@@ -334,7 +345,13 @@ impl PttMachine {
         tokio::select! {
             biased;
             _ = self.cancel.cancelled() => Err(VocoderError::Decode("cancelled".into())),
-            result = handle => result.map_err(|e| VocoderError::Decode(format!("vocoder task failed: {e}")))?,
+            result = handle => match result {
+                Ok(r) => r,
+                Err(join_err) => {
+                    self.fatal_vocoder(&format!("decode panic: {join_err}"));
+                    Err(VocoderError::Decode(format!("vocoder task failed: {join_err}")))
+                }
+            },
         }
     }
 
@@ -349,7 +366,13 @@ impl PttMachine {
         tokio::select! {
             biased;
             _ = self.cancel.cancelled() => Err(VocoderError::Encode("cancelled".into())),
-            result = handle => result.map_err(|e| VocoderError::Encode(format!("vocoder task failed: {e}")))?,
+            result = handle => match result {
+                Ok(r) => r,
+                Err(join_err) => {
+                    self.fatal_vocoder(&format!("encode panic: {join_err}"));
+                    Err(VocoderError::Encode(format!("vocoder task failed: {join_err}")))
+                }
+            },
         }
     }
 
@@ -357,7 +380,10 @@ impl PttMachine {
     /// and RX (new stream-id, including implicit start from
     /// Idle/RxHang).
     fn on_ptt_up(&self) {
-        self.vocoder.lock().expect("vocoder mutex poisoned").reset();
+        match self.vocoder.lock() {
+            Ok(mut g) => g.reset(),
+            Err(_) => self.fatal_vocoder("on_ptt_up: mutex poisoned"),
+        }
     }
 
     // --- TX burst builders ---
