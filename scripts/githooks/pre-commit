@@ -86,4 +86,8 @@ if [ -n "$rust_changed" ]; then
         printf 'Fix the lint or override with `git commit --no-verify`.\n' >&2
         exit 1
     fi
+    if ! cargo test --lib --features mbelib,testing >&2; then
+        printf '\npre-commit: cargo test --lib failed.\n' >&2
+        exit 1
+    fi
 fi
