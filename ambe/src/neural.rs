@@ -198,7 +198,10 @@ impl NeuralVocoder {
         })
     }
 
-    fn encode_real_frame(&mut self) -> Result<AmbeFrame, VocoderError> {
+    /// Run inference on the current buffer slice and argmax each of
+    /// the 9 logit heads.  Output order matches FIELDS_DMR_3600X2450
+    /// (validated at load).
+    fn run_inference(&mut self) -> Result<[u16; 9], VocoderError> {
         let mut input = Vec::with_capacity(self.meta.pcm_input_samples);
         input.extend(
             self.samples
@@ -222,9 +225,7 @@ impl NeuralVocoder {
             .run(tvec!(tensor.into()))
             .map_err(|e| VocoderError::Encode(format!("inference: {e}")))?;
 
-        // Argmax each of the 9 logit tensors; scatter into ambe_d[].
-        // Output order matches FIELDS_DMR_3600X2450 (validated at load).
-        let mut ambe_d = [0u8; 49];
+        let mut vq = [0u16; 9];
         for (field_idx, field) in FIELDS_DMR_3600X2450.iter().enumerate() {
             let logits = outputs[field_idx]
                 .as_slice::<f32>()
@@ -245,13 +246,36 @@ impl NeuralVocoder {
                     best_idx = idx as u16;
                 }
             }
+            vq[field_idx] = best_idx;
+        }
+        Ok(vq)
+    }
+
+    fn encode_real_frame(&mut self) -> Result<AmbeFrame, VocoderError> {
+        let vq = self.run_inference()?;
+        let mut ambe_d = [0u8; 49];
+        for (field_idx, field) in FIELDS_DMR_3600X2450.iter().enumerate() {
+            let value = vq[field_idx];
             for (i, &pos) in field.ambe_d.iter().enumerate() {
                 let bit_pos = field.bits - 1 - i as u8;
-                ambe_d[pos as usize] = ((best_idx >> bit_pos) & 1) as u8;
+                ambe_d[pos as usize] = ((value >> bit_pos) & 1) as u8;
             }
         }
-
         Ok(crate::voice_channel::encode_from_ambe_d(&ambe_d))
+    }
+
+    /// Streaming-encoder wrapper that returns the per-frame VQ
+    /// indices instead of channel-coded bytes.  `Ok(None)` until the
+    /// warm-up window is filled, then `Ok(Some(vq))` per frame.
+    pub(crate) fn encode_vq(&mut self, pcm: &PcmFrame) -> Result<Option<[u16; 9]>, VocoderError> {
+        self.samples.extend(pcm.iter().copied());
+        while self.samples.len() > self.buffer_cap {
+            self.samples.pop_front();
+        }
+        if self.samples.len() < self.buffer_cap {
+            return Ok(None);
+        }
+        Ok(Some(self.run_inference()?))
     }
 }
 

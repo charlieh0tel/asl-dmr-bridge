@@ -130,3 +130,23 @@ pub fn open_mbelib() -> Box<dyn Vocoder> {
 pub fn open_neural(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, VocoderError> {
     Ok(Box::new(neural::NeuralVocoder::open(model_path)?))
 }
+
+/// Diagnostic handle around the neural encoder that exposes the
+/// raw 9-int VQ row instead of channel-coded bytes.  Used by parity
+/// harnesses comparing tract output against a PT-canonical reference.
+#[cfg(feature = "neural")]
+pub struct NeuralEncoder(neural::NeuralVocoder);
+
+#[cfg(feature = "neural")]
+impl NeuralEncoder {
+    pub fn open(model_path: &std::path::Path) -> Result<Self, VocoderError> {
+        Ok(Self(neural::NeuralVocoder::open(model_path)?))
+    }
+
+    /// `Ok(None)` until the warm-up window fills; then `Ok(Some(vq))`
+    /// per frame, where `vq[i]` is the argmax of the `i`-th logit head
+    /// in `FIELDS_DMR_3600X2450` order (`b0..b8`).
+    pub fn encode_vq(&mut self, pcm: &PcmFrame) -> Result<Option<[u16; 9]>, VocoderError> {
+        self.0.encode_vq(pcm)
+    }
+}

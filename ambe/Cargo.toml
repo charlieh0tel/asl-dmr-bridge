@@ -25,6 +25,8 @@ tract-onnx = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
 tracing-subscriber.workspace = true
 
 # `gen_golden` and the golden integration tests need the `testing`
@@ -35,6 +37,10 @@ tracing-subscriber.workspace = true
 [[example]]
 name = "gen_golden"
 required-features = ["testing"]
+
+[[example]]
+name = "bridge_vq_parity"
+required-features = ["neural"]
 
 [[test]]
 name = "mbelib_golden"
@@ -50,4 +56,8 @@ required-features = ["testing"]
 
 [[test]]
 name = "neural_parity"
+required-features = ["neural"]
+
+[[example]]
+name = "silence_probe"
 required-features = ["neural"]
