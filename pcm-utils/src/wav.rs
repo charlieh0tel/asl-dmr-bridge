@@ -14,6 +14,10 @@ const SAMPLE_RATE: u32 = 8000;
 const CHANNELS: u16 = 1;
 const BITS: u16 = 16;
 const FMT_CHUNK_SIZE: u32 = 16;
+/// Cap on accumulated samples so 2 * samples + 36-byte header fits in
+/// the WAV's u32 RIFF size.  ~268 K seconds at 8 kHz; far beyond any
+/// realistic per-call recording.
+const MAX_SAMPLES: u32 = (u32::MAX - 36) / 2;
 
 pub struct WavRecorder {
     writer: BufWriter<File>,
@@ -48,10 +52,20 @@ impl WavRecorder {
     }
 
     pub fn write(&mut self, pcm: &[i16]) -> std::io::Result<()> {
+        if self.finalized {
+            return Err(std::io::Error::other("write after finalize"));
+        }
+        let n = u32::try_from(pcm.len())
+            .map_err(|_| std::io::Error::other("pcm chunk too large for u32"))?;
+        let new_count = self
+            .samples_written
+            .checked_add(n)
+            .filter(|&c| c <= MAX_SAMPLES)
+            .ok_or_else(|| std::io::Error::other("WAV size cap reached"))?;
         for &s in pcm {
             self.writer.write_all(&s.to_le_bytes())?;
         }
-        self.samples_written = self.samples_written.saturating_add(pcm.len() as u32);
+        self.samples_written = new_count;
         Ok(())
     }
 
@@ -148,6 +162,36 @@ mod tests {
             let s = i16::from_le_bytes([chunk[0], chunk[1]]);
             assert_eq!(s, samples[i]);
         }
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn write_after_finalize_returns_err() {
+        let path = tmp_path("wfaf");
+        let mut rec = WavRecorder::create(&path).unwrap();
+        rec.write(&[100i16; 4]).unwrap();
+        rec.finalize().unwrap();
+        let err = rec.write(&[1i16]).unwrap_err();
+        assert!(err.to_string().contains("write after finalize"));
+        drop(rec);
+        let bytes = read_file(&path);
+        // Only the pre-finalize 4 samples (8 bytes) should be in data.
+        assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 8);
+        assert_eq!(bytes.len(), 44 + 8);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn write_at_sample_cap_returns_err_without_corrupting() {
+        let path = tmp_path("cap");
+        let mut rec = WavRecorder::create(&path).unwrap();
+        rec.samples_written = MAX_SAMPLES - 1;
+        rec.write(&[1i16]).unwrap(); // exactly MAX_SAMPLES, ok.
+        let err = rec.write(&[1i16]).unwrap_err();
+        assert!(err.to_string().contains("WAV size cap"));
+        assert_eq!(rec.samples_written, MAX_SAMPLES);
+        // Nothing was written for the rejected chunk.
+        drop(rec);
         fs::remove_file(&path).ok();
     }
 
