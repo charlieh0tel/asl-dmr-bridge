@@ -1,5 +1,5 @@
-//! Frame-by-frame bit-equality test for the run-19 ONNX bundle.
-//! Reads `tests/fixtures/run19/{model.onnx,parity_input.wav,
+//! Frame-by-frame bit-equality test for the dmr50 ONNX bundle.
+//! Reads `tests/fixtures/dmr50/{model.onnx,parity_input.wav,
 //! parity_expected_49bit.bin}` by default; `$NEURAL_FIXTURE_DIR`
 //! overrides for ad-hoc bundles.
 //!
@@ -29,7 +29,7 @@ fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
-        .join("run19")
+        .join("dmr50")
 }
 
 /// Read `nambe.harness_lookback_samples` from the ONNX metadata so
@@ -63,7 +63,7 @@ fn read_wav_pcm(path: &Path) -> Vec<i16> {
 }
 
 #[test]
-fn run19_bit_parity() {
+fn dmr50_bit_parity() {
     let dir = fixture_dir();
     let model = dir.join("model.onnx");
     if !model.exists() {
