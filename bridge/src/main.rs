@@ -280,6 +280,13 @@ async fn async_main() -> anyhow::Result<()> {
 
     // Optional AGC on the USRP-tx (digital -> analog) path.
     let agc_state: Option<Agc> = if config.agc.enabled {
+        info!(
+            target_dbfs = config.agc.target_dbfs,
+            attack = ?config.agc.attack,
+            release = ?config.agc.release,
+            max_gain_db = config.agc.max_gain_db,
+            "AGC enabled (DMR -> FM)",
+        );
         Some(Agc::new(AgcParams {
             target_dbfs: config.agc.target_dbfs,
             attack: config.agc.attack,
@@ -287,6 +294,7 @@ async fn async_main() -> anyhow::Result<()> {
             max_gain_db: config.agc.max_gain_db,
         }))
     } else {
+        info!("AGC disabled (DMR -> FM)");
         None
     };
 
