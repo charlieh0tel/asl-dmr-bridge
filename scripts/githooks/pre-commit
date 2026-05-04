@@ -69,19 +69,22 @@ EOF
     exit 1
 fi
 
+# Surface working-tree drift before any further checks: the operator
+# is committing a subset of what's on disk, and downstream tools
+# (cargo, etc.) see the whole working tree.
+if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    printf 'pre-commit: working tree has unstaged or untracked changes;\n' >&2
+    printf 'the staged commit is a subset of what is on disk.\n\n' >&2
+fi
+
 # fmt + clippy on the workspace.  Skip when no Rust source is
 # staged so doc-only / config-only commits stay fast.  Feature set
 # matches CI (.github/workflows/ci.yml).  Runs against the working
-# tree, not the index; the warning below surfaces the drift case.
-# Tests live in the pre-push hook so they run once per push.
+# tree, not the index; tests live in the pre-push hook so they run
+# once per push.
 rust_changed=$(git diff --cached --name-only --diff-filter=AM \
     | grep -E '\.rs$|(^|/)Cargo\.(toml|lock)$|^\.cargo/|^rust-toolchain(\.toml)?$' || true)
 if [ -n "$rust_changed" ]; then
-    if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
-        printf 'pre-commit: working tree has unstaged or untracked changes; \n' >&2
-        printf 'cargo fmt/clippy run against the working tree, not the staged commit.\n' >&2
-        printf 'Stage everything or stash before committing if you need exact-index validation.\n\n' >&2
-    fi
     if ! cargo fmt --all -- --check >&2; then
         printf '\npre-commit: cargo fmt --all -- --check failed.\n' >&2
         printf 'Run `cargo fmt --all` and re-stage.\n' >&2
