@@ -58,6 +58,8 @@ dependencies = [
  "clap",
  "mbelib-sys",
  "proptest",
+ "serde",
+ "serde_json",
  "serialport",
  "thiserror 2.0.18",
  "tracing",
