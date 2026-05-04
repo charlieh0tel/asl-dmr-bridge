@@ -69,35 +69,6 @@ EOF
     exit 1
 fi
 
-# 5. fmt + clippy + test on the workspace.  Skip when no Rust source
-# is staged so doc-only / config-only commits stay fast.  Feature set
-# matches CI (.github/workflows/ci.yml) so a green hook predicts green
-# CI.  cargo runs against the *staged* tree: stash unstaged + untracked
-# first, restore via a trap on any exit path.
-rust_changed=$(git diff --cached --name-only --diff-filter=AM \
-    | grep -E '\.rs$|(^|/)Cargo\.(toml|lock)$|^\.cargo/|^rust-toolchain(\.toml)?$' || true)
-if [ -n "$rust_changed" ]; then
-    have_unstaged=
-    git diff --quiet || have_unstaged=1
-    [ -n "$(git ls-files --others --exclude-standard)" ] && have_unstaged=1
-    if [ -n "$have_unstaged" ]; then
-        git stash push --quiet --keep-index --include-untracked \
-            -m "pre-commit-isolate-$$" >&2
-        trap 'git stash pop --quiet >&2 2>&1' EXIT INT TERM HUP
-    fi
-
-    if ! cargo fmt --all -- --check >&2; then
-        printf '\npre-commit: cargo fmt --all -- --check failed.\n' >&2
-        printf 'Run `cargo fmt --all` and re-stage.\n' >&2
-        exit 1
-    fi
-    if ! cargo clippy --all-targets --features mbelib,testing -- -D warnings >&2; then
-        printf '\npre-commit: cargo clippy failed (warnings treated as errors).\n' >&2
-        printf 'Fix the lint or override with `git commit --no-verify`.\n' >&2
-        exit 1
-    fi
-    if ! cargo test --lib --features mbelib,testing >&2; then
-        printf '\npre-commit: cargo test --lib failed.\n' >&2
-        exit 1
-    fi
-fi
+# fmt + clippy + test live in the pre-push hook (scripts/githooks/
+# pre-push) so they run once per push against a single working-tree
+# state instead of per-commit.
