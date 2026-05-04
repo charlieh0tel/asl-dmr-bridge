@@ -18,6 +18,7 @@ use ambe::voice_channel::RAW_BYTES;
 use ambe::voice_channel::channel_decode;
 use ambe::voice_channel::permute_chip_to_mbelib;
 use ambe::voice_channel::unpack_msb_first;
+use tract_onnx::prelude::Framework;
 
 const PASS_THRESHOLD: f64 = 1.0;
 
@@ -29,6 +30,22 @@ fn fixture_dir() -> PathBuf {
         .join("tests")
         .join("fixtures")
         .join("run19")
+}
+
+/// Read `nambe.harness_lookback_samples` from the ONNX metadata so
+/// the test can cross-check the fixture's warmup-frame count.
+fn harness_lookback_samples(model: &Path) -> usize {
+    let proto = tract_onnx::onnx()
+        .proto_model_for_path(model)
+        .unwrap_or_else(|e| panic!("load {}: {e}", model.display()));
+    let kv = proto
+        .metadata_props
+        .iter()
+        .find(|kv| kv.key == "nambe.harness_lookback_samples")
+        .expect("ONNX missing nambe.harness_lookback_samples");
+    kv.value
+        .parse::<usize>()
+        .unwrap_or_else(|e| panic!("nambe.harness_lookback_samples: {e}"))
 }
 
 fn read_wav_pcm(path: &Path) -> Vec<i16> {
@@ -58,6 +75,17 @@ fn run19_bit_parity() {
     let total_pcm_frames = pcm.len() / ambe::PCM_SAMPLES;
     let expected_frames = expected.len() / RAW_BYTES;
     let warmup = total_pcm_frames - expected_frames;
+
+    // Cross-check: the fixture's warmup-frame count must hold enough
+    // PCM history for the model's lookback.  A future bundle that
+    // ships mismatched fixture vs. metadata would silently pass
+    // against misaligned frames otherwise.
+    let lookback = harness_lookback_samples(&model);
+    assert!(
+        warmup * ambe::PCM_SAMPLES >= lookback,
+        "fixture warmup={warmup} frames ({} samples) < harness_lookback_samples={lookback}",
+        warmup * ambe::PCM_SAMPLES,
+    );
 
     let mut v = ambe::open_neural(&model).expect("open neural");
 
