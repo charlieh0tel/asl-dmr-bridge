@@ -1,31 +1,15 @@
 #!/bin/sh
-# pre-push: cargo fmt --check + clippy + test --lib against the
-# current working tree.  Runs once per `git push`, regardless of how
-# many commits.  Feature set matches CI (.github/workflows/ci.yml) so
-# a green hook predicts green CI.
+# pre-push: cargo test --lib against the current working tree.
+# Runs once per `git push`, regardless of how many commits.  fmt and
+# clippy live in pre-commit; tests stay here because they're slower
+# and don't need per-commit feedback.
 #
 # Override with: git push --no-verify
-#
-# Note: validates the working tree, not the SHAs being pushed.  In the
-# common case (HEAD == tip of the branch you're pushing, no WIP in the
-# tree) those are identical.  If you're pushing a stack while having
-# unrelated WIP on disk, switch to a clean checkout first.
 
 set -e
 
 # Drain stdin so git doesn't block sending the push-info lines.
 cat >/dev/null
-
-if ! cargo fmt --all -- --check >&2; then
-    printf '\npre-push: cargo fmt --all -- --check failed.\n' >&2
-    printf 'Run `cargo fmt --all` and re-commit.\n' >&2
-    exit 1
-fi
-
-if ! cargo clippy --all-targets --features mbelib,testing -- -D warnings >&2; then
-    printf '\npre-push: cargo clippy failed (warnings treated as errors).\n' >&2
-    exit 1
-fi
 
 if ! cargo test --lib --features mbelib,testing >&2; then
     printf '\npre-push: cargo test --lib failed.\n' >&2

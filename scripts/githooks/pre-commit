@@ -69,6 +69,27 @@ EOF
     exit 1
 fi
 
-# fmt + clippy + test live in the pre-push hook (scripts/githooks/
-# pre-push) so they run once per push against a single working-tree
-# state instead of per-commit.
+# fmt + clippy on the workspace.  Skip when no Rust source is
+# staged so doc-only / config-only commits stay fast.  Feature set
+# matches CI (.github/workflows/ci.yml).  Runs against the working
+# tree, not the index; the warning below surfaces the drift case.
+# Tests live in the pre-push hook so they run once per push.
+rust_changed=$(git diff --cached --name-only --diff-filter=AM \
+    | grep -E '\.rs$|(^|/)Cargo\.(toml|lock)$|^\.cargo/|^rust-toolchain(\.toml)?$' || true)
+if [ -n "$rust_changed" ]; then
+    if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+        printf 'pre-commit: working tree has unstaged or untracked changes; \n' >&2
+        printf 'cargo fmt/clippy run against the working tree, not the staged commit.\n' >&2
+        printf 'Stage everything or stash before committing if you need exact-index validation.\n\n' >&2
+    fi
+    if ! cargo fmt --all -- --check >&2; then
+        printf '\npre-commit: cargo fmt --all -- --check failed.\n' >&2
+        printf 'Run `cargo fmt --all` and re-stage.\n' >&2
+        exit 1
+    fi
+    if ! cargo clippy --all-targets --features mbelib,testing -- -D warnings >&2; then
+        printf '\npre-commit: cargo clippy failed (warnings treated as errors).\n' >&2
+        printf 'Fix the lint or override with `git commit --no-verify`.\n' >&2
+        exit 1
+    fi
+fi
