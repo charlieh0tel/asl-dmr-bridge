@@ -347,6 +347,7 @@ pub(crate) struct VocoderConfig {
     /// AMBEserver port (when backend = "ambeserver", default 2460).
     pub(crate) port: Option<u16>,
     /// ONNX model path (required when backend = "neural").
+    #[cfg(feature = "neural")]
     pub(crate) model_path: Option<std::path::PathBuf>,
     /// DV3000 chip input (encode) gain in dB, -90..=90.  Default 0.
     /// Ignored by the mbelib and neural backends.
