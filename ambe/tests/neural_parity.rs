@@ -66,6 +66,13 @@ fn read_wav_pcm(path: &Path) -> Vec<i16> {
 fn run19_bit_parity() {
     let dir = fixture_dir();
     let model = dir.join("model.onnx");
+    if !model.exists() {
+        eprintln!(
+            "neural_parity: fixture missing at {}; skipping",
+            dir.display()
+        );
+        return;
+    }
     let pcm = read_wav_pcm(&dir.join("parity_input.wav"));
     let expected =
         fs::read(dir.join("parity_expected_49bit.bin")).expect("read parity_expected_49bit.bin");
