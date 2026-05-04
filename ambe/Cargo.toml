@@ -36,15 +36,6 @@ tracing-subscriber.workspace = true
 name = "gen_golden"
 required-features = ["testing"]
 
-[[example]]
-name = "onnx_smoke"
-required-features = ["neural"]
-
-[[example]]
-name = "tract_mel_smoke"
-required-features = ["neural"]
-
-
 [[test]]
 name = "mbelib_golden"
 required-features = ["testing", "mbelib"]
@@ -56,10 +47,6 @@ required-features = ["testing", "thumbdv"]
 [[test]]
 name = "ambeserver_golden"
 required-features = ["testing"]
-
-[[test]]
-name = "tract_mel_smoke"
-required-features = ["neural"]
 
 [[test]]
 name = "neural_parity"

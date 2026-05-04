@@ -31,13 +31,11 @@ use crate::mbelib::Mbelib;
 /// Field layout name carried in ONNX metadata (`nambe.layout`).
 const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";
 
-/// `nambe.frontend` value.  Only `Graph` is implemented; `RustMel`
-/// is parked (kept defined for re-enablement).
+/// `nambe.frontend` value.  Only `Graph` is supported; any other
+/// value is rejected at load time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Frontend {
     Graph,
-    #[expect(dead_code, reason = "parked; rejected at load time")]
-    RustMel,
 }
 
 /// Bit ordering of the model's 49-bit output, before chip-order
@@ -367,11 +365,6 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
 
     let frontend = match require(&props, "nambe.frontend")? {
         "graph" => Frontend::Graph,
-        "rust_mel" => {
-            return Err(init_err(
-                "nambe.frontend=\"rust_mel\": parked, not implemented".into(),
-            ));
-        }
         other => {
             return Err(init_err(format!(
                 "nambe.frontend={other:?}; expected 'graph'"
