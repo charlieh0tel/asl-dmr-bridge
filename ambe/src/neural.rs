@@ -264,6 +264,19 @@ impl NeuralVocoder {
         Ok(crate::voice_channel::encode_from_ambe_d(&ambe_d))
     }
 
+    /// Snapshot of the model-input slice (oldest `pcm_input_samples`
+    /// of the streaming buffer).  Empty until warm-up.
+    pub(crate) fn current_input_slice(&self) -> Vec<i16> {
+        if self.samples.len() < self.buffer_cap {
+            return Vec::new();
+        }
+        self.samples
+            .iter()
+            .take(self.meta.pcm_input_samples)
+            .copied()
+            .collect()
+    }
+
     /// Streaming-encoder wrapper that returns the per-frame VQ
     /// indices instead of channel-coded bytes.  `Ok(None)` until the
     /// warm-up window is filled, then `Ok(Some(vq))` per frame.

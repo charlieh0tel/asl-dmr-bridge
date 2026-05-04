@@ -149,4 +149,11 @@ impl NeuralEncoder {
     pub fn encode_vq(&mut self, pcm: &PcmFrame) -> Result<Option<[u16; 9]>, VocoderError> {
         self.0.encode_vq(pcm)
     }
+
+    /// Snapshot of the current model-input slice (the oldest
+    /// `pcm_input_samples` of the streaming buffer).  Empty until
+    /// the warm-up window fills.  For parity-debugging.
+    pub fn current_input_slice(&self) -> Vec<i16> {
+        self.0.current_input_slice()
+    }
 }

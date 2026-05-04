@@ -50,6 +50,23 @@ cargo run --quiet --features neural -p ambe --example silence_probe -- \
   /home/ch/src/nambe/runs/ckpt-dmr50.onnx
 ```
 
+Output also reports the actual buffer tract feeds into inference:
+
+```
+first_real_frame=7 slice_len=1216 nonzero=0
+```
+
+So tract is unambiguously consuming 1216 literal zeros and emitting
+the divergent row.  Repeating with `tests/fixtures/run19/model.onnx`
+(the run19 ONNX) gives the same VQ row -- both models hit the same
+tract silence prior, distinct from PT.
+
+Run-19's parity test never exercised this regime: its
+`parity_input.wav` is corpus audio with 1213/1216 samples non-zero in
+the frame-4 slice.  Tract and PT agree on real-content slices, which
+is why run-19 parity is 100% even though both runtimes diverge on
+silent input.
+
 ## What this rules out (bridge side)
 
 - WAV reading: literal zero array, no file I/O.
