@@ -1,11 +1,12 @@
 //! Frame-by-frame bit-equality test for the run-19 ONNX bundle.
-//! Reads `$NEURAL_FIXTURE_DIR/{model.onnx,parity_input.wav,
-//! parity_expected_49bit.bin}`; if the env var is unset the test
-//! is skipped via `#[ignore]`-equivalent early return.
+//! Reads `tests/fixtures/run19/{model.onnx,parity_input.wav,
+//! parity_expected_49bit.bin}` by default; `$NEURAL_FIXTURE_DIR`
+//! overrides for ad-hoc bundles.
 //!
-//! Pass criterion: >= 99.5% of bits match the PT-canonical
-//! reference.  Bit-identity isn't achievable at FP32 across
-//! distinct execution paths; see the bundle's README.md.
+//! Pass criterion: 100% of bits match the PT-canonical reference.
+//! The current run-19 bundle achieves bit-equality on this fixture;
+//! if a future bundle drifts, lower the threshold deliberately and
+//! note why instead of accepting silent regression.
 
 use std::env;
 use std::fs;
@@ -18,10 +19,16 @@ use ambe::voice_channel::channel_decode;
 use ambe::voice_channel::permute_chip_to_mbelib;
 use ambe::voice_channel::unpack_msb_first;
 
-const PASS_THRESHOLD: f64 = 0.995;
+const PASS_THRESHOLD: f64 = 1.0;
 
-fn fixture_dir() -> Option<PathBuf> {
-    env::var_os("NEURAL_FIXTURE_DIR").map(PathBuf::from)
+fn fixture_dir() -> PathBuf {
+    if let Some(p) = env::var_os("NEURAL_FIXTURE_DIR") {
+        return PathBuf::from(p);
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("run19")
 }
 
 fn read_wav_pcm(path: &Path) -> Vec<i16> {
@@ -40,10 +47,7 @@ fn read_wav_pcm(path: &Path) -> Vec<i16> {
 
 #[test]
 fn run19_bit_parity() {
-    let Some(dir) = fixture_dir() else {
-        eprintln!("NEURAL_FIXTURE_DIR not set; skipping run19_bit_parity");
-        return;
-    };
+    let dir = fixture_dir();
     let model = dir.join("model.onnx");
     let pcm = read_wav_pcm(&dir.join("parity_input.wav"));
     let expected =
