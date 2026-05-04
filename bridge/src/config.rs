@@ -120,6 +120,10 @@ pub(crate) struct Config {
     /// Section absent = all diagnostics off.
     #[serde(default)]
     pub(crate) diagnostics: DiagnosticsConfig,
+    /// FM->DMR pre-encode voice-band filter (HP4 @ 250 Hz + LP2 @
+    /// 3000 Hz).  Default on; set `enabled = false` to bypass.
+    #[serde(default)]
+    pub(crate) encode_filter: EncodeFilterConfig,
 }
 
 /// AGC parameters with sensible defaults; `enabled = false` skips
@@ -459,6 +463,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) agc: AgcConfig,
     pub(crate) stats: StatsConfig,
     pub(crate) diagnostics: DiagnosticsConfig,
+    pub(crate) encode_filter: EncodeFilterConfig,
 }
 
 /// Diagnostic capture knobs.  All optional, off by default.
@@ -469,6 +474,26 @@ pub(crate) struct DiagnosticsConfig {
     /// 8 kHz mono int16 LE WAV files (one per call per direction).
     #[serde(default)]
     pub(crate) pcm_record_dir: Option<std::path::PathBuf>,
+}
+
+/// Pre-encode filter on the FM->DMR path; default on.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EncodeFilterConfig {
+    #[serde(default = "default_encode_filter_enabled")]
+    pub(crate) enabled: bool,
+}
+
+impl Default for EncodeFilterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_encode_filter_enabled(),
+        }
+    }
+}
+
+fn default_encode_filter_enabled() -> bool {
+    true
 }
 
 /// Network section after password resolution.  Mirrors `NetworkConfig`
@@ -544,6 +569,7 @@ impl Config {
             agc,
             stats,
             diagnostics,
+            encode_filter,
         } = self;
         RuntimeConfig {
             repeater,
@@ -567,6 +593,7 @@ impl Config {
             agc,
             stats,
             diagnostics,
+            encode_filter,
         }
     }
 }

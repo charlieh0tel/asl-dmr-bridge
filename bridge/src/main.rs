@@ -418,7 +418,12 @@ async fn async_main() -> anyhow::Result<()> {
         color_code: config.repeater.color_code,
         callsign: config.repeater.callsign.as_str().to_string(),
         pcm_record_dir: config.diagnostics.pcm_record_dir.clone(),
+        pre_encode_filter: config.encode_filter.enabled,
     };
+    info!(
+        enabled = config.encode_filter.enabled,
+        "FM->DMR pre-encode filter"
+    );
 
     // Each branch trips `cancel` on its own exit (Ok, Err, or natural
     // completion).  With `join!` (not `try_join!`) all siblings then

@@ -124,6 +124,11 @@ keepalive_missed_limit = 3
 # skip_idle_heartbeat = true        # suppress ticks with no traffic
 # min_call_log_duration = "250ms"   # below this, the per-call line is suppressed
 
+# FM->DMR pre-encode voice-band filter (HP4 @ 250 Hz + LP2 @ 3000 Hz,
+# Butterworth, 8 kHz).  Default on; toggle off for A/B comparison.
+# [encode_filter]
+# enabled = true
+
 # Per-call PCM capture for diagnostics.  When `pcm_record_dir` is set,
 # the bridge writes one 8 kHz mono i16 LE WAV per call per measurement
 # point and emits a `call_levels` log line per point at end-of-call:

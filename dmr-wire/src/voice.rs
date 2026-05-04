@@ -241,6 +241,9 @@ pub struct VoiceConfig {
     /// writes per-call WAV files (8 kHz mono i16 LE) for encoder
     /// input on TX calls and pre-AGC decoder output on RX calls.
     pub pcm_record_dir: Option<std::path::PathBuf>,
+    /// Apply the FM->DMR pre-encode voice-band filter; resets on TX
+    /// call start.  Backend-agnostic.
+    pub pre_encode_filter: bool,
 }
 
 // --- Main task ---

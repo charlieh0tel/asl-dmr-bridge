@@ -42,6 +42,7 @@ fn test_voice_config() -> VoiceConfig {
         color_code: ColorCode::try_from(1).unwrap(),
         callsign: String::new(),
         pcm_record_dir: None,
+        pre_encode_filter: false,
     }
 }
 

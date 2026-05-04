@@ -14,6 +14,8 @@ use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use pcm_utils::biquad::BiquadCascade;
+use pcm_utils::biquad::pre_encode_voice_8khz;
 use pcm_utils::levels;
 use pcm_utils::wav;
 
@@ -187,6 +189,8 @@ pub(crate) struct PttMachine {
     rx_recorder: Option<wav::WavRecorder>,
     tx_levels: levels::LevelAccumulator,
     rx_levels: levels::LevelAccumulator,
+    /// FM->DMR pre-encode filter; resets at TX call start.
+    pre_encode_filter: Option<BiquadCascade<3>>,
 }
 
 impl PttMachine {
@@ -205,6 +209,7 @@ impl PttMachine {
         callsign_lookup: Option<CallsignLookup>,
         cancel: CancellationToken,
     ) -> Self {
+        let pre_encode_filter = config.pre_encode_filter.then(pre_encode_voice_8khz);
         Self {
             config,
             vocoder: Arc::new(Mutex::new(vocoder)),
@@ -220,6 +225,7 @@ impl PttMachine {
             rx_recorder: None,
             tx_levels: levels::LevelAccumulator::default(),
             rx_levels: levels::LevelAccumulator::default(),
+            pre_encode_filter,
         }
     }
 
@@ -240,6 +246,9 @@ impl PttMachine {
             "fm_to_dmr_encode_in",
             stream_id,
         );
+        if let Some(f) = self.pre_encode_filter.as_mut() {
+            f.reset();
+        }
     }
 
     fn on_tx_call_end(&mut self, stream_id: u32) {
@@ -360,7 +369,10 @@ impl PttMachine {
         }
     }
 
-    async fn encode(&self, pcm: PcmFrame) -> Result<AmbeFrame, VocoderError> {
+    async fn encode(&mut self, mut pcm: PcmFrame) -> Result<AmbeFrame, VocoderError> {
+        if let Some(f) = self.pre_encode_filter.as_mut() {
+            f.process_pcm(&mut pcm);
+        }
         let v = self.vocoder.clone();
         let handle = tokio::task::spawn_blocking(move || match v.lock() {
             Ok(mut guard) => guard.encode(&pcm),
@@ -435,7 +447,7 @@ impl PttMachine {
     }
 
     async fn build_tx_voice(
-        &self,
+        &mut self,
         pcm: &[PcmFrame; FRAMES_PER_BURST],
         tx: &mut TxCall,
     ) -> Option<(Vec<u8>, [Duration; FRAMES_PER_BURST])> {

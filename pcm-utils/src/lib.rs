@@ -5,5 +5,6 @@
 //! file writing).  Callers in dmr-wire and bridge use it for
 //! per-call summary stats and per-call diagnostic capture.
 
+pub mod biquad;
 pub mod levels;
 pub mod wav;
