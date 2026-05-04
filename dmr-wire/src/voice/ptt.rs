@@ -83,9 +83,6 @@ use super::new_stream_id;
 /// `std::sync::Mutex` (not tokio's async Mutex) is correct here: the
 /// lock is only held inside the spawn_blocking closure, never across
 /// an `.await` point.
-//
-// [TODO] @charlieh0tel: replace with `Box<dyn Vocoder>` + block_in_place;
-// the Arc<Mutex<>> only exists to satisfy spawn_blocking's 'static bound.
 type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 
 /// Beyond this gap, frame-repeat compensation costs more wire
@@ -93,29 +90,6 @@ type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 /// ~200 ms anyway; treat as a stream boundary (one on_ptt_up
 /// instead of per-frame compensation).
 const GAP_BOUNDARY_PACKETS: u8 = 3;
-
-/// Which side of the vocoder lock holder panicked.  Used to pick
-/// the correct `VocoderError` variant in `poisoned_err` without a
-/// fragile string match.
-#[derive(Debug, Clone, Copy)]
-enum Stage {
-    Encode,
-    Decode,
-}
-
-/// Convert a poisoned-mutex lock error into a VocoderError.  A panic
-/// inside decode/encode (e.g. mbelib FFI) poisons the Mutex; recovering
-/// via `into_inner` would silently reuse potentially corrupt internal
-/// state (C `MbeParms` structs, serial framing).  Surface it as an
-/// error so the frame is dropped with a log entry, and subsequent
-/// frames keep failing until the operator restarts the bridge.
-fn poisoned_err(stage: Stage) -> VocoderError {
-    let msg = format!("vocoder mutex poisoned (prior {stage:?} panic)");
-    match stage {
-        Stage::Encode => VocoderError::Encode(msg),
-        Stage::Decode => VocoderError::Decode(msg),
-    }
-}
 
 pub(crate) struct RxCall {
     pub(crate) stream_id: u32,
@@ -232,12 +206,6 @@ impl PttMachine {
     // --- Diagnostic recording + level accumulator lifecycle.
     //     Strictly diagnostic concerns: vocoder reset stays in
     //     `on_ptt_up()` and is the caller's separate responsibility.
-    //
-    // [TODO] @charlieh0tel: fold the per-call StatsEvent::CallStart
-    // / CallEnd emissions into these hooks too -- they fire at the
-    // same boundaries.  Hook signatures grow (src/dst/slot for
-    // start, reason for end) but each call site collapses to one
-    // method.
 
     fn on_tx_call_start(&mut self, stream_id: u32) {
         self.tx_levels = levels::LevelAccumulator::default();
@@ -358,9 +326,10 @@ impl PttMachine {
     /// vocoder advances state and synthesizes compensation.
     async fn decode(&self, ambe: Option<AmbeFrame>) -> Result<PcmFrame, VocoderError> {
         let v = self.vocoder.clone();
-        let handle = tokio::task::spawn_blocking(move || match v.lock() {
-            Ok(mut guard) => guard.decode(ambe.as_ref()),
-            Err(_) => Err(poisoned_err(Stage::Decode)),
+        let handle = tokio::task::spawn_blocking(move || {
+            v.lock()
+                .expect("vocoder mutex poisoned")
+                .decode(ambe.as_ref())
         });
         tokio::select! {
             biased;
@@ -374,9 +343,8 @@ impl PttMachine {
             f.process_pcm(&mut pcm);
         }
         let v = self.vocoder.clone();
-        let handle = tokio::task::spawn_blocking(move || match v.lock() {
-            Ok(mut guard) => guard.encode(&pcm),
-            Err(_) => Err(poisoned_err(Stage::Encode)),
+        let handle = tokio::task::spawn_blocking(move || {
+            v.lock().expect("vocoder mutex poisoned").encode(&pcm)
         });
         tokio::select! {
             biased;

@@ -70,11 +70,18 @@ pub trait Vocoder: Send {
     /// Decode one AMBE frame to PCM.  `Some(&ambe)` is a real
     /// received frame; `None` is a known-missing slot in the
     /// stream (packet drop / erasure) and the decoder synthesizes
-    /// a compensation frame -- chip backends send a CMODE
-    /// LOST_FRAME packet so the chip emits a predictor frame-
-    /// repeat; mbelib runs its erasure path (reset + silence).
+    /// a compensation frame.  Backends differ on what that
+    /// compensation sounds like:
+    ///
+    /// - chip backends send a CMODE LOST_FRAME packet, so the chip
+    ///   emits its predictor's frame-repeat (the prior synthesized
+    ///   frame again); consecutive `None`s repeat that frame.
+    /// - mbelib resets its MbeParms and emits silence; consecutive
+    ///   `None`s emit silence and decoder state stays reset.
+    ///
     /// Either way, per-stream decoder state advances so the next
-    /// real frame isn't decoded against stale history.
+    /// real frame isn't decoded against stale history, but the two
+    /// erasure responses are not interchangeable.
     fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError>;
 
     /// Reset transient per-stream state (decoder predictor /
