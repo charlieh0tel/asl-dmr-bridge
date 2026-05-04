@@ -141,7 +141,15 @@ pub(crate) async fn tx_task(
     loop {
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => return Ok(()),
+            _ = cancel.cancelled() => {
+                finalize_agc_out_call(
+                    &mut agc_out_levels,
+                    &mut agc_out_recorder,
+                    &mut current_call_id,
+                    &mut had_voice_in_call,
+                );
+                return Ok(());
+            }
             event = metadata_rx.recv() => {
                 let Some(event) = event else { return Ok(()) };
                 let text = match event {
@@ -178,7 +186,15 @@ pub(crate) async fn tx_task(
                 }
             }
             audio = rx.recv() => {
-                let Some(audio) = audio else { return Ok(()) };
+                let Some(audio) = audio else {
+                    finalize_agc_out_call(
+                        &mut agc_out_levels,
+                        &mut agc_out_recorder,
+                        &mut current_call_id,
+                        &mut had_voice_in_call,
+                    );
+                    return Ok(());
+                };
 
                 let is_voice = audio.keyup && audio.samples.is_some();
                 if is_voice {
@@ -187,7 +203,15 @@ pub(crate) async fn tx_task(
                     if now < deadline {
                         tokio::select! {
                             biased;
-                            _ = cancel.cancelled() => return Ok(()),
+                            _ = cancel.cancelled() => {
+                                finalize_agc_out_call(
+                                    &mut agc_out_levels,
+                                    &mut agc_out_recorder,
+                                    &mut current_call_id,
+                                    &mut had_voice_in_call,
+                                );
+                                return Ok(());
+                            }
                             _ = sleep_until(deadline) => {}
                         }
                         // Anchor on deadline so jitter doesn't drift.
@@ -233,20 +257,13 @@ pub(crate) async fn tx_task(
                         }
                         had_voice_in_call = true;
                     }
-                } else if had_voice_in_call {
-                    let (peak, rms, voiced_rms) = agc_out_levels.summary();
-                    let sid = current_call_id.unwrap_or(0);
-                    info!(
-                        "call_levels dir=dmr_to_fm point=agc_out stream_id={sid} \
-                         peak={} rms={} voiced_rms={}",
-                        fmt_dbfs(peak),
-                        fmt_dbfs(rms),
-                        fmt_dbfs(voiced_rms),
+                } else {
+                    finalize_agc_out_call(
+                        &mut agc_out_levels,
+                        &mut agc_out_recorder,
+                        &mut current_call_id,
+                        &mut had_voice_in_call,
                     );
-                    agc_out_levels = LevelAccumulator::default();
-                    agc_out_recorder = None;
-                    current_call_id = None;
-                    had_voice_in_call = false;
                 }
 
                 let frame = Frame {
@@ -266,6 +283,33 @@ pub(crate) async fn tx_task(
             }
         }
     }
+}
+
+/// Emit the per-call agc_out level summary and reset the in-flight
+/// recorder/accumulator state.  No-op when no voice was observed in
+/// the current call (both unkey paths and idle close-outs).
+fn finalize_agc_out_call(
+    levels: &mut LevelAccumulator,
+    recorder: &mut Option<WavRecorder>,
+    call_id: &mut Option<u32>,
+    had_voice: &mut bool,
+) {
+    if !*had_voice {
+        return;
+    }
+    let (peak, rms, voiced_rms) = levels.summary();
+    let sid = call_id.unwrap_or(0);
+    info!(
+        "call_levels dir=dmr_to_fm point=agc_out stream_id={sid} \
+         peak={} rms={} voiced_rms={}",
+        fmt_dbfs(peak),
+        fmt_dbfs(rms),
+        fmt_dbfs(voiced_rms),
+    );
+    *levels = LevelAccumulator::default();
+    *recorder = None;
+    *call_id = None;
+    *had_voice = false;
 }
 
 fn open_agc_out_recorder(dir: Option<&Path>, call_id: Option<u32>) -> Option<WavRecorder> {
