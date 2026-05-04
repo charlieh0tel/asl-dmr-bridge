@@ -77,3 +77,90 @@ impl Drop for WavRecorder {
         let _ = self.finalize();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::fs;
+    use std::io::Read as _;
+
+    fn tmp_path(stem: &str) -> std::path::PathBuf {
+        let mut p = std::env::temp_dir();
+        let pid = std::process::id();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        p.push(format!("pcm-utils-wav-test-{stem}-{pid}-{nanos}.wav"));
+        p
+    }
+
+    fn read_file(path: &Path) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        bytes
+    }
+
+    #[test]
+    fn header_layout_matches_canonical_8khz_mono_i16() {
+        let path = tmp_path("header");
+        {
+            let _rec = WavRecorder::create(&path).unwrap();
+        }
+        let bytes = read_file(&path);
+        assert_eq!(bytes.len(), 44);
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WAVE");
+        assert_eq!(&bytes[12..16], b"fmt ");
+        assert_eq!(u32::from_le_bytes(bytes[16..20].try_into().unwrap()), 16);
+        assert_eq!(u16::from_le_bytes(bytes[20..22].try_into().unwrap()), 1);
+        assert_eq!(u16::from_le_bytes(bytes[22..24].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), 8000);
+        assert_eq!(u32::from_le_bytes(bytes[28..32].try_into().unwrap()), 16000);
+        assert_eq!(u16::from_le_bytes(bytes[32..34].try_into().unwrap()), 2);
+        assert_eq!(u16::from_le_bytes(bytes[34..36].try_into().unwrap()), 16);
+        assert_eq!(&bytes[36..40], b"data");
+        assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 0);
+        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 36);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn write_then_drop_finalizes_size_fields() {
+        let path = tmp_path("write");
+        let samples: Vec<i16> = (0..1000).map(|i| (i * 16) as i16).collect();
+        {
+            let mut rec = WavRecorder::create(&path).unwrap();
+            rec.write(&samples[..500]).unwrap();
+            rec.write(&samples[500..]).unwrap();
+        }
+        let bytes = read_file(&path);
+        let data_size = u32::from_le_bytes(bytes[40..44].try_into().unwrap());
+        let riff_size = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        assert_eq!(data_size, samples.len() as u32 * 2);
+        assert_eq!(riff_size, data_size + 36);
+        assert_eq!(bytes.len() as u32, riff_size + 8);
+        for (i, chunk) in bytes[44..].chunks_exact(2).enumerate() {
+            let s = i16::from_le_bytes([chunk[0], chunk[1]]);
+            assert_eq!(s, samples[i]);
+        }
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn finalize_is_idempotent() {
+        let path = tmp_path("idempotent");
+        let mut rec = WavRecorder::create(&path).unwrap();
+        rec.write(&[100i16; 4]).unwrap();
+        rec.finalize().unwrap();
+        rec.finalize().unwrap();
+        drop(rec);
+        let bytes = read_file(&path);
+        assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 8);
+        fs::remove_file(&path).ok();
+    }
+}
