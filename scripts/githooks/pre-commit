@@ -74,7 +74,7 @@ fi
 # matches CI (.github/workflows/ci.yml) so a green hook predicts
 # green CI.
 rust_changed=$(git diff --cached --name-only --diff-filter=AM \
-    | grep -E '\.rs$|^Cargo\.(toml|lock)$' || true)
+    | grep -E '\.rs$|(^|/)Cargo\.(toml|lock)$|^\.cargo/|^rust-toolchain(\.toml)?$' || true)
 if [ -n "$rust_changed" ]; then
     if ! cargo fmt --all -- --check >&2; then
         printf '\npre-commit: cargo fmt --all -- --check failed.\n' >&2
