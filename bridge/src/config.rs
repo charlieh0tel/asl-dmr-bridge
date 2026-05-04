@@ -493,7 +493,7 @@ impl Default for EncodeFilterConfig {
 }
 
 fn default_encode_filter_enabled() -> bool {
-    true
+    false
 }
 
 /// Network section after password resolution.  Mirrors `NetworkConfig`

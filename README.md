@@ -64,6 +64,10 @@ each of three points -- `fm_to_dmr_encode_in_*`,
 what's actually sent on USRP) -- and emits a `call_levels` INFO line
 per point with peak / rms / voiced_rms in dBFS.
 
+Optional FM->DMR pre-encode voice-band filter (Butterworth HP4 @ 250 Hz
++ LP2 @ 3000 Hz at 8 kHz): set `[encode_filter] enabled = true` to
+apply.  Backend-agnostic; resets at TX call start.  Off by default.
+
 See `config.example.toml` for the configuration schema.
 
 Key config fields:

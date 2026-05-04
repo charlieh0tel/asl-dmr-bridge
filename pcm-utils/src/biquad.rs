@@ -99,6 +99,11 @@ impl<const N: usize> BiquadCascade<N> {
 /// lp = butter(2, 3000, btype='low',  fs=8000, output='sos')
 /// sos = np.vstack([hp, lp])  # rows: b0 b1 b2 a0 a1 a2
 /// ```
+///
+// [TODO] @charlieh0tel: add a narrow CTCSS-PL notch (single biquad,
+// Q ~= 12) keyed on the operator's PL frequency.  Targets the PL
+// carrier without disturbing the voice band -- a less invasive
+// alternative to the HP/LP shaping above.
 #[expect(
     clippy::excessive_precision,
     reason = "coefficients copied verbatim from scipy output, kept as fixed-precision decimals for direct comparison"

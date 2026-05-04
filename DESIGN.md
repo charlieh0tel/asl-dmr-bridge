@@ -464,7 +464,19 @@ keepalive_missed_limit = 3
 # Per-call PCM capture for diagnostics.  Section absent disables.
 # [diagnostics]
 # pcm_record_dir = "/var/lib/asl-dmr-bridge/pcm"
+
+# FM->DMR pre-encode voice-band filter.  Off by default.
+# [encode_filter]
+# enabled = true
 ```
+
+### FM->DMR pre-encode filter
+
+Optional Butterworth voice-band filter applied to PCM in `PttMachine`
+right before each `vocoder.encode()` call: HP4 @ 250 Hz cascaded with
+LP2 @ 3000 Hz, sample rate 8 kHz, 3 biquad sections.  Backend-agnostic
+(any vocoder).  State is reset at TX call start.  Toggle via
+`[encode_filter] enabled`; off by default.
 
 ### Diagnostics
 
