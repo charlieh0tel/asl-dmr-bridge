@@ -77,12 +77,12 @@ impl<const N: usize> BiquadCascade<N> {
 
     /// Filter a buffer of int16 PCM in place.  Each sample is scaled
     /// to [-1, 1], run through the cascade, and re-quantized with
-    /// saturation: filter gain > 1 is clamped to the i16 range
-    /// instead of wrapping.
+    /// round-to-nearest and saturation: filter gain > 1 clamps to
+    /// the i16 range instead of wrapping.
     pub fn process_pcm(&mut self, samples: &mut [i16]) {
         for s in samples.iter_mut() {
             let x = f32::from(*s) / FULL_SCALE;
-            let y = self.process(x) * FULL_SCALE;
+            let y = (self.process(x) * FULL_SCALE).round();
             *s = y.clamp(f32::from(i16::MIN), f32::from(i16::MAX)) as i16;
         }
     }
