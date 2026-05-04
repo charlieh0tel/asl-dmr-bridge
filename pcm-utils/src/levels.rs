@@ -155,6 +155,27 @@ mod tests {
     }
 
     #[test]
+    fn voiced_gate_just_above_threshold_included() {
+        // Sample 332 -> RMS ~= -39.89 dBFS, fractionally above the
+        // strict-> gate at -40 dBFS.
+        let mut acc = LevelAccumulator::default();
+        acc.add_frame(&[332i16; 160]);
+        let (_, rms, voiced_rms) = acc.summary();
+        assert!(rms.is_finite() && rms > -40.0);
+        assert!(voiced_rms.is_finite() && voiced_rms > -40.0);
+    }
+
+    #[test]
+    fn voiced_gate_just_below_threshold_excluded() {
+        // Sample 324 -> RMS ~= -40.10 dBFS, fractionally below the gate.
+        let mut acc = LevelAccumulator::default();
+        acc.add_frame(&[324i16; 160]);
+        let (_, rms, voiced_rms) = acc.summary();
+        assert!(rms.is_finite() && rms < -40.0);
+        assert_eq!(voiced_rms, f64::NEG_INFINITY);
+    }
+
+    #[test]
     fn saturating_accumulators_dont_panic_on_huge_input() {
         // Push 256 full-amplitude frames of length 65536 each = ~16 M
         // samples; exercise the saturating_add accumulators on a
