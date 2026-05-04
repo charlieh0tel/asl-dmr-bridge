@@ -460,7 +460,27 @@ keepalive_missed_limit = 3
 # heartbeat_interval = "60s"        # 0s disables the heartbeat
 # skip_idle_heartbeat = true        # suppress ticks with no traffic
 # min_call_log_duration = "250ms"   # below this, the per-call line is suppressed
+
+# Per-call PCM capture for diagnostics.  Section absent disables.
+# [diagnostics]
+# pcm_record_dir = "/var/lib/asl-dmr-bridge/pcm"
 ```
+
+### Diagnostics
+
+When `[diagnostics].pcm_record_dir` is set, the bridge writes one
+8 kHz mono i16 LE WAV per call at three measurement points and emits
+a `call_levels` INFO line per point at end-of-call:
+
+| Filename                                    | Direction | Point             |
+|---------------------------------------------|-----------|-------------------|
+| `fm_to_dmr_encode_in_<ms>_<sid>.wav`        | FM -> DMR | encoder input     |
+| `dmr_to_fm_decode_out_<ms>_<sid>.wav`       | DMR -> FM | decoder output (pre-AGC) |
+| `dmr_to_fm_agc_out_<ms>_<sid>.wav`          | DMR -> FM | post-AGC (USRP wire) |
+
+`<sid>` is the DMR stream_id; the two `dmr_to_fm_*` files for the
+same call share it.  Levels are reported as peak / rms / voiced_rms
+in dBFS (voiced_rms gates per-frame at -40 dBFS).
 
 ---
 

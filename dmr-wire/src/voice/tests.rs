@@ -121,6 +121,7 @@ fn voice_audio() -> AudioFrame {
     AudioFrame {
         keyup: true,
         samples: Some([1000i16; ambe::PCM_SAMPLES]),
+        call_id: None,
     }
 }
 
@@ -128,6 +129,7 @@ fn unkey_audio() -> AudioFrame {
     AudioFrame {
         keyup: false,
         samples: None,
+        call_id: None,
     }
 }
 

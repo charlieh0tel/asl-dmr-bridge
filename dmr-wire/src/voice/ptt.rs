@@ -235,8 +235,11 @@ impl PttMachine {
 
     fn on_tx_call_start(&mut self, stream_id: u32) {
         self.tx_levels = levels::LevelAccumulator::default();
-        self.tx_recorder =
-            open_wav_recorder(self.config.pcm_record_dir.as_deref(), "tx", stream_id);
+        self.tx_recorder = open_wav_recorder(
+            self.config.pcm_record_dir.as_deref(),
+            "fm_to_dmr_encode_in",
+            stream_id,
+        );
     }
 
     fn on_tx_call_end(&mut self, stream_id: u32) {
@@ -247,8 +250,11 @@ impl PttMachine {
 
     fn on_rx_call_start(&mut self, stream_id: u32) {
         self.rx_levels = levels::LevelAccumulator::default();
-        self.rx_recorder =
-            open_wav_recorder(self.config.pcm_record_dir.as_deref(), "rx", stream_id);
+        self.rx_recorder = open_wav_recorder(
+            self.config.pcm_record_dir.as_deref(),
+            "dmr_to_fm_decode_out",
+            stream_id,
+        );
     }
 
     fn on_rx_call_end(&mut self, stream_id: u32) {
@@ -638,7 +644,10 @@ impl PttMachine {
                         reason: TerminationReason::Normal,
                     });
                     self.on_rx_call_end(pkt.stream_id);
-                    let _ = self.audio_tx.send(make_unkey_frame()).await;
+                    let _ = self
+                        .audio_tx
+                        .send(make_unkey_frame(Some(pkt.stream_id)))
+                        .await;
                     self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
                 }
             }
@@ -752,7 +761,7 @@ impl PttMachine {
                     match self.decode(None).await {
                         Ok(pcm) => {
                             record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
-                            permit.send(make_voice_frame(pcm));
+                            permit.send(make_voice_frame(pcm, pkt.stream_id));
                         }
                         Err(e) => {
                             warn!(stream_id = pkt.stream_id, "lost-frame decode error: {e}");
@@ -770,7 +779,7 @@ impl PttMachine {
                                 transcode: t0.elapsed(),
                             });
                             record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
-                            permit.send(make_voice_frame(pcm));
+                            permit.send(make_voice_frame(pcm, pkt.stream_id));
                         }
                         Err(e) => {
                             warn!(stream_id = pkt.stream_id, sub = i, "decode error: {e}");
@@ -931,7 +940,10 @@ impl PttMachine {
                     reason: TerminationReason::StreamTimeout,
                 });
                 self.on_rx_call_end(rx.stream_id);
-                let _ = self.audio_tx.send(make_unkey_frame()).await;
+                let _ = self
+                    .audio_tx
+                    .send(make_unkey_frame(Some(rx.stream_id)))
+                    .await;
                 self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
             }
             PttState::RxHang(_) => {
@@ -976,13 +988,16 @@ impl PttMachine {
                     reason: TerminationReason::Shutdown,
                 });
                 self.on_rx_call_end(rx.stream_id);
-                let _ = self.audio_tx.send(make_unkey_frame()).await;
+                let _ = self
+                    .audio_tx
+                    .send(make_unkey_frame(Some(rx.stream_id)))
+                    .await;
             }
             PttState::RxHang(_) => {
                 // Clear was already emitted on the Rx -> RxHang
                 // transition (terminator or stream timeout).  Just
                 // make sure the FM peer ends up unkeyed.
-                let _ = self.audio_tx.send(make_unkey_frame()).await;
+                let _ = self.audio_tx.send(make_unkey_frame(None)).await;
             }
             PttState::Tx(mut tx) => {
                 self.flush_tx(&mut tx).await;

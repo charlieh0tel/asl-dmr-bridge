@@ -57,6 +57,13 @@ reason) and a periodic cumulative-counter heartbeat.  See `[stats]`
 in `config.example.toml` to tune the heartbeat interval, idle-skip,
 and the per-call duration floor.
 
+Optional per-call PCM capture for diagnostics: setting
+`[diagnostics].pcm_record_dir` writes one 8 kHz mono WAV per call at
+each of three points -- `fm_to_dmr_encode_in_*`,
+`dmr_to_fm_decode_out_*` (pre-AGC), `dmr_to_fm_agc_out_*` (post-AGC,
+what's actually sent on USRP) -- and emits a `call_levels` INFO line
+per point with peak / rms / voiced_rms in dBFS.
+
 See `config.example.toml` for the configuration schema.
 
 Key config fields:

@@ -5,7 +5,11 @@
 //! pacing the voice frames out at 20 ms.
 
 use std::net::SocketAddr;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
@@ -26,6 +30,7 @@ use usrp_wire::VOICE_FRAME_INTERVAL;
 use crate::agc::Agc;
 use pcm_utils::levels::LevelAccumulator;
 use pcm_utils::levels::fmt_dbfs;
+use pcm_utils::wav::WavRecorder;
 
 /// Receive USRP packets from the socket, strip the wire-only fields
 /// (seq, talkgroup, frame_type), and forward the resulting
@@ -69,6 +74,7 @@ pub(crate) async fn rx_task(
                         let audio = AudioFrame {
                             keyup: frame.keyup,
                             samples: frame.audio,
+                            call_id: None,
                         };
                         // try_send rather than send().await: backpressuring
                         // the recv loop would just push the drop down to
@@ -104,7 +110,7 @@ pub(crate) async fn rx_task(
 /// and resets state on unkey so each new talker starts neutral.
 #[expect(
     clippy::too_many_arguments,
-    reason = "tx_task is the bridge's USRP-out hub: socket + 2 channel ends + remote addr + tg + byte_swap + agc + cancel; refactor when there's a clear grouping, not preemptively."
+    reason = "tx_task is the bridge's USRP-out hub: socket + 2 channel ends + remote addr + tg + byte_swap + agc + record dir + cancel; refactor when there's a clear grouping, not preemptively."
 )]
 pub(crate) async fn tx_task(
     socket: Arc<UdpSocket>,
@@ -114,6 +120,7 @@ pub(crate) async fn tx_task(
     talkgroup: u32,
     byte_swap: bool,
     mut agc: Option<Agc>,
+    pcm_record_dir: Option<PathBuf>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     // USRP wire sequence counter; the FM peer treats it as a per-
@@ -125,9 +132,11 @@ pub(crate) async fn tx_task(
     // voice emit so pacing is absolute -- scheduler wake-up jitter
     // does not accumulate into drift.
     let mut next_voice_send: Option<Instant> = None;
-    // Per-call level accumulator on the post-AGC PCM (= what hits
-    // the FM peer).  Resets and emits a summary log on each unkey.
+    // Per-call accumulator + WAV on the post-AGC PCM (= what hits
+    // the FM peer).  Resets and emits a summary on each unkey.
     let mut agc_out_levels = LevelAccumulator::default();
+    let mut agc_out_recorder: Option<WavRecorder> = None;
+    let mut current_call_id: Option<u32> = None;
     let mut had_voice_in_call = false;
     loop {
         tokio::select! {
@@ -203,22 +212,40 @@ pub(crate) async fn tx_task(
                     }
                 }
 
-                // Per-call AGC-out level accumulator: accumulate
-                // while keyed, summarize on unkey.
+                // Per-call AGC-out diagnostics: open a WAV on the
+                // first voice frame of a call, accumulate levels +
+                // record while keyed, summarize and close on unkey.
                 if audio.keyup {
                     if let Some(buf) = samples.as_ref() {
+                        if !had_voice_in_call {
+                            current_call_id = audio.call_id;
+                            agc_out_recorder = open_agc_out_recorder(
+                                pcm_record_dir.as_deref(),
+                                audio.call_id,
+                            );
+                        }
                         agc_out_levels.add_frame(buf);
+                        if let Some(rec) = agc_out_recorder.as_mut()
+                            && let Err(e) = rec.write(buf)
+                        {
+                            warn!("agc_out wav write: {e}");
+                            agc_out_recorder = None;
+                        }
                         had_voice_in_call = true;
                     }
                 } else if had_voice_in_call {
                     let (peak, rms, voiced_rms) = agc_out_levels.summary();
+                    let sid = current_call_id.unwrap_or(0);
                     info!(
-                        "call_levels dir=dmr_to_fm point=agc_out peak={} rms={} voiced_rms={}",
+                        "call_levels dir=dmr_to_fm point=agc_out stream_id={sid} \
+                         peak={} rms={} voiced_rms={}",
                         fmt_dbfs(peak),
                         fmt_dbfs(rms),
                         fmt_dbfs(voiced_rms),
                     );
                     agc_out_levels = LevelAccumulator::default();
+                    agc_out_recorder = None;
+                    current_call_id = None;
                     had_voice_in_call = false;
                 }
 
@@ -237,6 +264,23 @@ pub(crate) async fn tx_task(
                     warn!("USRP tx: send error: {e}");
                 }
             }
+        }
+    }
+}
+
+fn open_agc_out_recorder(dir: Option<&Path>, call_id: Option<u32>) -> Option<WavRecorder> {
+    let dir = dir?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let sid = call_id.unwrap_or(0);
+    let path = dir.join(format!("dmr_to_fm_agc_out_{now_ms}_{sid}.wav"));
+    match WavRecorder::create(&path) {
+        Ok(rec) => Some(rec),
+        Err(e) => {
+            warn!("open agc_out wav recorder {}: {e}", path.display());
+            None
         }
     }
 }

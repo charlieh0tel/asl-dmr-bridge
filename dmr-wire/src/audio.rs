@@ -12,9 +12,12 @@ pub const VOICE_SAMPLES: usize = 160;
 /// Audio events crossing the FM <-> DMR seam.  `keyup` carries the
 /// PTT state; `samples` carries one frame of PCM when `keyup` is
 /// true and there's audio for this slot, or `None` for keyup
-/// transitions and unkey events that don't ship PCM.
+/// transitions and unkey events that don't ship PCM.  `call_id` is
+/// the DMR stream_id on the DMR -> FM path, `None` on FM -> DMR
+/// (PttMachine assigns the stream_id later).
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
     pub keyup: bool,
     pub samples: Option<[i16; VOICE_SAMPLES]>,
+    pub call_id: Option<u32>,
 }

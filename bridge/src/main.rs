@@ -526,6 +526,7 @@ async fn async_main() -> anyhow::Result<()> {
         r
     };
     let tg = config.dmr.talkgroup.as_u32();
+    let pcm_record_dir = config.diagnostics.pcm_record_dir.clone();
     let cancel_for_tx = cancel.clone();
     let tx = async move {
         let r = usrp::tx_task(
@@ -536,6 +537,7 @@ async fn async_main() -> anyhow::Result<()> {
             tg,
             byte_swap,
             agc_state,
+            pcm_record_dir,
             cancel_for_tx.clone(),
         )
         .await;
