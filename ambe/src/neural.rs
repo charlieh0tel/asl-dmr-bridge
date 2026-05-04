@@ -1,15 +1,12 @@
-//! Neural-vocoder backend.  Encode-only at v1: PCM through a tract-
-//! loaded ONNX model produces 49 source bits in mbelib `ambe_d[]`
-//! order; the harness scatters them, permutes to chip order, and
-//! channel-encodes via `dmr_wire::voice_channel`.  Decode delegates
-//! to the inner `Mbelib` instance (the `neural` Cargo feature
-//! implies `mbelib`).
-//!
-//! This module currently implements load + metadata parsing;
-//! inference (encode pipeline) is stubbed pending the first ONNX
-//! export.
+//! Neural-vocoder backend.  Encode runs PCM through a tract-loaded
+//! ONNX model whose 9 categorical heads (`b0_logits`..`b8_logits`)
+//! argmax to VQ indices; the harness scatters them into mbelib
+//! `ambe_d[]` order, permutes to chip order, and channel-encodes
+//! via `crate::voice_channel`.  Decode delegates to the inner
+//! `Mbelib` instance (the `neural` Cargo feature implies `mbelib`).
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -17,10 +14,15 @@ use tracing::info;
 use tract_onnx::pb;
 use tract_onnx::prelude::Framework;
 use tract_onnx::prelude::InferenceModelExt;
+use tract_onnx::prelude::IntoTensor;
 use tract_onnx::prelude::TypedModel;
 use tract_onnx::prelude::TypedRunnableModel;
+use tract_onnx::prelude::tract_ndarray;
+use tract_onnx::prelude::tvec;
 
+use crate::AMBE_FRAME_SIZE;
 use crate::AmbeFrame;
+use crate::PCM_SAMPLES;
 use crate::PcmFrame;
 use crate::Vocoder;
 use crate::VocoderError;
@@ -49,10 +51,6 @@ pub(crate) enum BitOrder {
 /// One AMBE+2 categorical field as the model emits it: a single VQ
 /// index (one of `vq_size` codes) that scatters into specific
 /// `ambe_d[]` positions, MSB-first.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "consumed by encode() scatter when it lands")
-)]
 pub(crate) struct Field {
     pub(crate) name: &'static str,
     pub(crate) bits: u8,
@@ -134,19 +132,20 @@ pub(crate) struct NeuralMeta {
 }
 
 pub(crate) struct NeuralVocoder {
-    #[expect(dead_code, reason = "consumed by encode() when inference lands")]
     plan: TypedRunnableModel<TypedModel>,
-    #[expect(dead_code, reason = "consumed by encode() when inference lands")]
     meta: NeuralMeta,
+    /// Buffer cap = warm-up threshold.  Once `samples` first
+    /// fills to this length, every subsequent call produces real
+    /// bits; the model's input slice is the oldest
+    /// `pcm_input_samples` of `samples`.
+    buffer_cap: usize,
+    samples: VecDeque<i16>,
     decoder: Mbelib,
 }
 
 impl NeuralVocoder {
     pub(crate) fn open(model_path: &Path) -> Result<Self, VocoderError> {
         let onnx = tract_onnx::onnx();
-
-        // Load proto first so we can read metadata_props.  parse()
-        // converts to InferenceModel.
         let proto = onnx
             .proto_model_for_path(model_path)
             .map_err(|e| init_err(format!("load {}: {e}", model_path.display())))?;
@@ -156,7 +155,6 @@ impl NeuralVocoder {
             .parse(&proto, None)
             .map_err(|e| init_err(format!("parse {}: {e}", model_path.display())))?
             .model;
-
         let plan = model
             .into_typed()
             .map_err(|e| init_err(format!("into_typed: {e}")))?
@@ -164,6 +162,9 @@ impl NeuralVocoder {
             .map_err(|e| init_err(format!("optimize: {e}")))?
             .into_runnable()
             .map_err(|e| init_err(format!("into_runnable: {e}")))?;
+
+        validate_output_names(&proto)?;
+        let buffer_cap = derive_buffer_cap(&meta);
 
         info!(
             path = %model_path.display(),
@@ -174,22 +175,86 @@ impl NeuralVocoder {
             context_frames = meta.context_frames,
             context_lookahead = meta.context_lookahead,
             harness_lookback_samples = meta.harness_lookback_samples,
+            buffer_cap,
             "neural model loaded",
         );
 
         Ok(Self {
             plan,
             meta,
+            buffer_cap,
+            samples: VecDeque::with_capacity(buffer_cap),
             decoder: Mbelib::new(),
         })
+    }
+
+    fn encode_real_frame(&mut self) -> Result<AmbeFrame, VocoderError> {
+        let mut input = Vec::with_capacity(self.meta.pcm_input_samples);
+        input.extend(
+            self.samples
+                .iter()
+                .take(self.meta.pcm_input_samples)
+                .map(|&s| f32::from(s) / 32768.0),
+        );
+        if input.len() != self.meta.pcm_input_samples {
+            return Err(VocoderError::Encode(format!(
+                "buffer slice short: {} samples, expected {}",
+                input.len(),
+                self.meta.pcm_input_samples,
+            )));
+        }
+
+        let tensor = tract_ndarray::Array2::from_shape_vec((1, self.meta.pcm_input_samples), input)
+            .map_err(|e| VocoderError::Encode(format!("input shape: {e}")))?
+            .into_tensor();
+        let outputs = self
+            .plan
+            .run(tvec!(tensor.into()))
+            .map_err(|e| VocoderError::Encode(format!("inference: {e}")))?;
+
+        // Argmax each of the 9 logit tensors; scatter into ambe_d[].
+        // Output order matches FIELDS_DMR_3600X2450 (validated at load).
+        let mut ambe_d = [0u8; 49];
+        for (field_idx, field) in FIELDS_DMR_3600X2450.iter().enumerate() {
+            let logits = outputs[field_idx]
+                .as_slice::<f32>()
+                .map_err(|e| VocoderError::Encode(format!("{}: {e}", field.name)))?;
+            if logits.len() != usize::from(field.vq_size) {
+                return Err(VocoderError::Encode(format!(
+                    "{}: logits len {} != vq_size {}",
+                    field.name,
+                    logits.len(),
+                    field.vq_size,
+                )));
+            }
+            let mut best_idx: u16 = 0;
+            let mut best_val = f32::NEG_INFINITY;
+            for (idx, &v) in logits.iter().enumerate() {
+                if v > best_val {
+                    best_val = v;
+                    best_idx = idx as u16;
+                }
+            }
+            for (i, &pos) in field.ambe_d.iter().enumerate() {
+                let bit_pos = field.bits - 1 - i as u8;
+                ambe_d[pos as usize] = ((best_idx >> bit_pos) & 1) as u8;
+            }
+        }
+
+        Ok(crate::voice_channel::encode_from_ambe_d(&ambe_d))
     }
 }
 
 impl Vocoder for NeuralVocoder {
-    fn encode(&mut self, _pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
-        Err(VocoderError::Encode(
-            "neural encode not yet implemented".into(),
-        ))
+    fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
+        self.samples.extend(pcm.iter().copied());
+        while self.samples.len() > self.buffer_cap {
+            self.samples.pop_front();
+        }
+        if self.samples.len() < self.buffer_cap {
+            return Ok([0u8; AMBE_FRAME_SIZE]);
+        }
+        self.encode_real_frame()
     }
 
     fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
@@ -198,9 +263,46 @@ impl Vocoder for NeuralVocoder {
 
     fn reset(&mut self) {
         self.decoder.reset();
-        // [TODO] @charlieh0tel: clear past/future PCM ring buffers
-        // when the streaming harness lands.
+        self.samples.clear();
     }
+}
+
+/// Smallest sample-buffer size that holds the model's input slice
+/// for the first real-output frame.  Once `samples` first fills
+/// to this length, every subsequent encode call produces real bits.
+fn derive_buffer_cap(meta: &NeuralMeta) -> usize {
+    let slice_end_offset = meta
+        .pcm_input_samples
+        .saturating_sub(meta.context_lookahead * PCM_SAMPLES)
+        .saturating_sub(meta.harness_lookback_samples);
+    let k_warmup = slice_end_offset.div_ceil(PCM_SAMPLES);
+    (k_warmup + meta.context_lookahead) * PCM_SAMPLES + meta.harness_lookback_samples
+}
+
+/// Confirm the ONNX graph's outputs are `b0_logits`..`b8_logits`
+/// in that order so encode can index them ordinally.
+fn validate_output_names(proto: &pb::ModelProto) -> Result<(), VocoderError> {
+    let graph = proto
+        .graph
+        .as_ref()
+        .ok_or_else(|| init_err("ONNX has no graph".into()))?;
+    if graph.output.len() != FIELDS_DMR_3600X2450.len() {
+        return Err(init_err(format!(
+            "ONNX has {} outputs, expected {}",
+            graph.output.len(),
+            FIELDS_DMR_3600X2450.len(),
+        )));
+    }
+    for (i, field) in FIELDS_DMR_3600X2450.iter().enumerate() {
+        let expected = format!("{}_logits", field.name);
+        let got = graph.output[i].name.as_str();
+        if got != expected {
+            return Err(init_err(format!(
+                "ONNX graph.output[{i}].name={got:?}, expected {expected:?}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn init_err(msg: String) -> VocoderError {

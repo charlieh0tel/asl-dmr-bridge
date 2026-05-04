@@ -14,6 +14,7 @@ pub(crate) mod neural;
 pub mod rates;
 #[cfg(feature = "thumbdv")]
 pub(crate) mod thumbdv;
+pub mod voice_channel;
 pub mod wire;
 
 // `test_harness` + `test_vectors` exist only to feed the goldens'

@@ -37,7 +37,7 @@ const PN_MOD: u32 = 0x10000;
 const DIBITS_PER_FRAME: usize = 36;
 pub const RAW_BYTES: usize = 7;
 pub const CODED_BYTES: usize = 9;
-const RAW_BITS: usize = 49;
+pub const RAW_BITS: usize = 49;
 
 /// `MBELIB_TO_CHIP[i]` is the chip's bit position (0..48) carrying the
 /// codec source bit that mbelib calls `ambe_d[i]`.  The two orders are
@@ -156,7 +156,7 @@ fn pack_msb_first(bits: &[u8; RAW_BITS]) -> [u8; RAW_BYTES] {
 
 /// Inverse of `pack_msb_first`: unpack 49 bits from the high bits of
 /// a 7-byte buffer.
-fn unpack_msb_first(packed: &[u8; RAW_BYTES]) -> [u8; RAW_BITS] {
+pub fn unpack_msb_first(packed: &[u8; RAW_BYTES]) -> [u8; RAW_BITS] {
     let mut out = [0u8; RAW_BITS];
     for (i, slot) in out.iter_mut().enumerate() {
         *slot = (packed[i / 8] >> (7 - (i % 8))) & 1;

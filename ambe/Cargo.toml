@@ -60,3 +60,7 @@ required-features = ["testing"]
 [[test]]
 name = "tract_mel_smoke"
 required-features = ["neural"]
+
+[[test]]
+name = "neural_parity"
+required-features = ["neural"]

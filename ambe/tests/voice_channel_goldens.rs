@@ -15,12 +15,12 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
-use dmr_wire::voice_channel::CODED_BYTES;
-use dmr_wire::voice_channel::RAW_BYTES;
-use dmr_wire::voice_channel::channel_decode;
-use dmr_wire::voice_channel::channel_encode;
+use ambe::voice_channel::CODED_BYTES;
+use ambe::voice_channel::RAW_BYTES;
+use ambe::voice_channel::channel_decode;
+use ambe::voice_channel::channel_encode;
 
-const FIXTURES_REL: &str = "../ambe/tests/fixtures/channel_coding";
+const FIXTURES_REL: &str = "tests/fixtures/channel_coding";
 
 fn fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURES_REL)

@@ -18,11 +18,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use ambe::cli::ChipBackendArgs;
+use ambe::voice_channel::CODED_BYTES;
+use ambe::voice_channel::RAW_BYTES;
+use ambe::voice_channel::channel_encode;
+use ambe::voice_channel::permute_mbelib_to_chip;
 use clap::Parser;
-use dmr_wire::voice_channel::CODED_BYTES;
-use dmr_wire::voice_channel::RAW_BYTES;
-use dmr_wire::voice_channel::channel_encode;
-use dmr_wire::voice_channel::permute_mbelib_to_chip;
 
 const PCM_SAMPLE_RATE: u32 = 8000;
 const PCM_SAMPLES_PER_FRAME: usize = 160;
