@@ -79,7 +79,8 @@ talkgroup = 91        # talkgroup to bridge
 call_type = "group"   # "group" or "private"
 
 [vocoder]
-backend = "mbelib"    # "mbelib", "thumbdv", or "ambeserver"
+backend = "neural"    # "neural", "mbelib", "thumbdv", or "ambeserver"
+model_path = "/usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx"
 ```
 
 ## Packaging
@@ -96,7 +97,10 @@ cargo deb -p asl-dmr-bridge
 
 The packaged unit stays dormant via `ConditionPathExists` until
 `/etc/asl-dmr-bridge/config.toml` exists.  Template lives at
-`/usr/share/doc/asl-dmr-bridge/examples/config.example.toml`.
+`/usr/share/doc/asl-dmr-bridge/examples/config.example.toml`.  The
+neural-backend ONNX is shipped at
+`/usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx`; rollback
+to a different model is a config-edit + restart.
 
 Secrets go in `/etc/default/asl-dmr-bridge` (mode 600) as
 `BRANDMEISTER_PASSWORD=...` / `BRANDMEISTER_API_KEY=...`.  The unit's

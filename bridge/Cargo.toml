@@ -6,6 +6,7 @@ license.workspace = true
 description = "Bridge between AllStarLink (ASL3) FM repeaters and Brandmeister DMR networks via the Homebrew protocol."
 
 [features]
+default = ["mbelib", "neural"]
 mbelib = ["ambe/mbelib"]
 thumbdv = ["ambe/thumbdv"]
 neural = ["ambe/neural"]
@@ -63,6 +64,7 @@ assets = [
     ["../packaging/asl-dmr-bridge.default", "etc/default/asl-dmr-bridge", "600"],
     ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "644"],
     ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "644"],
+    ["../models/dmr50.onnx", "usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx", "644"],
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",
