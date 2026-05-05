@@ -7,3 +7,6 @@ description = "PCM diagnostic helpers (level metering, WAV file writer) for asl-
 
 [dependencies]
 tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

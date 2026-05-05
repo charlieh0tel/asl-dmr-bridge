@@ -123,15 +123,10 @@ mod tests {
     use std::fs;
     use std::io::Read as _;
 
-    fn tmp_path(stem: &str) -> std::path::PathBuf {
-        let mut p = std::env::temp_dir();
-        let pid = std::process::id();
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        p.push(format!("pcm-utils-wav-test-{stem}-{pid}-{nanos}.wav"));
-        p
+    use tempfile::TempDir;
+
+    fn tmp_path(dir: &TempDir, stem: &str) -> std::path::PathBuf {
+        dir.path().join(format!("{stem}.wav"))
     }
 
     fn read_file(path: &Path) -> Vec<u8> {
@@ -145,7 +140,8 @@ mod tests {
 
     #[test]
     fn header_layout_matches_canonical_8khz_mono_i16() {
-        let path = tmp_path("header");
+        let dir = TempDir::new().unwrap();
+        let path = tmp_path(&dir, "header");
         {
             let _rec = WavRecorder::create(&path).unwrap();
         }
@@ -164,12 +160,12 @@ mod tests {
         assert_eq!(&bytes[36..40], b"data");
         assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 0);
         assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 36);
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn write_then_drop_finalizes_size_fields() {
-        let path = tmp_path("write");
+        let dir = TempDir::new().unwrap();
+        let path = tmp_path(&dir, "write");
         let samples: Vec<i16> = (0..1000).map(|i| (i * 16) as i16).collect();
         {
             let mut rec = WavRecorder::create(&path).unwrap();
@@ -186,12 +182,12 @@ mod tests {
             let s = i16::from_le_bytes([chunk[0], chunk[1]]);
             assert_eq!(s, samples[i]);
         }
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn write_after_finalize_returns_err() {
-        let path = tmp_path("wfaf");
+        let dir = TempDir::new().unwrap();
+        let path = tmp_path(&dir, "wfaf");
         let mut rec = WavRecorder::create(&path).unwrap();
         rec.write(&[100i16; 4]).unwrap();
         rec.finalize().unwrap();
@@ -202,26 +198,24 @@ mod tests {
         // Only the pre-finalize 4 samples (8 bytes) should be in data.
         assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 8);
         assert_eq!(bytes.len(), 44 + 8);
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn write_at_sample_cap_returns_err_without_corrupting() {
-        let path = tmp_path("cap");
+        let dir = TempDir::new().unwrap();
+        let path = tmp_path(&dir, "cap");
         let mut rec = WavRecorder::create(&path).unwrap();
         rec.samples_written = MAX_SAMPLES - 1;
         rec.write(&[1i16]).unwrap(); // exactly MAX_SAMPLES, ok.
         let err = rec.write(&[1i16]).unwrap_err();
         assert!(err.to_string().contains("WAV size cap"));
         assert_eq!(rec.samples_written, MAX_SAMPLES);
-        // Nothing was written for the rejected chunk.
-        drop(rec);
-        fs::remove_file(&path).ok();
     }
 
     #[test]
     fn finalize_is_idempotent() {
-        let path = tmp_path("idempotent");
+        let dir = TempDir::new().unwrap();
+        let path = tmp_path(&dir, "idempotent");
         let mut rec = WavRecorder::create(&path).unwrap();
         rec.write(&[100i16; 4]).unwrap();
         rec.finalize().unwrap();
@@ -229,6 +223,5 @@ mod tests {
         drop(rec);
         let bytes = read_file(&path);
         assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 8);
-        fs::remove_file(&path).ok();
     }
 }
