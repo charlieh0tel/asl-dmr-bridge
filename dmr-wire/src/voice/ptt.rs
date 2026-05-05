@@ -57,6 +57,8 @@ use super::DATA_TYPE_VOICE_HEADER;
 use super::DATA_TYPE_VOICE_TERMINATOR;
 use super::Direction;
 use super::FRAMES_PER_BURST;
+use super::PttDiagnostics;
+use super::PttPolicy;
 use super::SILENCE;
 use super::VoiceConfig;
 use super::build_dmrd;
@@ -149,6 +151,7 @@ pub(crate) enum PttState {
 
 pub(crate) struct PttMachine {
     config: VoiceConfig,
+    diagnostics: PttDiagnostics,
     vocoder: SharedVocoder,
     audio_tx: mpsc::Sender<AudioFrame>,
     dmrd_voice_out: mpsc::Sender<Vec<u8>>,
@@ -182,6 +185,8 @@ impl PttMachine {
     )]
     pub(crate) fn new(
         config: VoiceConfig,
+        diagnostics: PttDiagnostics,
+        policy: PttPolicy,
         vocoder: Box<dyn Vocoder>,
         audio_tx: mpsc::Sender<AudioFrame>,
         dmrd_voice_out: mpsc::Sender<Vec<u8>>,
@@ -191,9 +196,10 @@ impl PttMachine {
         callsign_lookup: Option<CallsignLookup>,
         cancel: CancellationToken,
     ) -> Self {
-        let pre_encode_filter = config.pre_encode_filter.then(pre_encode_voice_8khz);
+        let pre_encode_filter = policy.pre_encode_filter.then(pre_encode_voice_8khz);
         Self {
             config,
+            diagnostics,
             vocoder: Arc::new(Mutex::new(vocoder)),
             audio_tx,
             dmrd_voice_out,
@@ -218,7 +224,7 @@ impl PttMachine {
     fn on_tx_call_start(&mut self, stream_id: u32) {
         self.tx_levels = levels::LevelAccumulator::default();
         self.tx_recorder = open_wav_recorder(
-            self.config.pcm_record_dir.as_deref(),
+            self.diagnostics.pcm_record_dir.as_deref(),
             "fm_to_dmr_encode_in",
             stream_id,
         );
@@ -236,7 +242,7 @@ impl PttMachine {
     fn on_rx_call_start(&mut self, stream_id: u32) {
         self.rx_levels = levels::LevelAccumulator::default();
         self.rx_recorder = open_wav_recorder(
-            self.config.pcm_record_dir.as_deref(),
+            self.diagnostics.pcm_record_dir.as_deref(),
             "dmr_to_fm_decode_out",
             stream_id,
         );

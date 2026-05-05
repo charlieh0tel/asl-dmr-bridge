@@ -55,8 +55,6 @@ fn test_voice_config() -> VoiceConfig {
         src_id: SubscriberId::try_from(12345).unwrap(),
         color_code: ColorCode::try_from(1).unwrap(),
         callsign: String::new(),
-        pcm_record_dir: None,
-        pre_encode_filter: false,
     }
 }
 
@@ -75,6 +73,8 @@ fn make_machine_with_lookup(callsign_lookup: Option<CallsignLookup>) -> TestMach
     let (metadata_tx, metadata_rx) = mpsc::channel(16);
     let m = PttMachine::new(
         cfg,
+        PttDiagnostics::default(),
+        PttPolicy::default(),
         Box::new(StubVocoder),
         audio_tx,
         dmrd_voice_out,
@@ -391,6 +391,8 @@ fn make_machine_with_callsign(callsign: &str) -> TestMachine {
     let (metadata_tx, metadata_rx) = mpsc::channel(16);
     let m = PttMachine::new(
         cfg,
+        PttDiagnostics::default(),
+        PttPolicy::default(),
         Box::new(StubVocoder),
         audio_tx,
         dmrd_voice_out,
@@ -525,6 +527,8 @@ fn make_machine_with_min_tx_hang(hang: Duration) -> TestMachine {
     let (metadata_tx, metadata_rx) = mpsc::channel(16);
     let m = PttMachine::new(
         cfg,
+        PttDiagnostics::default(),
+        PttPolicy::default(),
         Box::new(StubVocoder),
         audio_tx,
         dmrd_voice_out,
@@ -746,6 +750,8 @@ async fn hang_fill_emits_silence_burst_at_cadence() {
     let (metadata_tx, _metadata_rx) = mpsc::channel(16);
     let mut m = PttMachine::new(
         cfg,
+        PttDiagnostics::default(),
+        PttPolicy::default(),
         Box::new(StubVocoder),
         audio_tx,
         dmrd_voice_out,
@@ -795,6 +801,8 @@ async fn rekey_clears_hang_fill() {
     let (metadata_tx, _metadata_rx) = mpsc::channel(16);
     let mut m = PttMachine::new(
         cfg,
+        PttDiagnostics::default(),
+        PttPolicy::default(),
         Box::new(StubVocoder),
         audio_tx,
         dmrd_voice_out,
@@ -922,6 +930,8 @@ impl Rig {
             None,
             Box::new(StubVocoder),
             cfg,
+            PttDiagnostics::default(),
+            PttPolicy::default(),
             cancel.clone(),
         ));
         Self {
@@ -1151,6 +1161,8 @@ async fn vocoder_panic_cancels_voice_task() {
     let (metadata_tx, _metadata_rx) = mpsc::channel(16);
     let mut m = PttMachine::new(
         test_voice_config(),
+        PttDiagnostics::default(),
+        PttPolicy::default(),
         Box::new(PanickingVocoder),
         audio_tx,
         dmrd_voice_out,

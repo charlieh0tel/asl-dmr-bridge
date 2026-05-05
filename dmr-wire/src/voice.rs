@@ -237,10 +237,21 @@ pub struct VoiceConfig {
     /// string, >7 chars, or non-ASCII disables TA emission and the
     /// voice LC is sent every superframe.
     pub callsign: String,
-    /// Diagnostic PCM capture directory.  When `Some`, the bridge
-    /// writes per-call WAV files (8 kHz mono i16 LE) for encoder
-    /// input on TX calls and pre-AGC decoder output on RX calls.
+}
+
+/// Per-call diagnostic capture knobs for `PttMachine`.  Pure
+/// observation; no effect on wire output.
+#[derive(Debug, Clone, Default)]
+pub struct PttDiagnostics {
+    /// When `Some`, write per-call WAV files (8 kHz mono i16 LE) for
+    /// encoder input on TX calls and pre-AGC decoder output on RX
+    /// calls.
     pub pcm_record_dir: Option<std::path::PathBuf>,
+}
+
+/// Audio-policy knobs for `PttMachine`.  Affect what hits the wire.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PttPolicy {
     /// Apply the FM->DMR pre-encode voice-band filter; resets on TX
     /// call start.  Backend-agnostic.
     pub pre_encode_filter: bool,
@@ -269,10 +280,14 @@ pub async fn voice_task(
     callsign_lookup: Option<CallsignLookup>,
     vocoder: Box<dyn Vocoder>,
     config: VoiceConfig,
+    diagnostics: PttDiagnostics,
+    policy: PttPolicy,
     cancel: CancellationToken,
 ) {
     let mut m = ptt::PttMachine::new(
         config,
+        diagnostics,
+        policy,
         vocoder,
         audio_tx,
         dmrd_voice_out,

@@ -417,7 +417,11 @@ async fn async_main() -> anyhow::Result<()> {
         src_id: config.repeater.src_id,
         color_code: config.repeater.color_code,
         callsign: config.repeater.callsign.as_str().to_string(),
+    };
+    let voice_diagnostics = dmr_wire::voice::PttDiagnostics {
         pcm_record_dir: config.diagnostics.pcm_record_dir.clone(),
+    };
+    let voice_policy = dmr_wire::voice::PttPolicy {
         pre_encode_filter: config.encode_filter.enabled,
     };
     info!(
@@ -443,6 +447,8 @@ async fn async_main() -> anyhow::Result<()> {
             callsign_lookup,
             vocoder,
             voice_config,
+            voice_diagnostics,
+            voice_policy,
             cancel.clone(),
         )
         .await;
