@@ -1,11 +1,12 @@
 //! Frame-by-frame bit-equality test for the dmr50 ONNX bundle.
-//! Reads `tests/fixtures/dmr50/{model.onnx,parity_input.wav,
-//! parity_expected_49bit.bin}` by default; `$NEURAL_FIXTURE_DIR`
-//! overrides for ad-hoc bundles.
+//! Reads the model from the workspace `models/dmr50.onnx` (the same
+//! file the .deb ships) and `parity_input.wav` /
+//! `parity_expected_49bit.bin` from `tests/fixtures/dmr50/`.
+//! `$NEURAL_FIXTURE_DIR` overrides both for ad-hoc bundles, in which
+//! case the model is read from `<dir>/model.onnx`.
 //!
 //! Pass criterion: 100% of bits match the PT-canonical reference.
-//! The current run-19 bundle achieves bit-equality on this fixture;
-//! if a future bundle drifts, lower the threshold deliberately and
+//! If a future bundle drifts, lower the threshold deliberately and
 //! note why instead of accepting silent regression.
 
 use std::env;
@@ -22,14 +23,28 @@ use tract_onnx::prelude::Framework;
 
 const PASS_THRESHOLD: f64 = 1.0;
 
-fn fixture_dir() -> PathBuf {
+struct FixturePaths {
+    model: PathBuf,
+    wav: PathBuf,
+    expected_bin: PathBuf,
+}
+
+fn fixture_paths() -> FixturePaths {
     if let Some(p) = env::var_os("NEURAL_FIXTURE_DIR") {
-        return PathBuf::from(p);
+        let dir = PathBuf::from(p);
+        return FixturePaths {
+            model: dir.join("model.onnx"),
+            wav: dir.join("parity_input.wav"),
+            expected_bin: dir.join("parity_expected_49bit.bin"),
+        };
     }
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("dmr50")
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let fixture = manifest.join("tests").join("fixtures").join("dmr50");
+    FixturePaths {
+        model: manifest.join("..").join("models").join("dmr50.onnx"),
+        wav: fixture.join("parity_input.wav"),
+        expected_bin: fixture.join("parity_expected_49bit.bin"),
+    }
 }
 
 /// Read `nambe.harness_lookback_samples` from the ONNX metadata so
@@ -64,18 +79,16 @@ fn read_wav_pcm(path: &Path) -> Vec<i16> {
 
 #[test]
 fn dmr50_bit_parity() {
-    let dir = fixture_dir();
-    let model = dir.join("model.onnx");
-    if !model.exists() {
+    let paths = fixture_paths();
+    if !paths.model.exists() {
         eprintln!(
-            "neural_parity: fixture missing at {}; skipping",
-            dir.display()
+            "neural_parity: model missing at {}; skipping",
+            paths.model.display()
         );
         return;
     }
-    let pcm = read_wav_pcm(&dir.join("parity_input.wav"));
-    let expected =
-        fs::read(dir.join("parity_expected_49bit.bin")).expect("read parity_expected_49bit.bin");
+    let pcm = read_wav_pcm(&paths.wav);
+    let expected = fs::read(&paths.expected_bin).expect("read parity_expected_49bit.bin");
 
     assert_eq!(pcm.len() % ambe::PCM_SAMPLES, 0);
     assert_eq!(expected.len() % RAW_BYTES, 0);
@@ -87,14 +100,14 @@ fn dmr50_bit_parity() {
     // PCM history for the model's lookback.  A future bundle that
     // ships mismatched fixture vs. metadata would silently pass
     // against misaligned frames otherwise.
-    let lookback = harness_lookback_samples(&model);
+    let lookback = harness_lookback_samples(&paths.model);
     assert!(
         warmup * ambe::PCM_SAMPLES >= lookback,
         "fixture warmup={warmup} frames ({} samples) < harness_lookback_samples={lookback}",
         warmup * ambe::PCM_SAMPLES,
     );
 
-    let mut v = ambe::open_neural(&model).expect("open neural");
+    let mut v = ambe::open_neural(&paths.model).expect("open neural");
 
     let mut total_bits = 0usize;
     let mut matching_bits = 0usize;
