@@ -5,11 +5,8 @@
 //! pacing the voice frames out at 20 ms.
 
 use std::net::SocketAddr;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
@@ -243,9 +240,10 @@ pub(crate) async fn tx_task(
                     if let Some(buf) = samples.as_ref() {
                         if !had_voice_in_call {
                             current_dmr_stream_id = audio.dmr_stream_id;
-                            agc_out_recorder = open_agc_out_recorder(
+                            agc_out_recorder = pcm_utils::wav::open_call_recorder(
                                 pcm_record_dir.as_deref(),
-                                audio.dmr_stream_id,
+                                "dmr_to_fm_agc_out",
+                                audio.dmr_stream_id.unwrap_or(0),
                             );
                         }
                         agc_out_levels.add_frame(buf);
@@ -310,23 +308,6 @@ fn finalize_agc_out_call(
     *recorder = None;
     *dmr_stream_id = None;
     *had_voice = false;
-}
-
-fn open_agc_out_recorder(dir: Option<&Path>, dmr_stream_id: Option<u32>) -> Option<WavRecorder> {
-    let dir = dir?;
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let sid = dmr_stream_id.unwrap_or(0);
-    let path = dir.join(format!("dmr_to_fm_agc_out_{now_ms}_{sid}.wav"));
-    match WavRecorder::create(&path) {
-        Ok(rec) => Some(rec),
-        Err(e) => {
-            warn!("open agc_out wav recorder {}: {e}", path.display());
-            None
-        }
-    }
 }
 
 #[cfg(test)]

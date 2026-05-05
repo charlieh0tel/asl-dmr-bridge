@@ -7,12 +7,9 @@
 //! transitions.  Tests construct a `PttMachine` directly and drive
 //! events without spinning up the full select loop.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 
 use pcm_utils::biquad::BiquadCascade;
 use pcm_utils::biquad::pre_encode_voice_8khz;
@@ -223,7 +220,7 @@ impl PttMachine {
 
     fn on_tx_call_start(&mut self, stream_id: u32) {
         self.tx_levels = levels::LevelAccumulator::default();
-        self.tx_recorder = open_wav_recorder(
+        self.tx_recorder = wav::open_call_recorder(
             self.diagnostics.pcm_record_dir.as_deref(),
             "fm_to_dmr_encode_in",
             stream_id,
@@ -241,7 +238,7 @@ impl PttMachine {
 
     fn on_rx_call_start(&mut self, stream_id: u32) {
         self.rx_levels = levels::LevelAccumulator::default();
-        self.rx_recorder = open_wav_recorder(
+        self.rx_recorder = wav::open_call_recorder(
             self.diagnostics.pcm_record_dir.as_deref(),
             "dmr_to_fm_decode_out",
             stream_id,
@@ -1086,22 +1083,6 @@ fn record_pcm(
     {
         warn!("{kind} pcm record write: {e}");
         *recorder = None;
-    }
-}
-
-fn open_wav_recorder(dir: Option<&Path>, kind: &str, stream_id: u32) -> Option<wav::WavRecorder> {
-    let dir = dir?;
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let path = dir.join(format!("{kind}_{now_ms}_{stream_id}.wav"));
-    match wav::WavRecorder::create(&path) {
-        Ok(rec) => Some(rec),
-        Err(e) => {
-            warn!("open wav recorder {}: {e}", path.display());
-            None
-        }
     }
 }
 

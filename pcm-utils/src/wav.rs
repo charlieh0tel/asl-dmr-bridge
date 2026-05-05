@@ -9,6 +9,10 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+
+use tracing::warn;
 
 const SAMPLE_RATE: u32 = 8000;
 const CHANNELS: u16 = 1;
@@ -89,6 +93,26 @@ impl WavRecorder {
 impl Drop for WavRecorder {
     fn drop(&mut self) {
         let _ = self.finalize();
+    }
+}
+
+/// Open a per-call diagnostic WAV in `dir` named
+/// `<kind>_<unix_ms>_<stream_id>.wav`.  Returns `None` if `dir` is
+/// `None` or creation fails (a warning is logged in the latter case
+/// so capture is best-effort and never breaks the call path).
+pub fn open_call_recorder(dir: Option<&Path>, kind: &str, stream_id: u32) -> Option<WavRecorder> {
+    let dir = dir?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("{kind}_{now_ms}_{stream_id}.wav"));
+    match WavRecorder::create(&path) {
+        Ok(rec) => Some(rec),
+        Err(e) => {
+            warn!("open wav recorder {}: {e}", path.display());
+            None
+        }
     }
 }
 
