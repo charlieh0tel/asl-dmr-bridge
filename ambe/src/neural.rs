@@ -30,21 +30,6 @@ use crate::mbelib::Mbelib;
 /// Field layout name carried in ONNX metadata (`nambe.layout`).
 const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";
 
-/// `nambe.frontend` value.  Only `Graph` is supported; any other
-/// value is rejected at load time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Frontend {
-    Graph,
-}
-
-/// Bit ordering of the model's 49-bit output, before chip-order
-/// permutation.  Only mbelib is supported at v1.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BitOrder {
-    /// mbelib `ambe_d[0..49]` order.
-    Mbelib,
-}
-
 /// One AMBE+2 categorical field as the model emits it: a single VQ
 /// index (one of `vq_size` codes) that scatters into specific
 /// `ambe_d[]` positions, MSB-first.
@@ -124,8 +109,6 @@ pub(crate) struct NeuralMeta {
     pub(crate) context_frames: usize,
     pub(crate) context_lookahead: usize,
     pub(crate) harness_lookback_samples: usize,
-    pub(crate) frontend: Frontend,
-    pub(crate) bit_order: BitOrder,
 }
 
 pub(crate) struct NeuralVocoder {
@@ -166,8 +149,6 @@ impl NeuralVocoder {
         info!(
             path = %model_path.display(),
             layout = %meta.layout,
-            frontend = ?meta.frontend,
-            bit_order = ?meta.bit_order,
             pcm_input_samples = meta.pcm_input_samples,
             context_frames = meta.context_frames,
             context_lookahead = meta.context_lookahead,
@@ -387,23 +368,8 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
     let context_lookahead = parse_kv(&props, "nambe.context_lookahead")?;
     let harness_lookback_samples = parse_kv(&props, "nambe.harness_lookback_samples")?;
 
-    let frontend = match require(&props, "nambe.frontend")? {
-        "graph" => Frontend::Graph,
-        other => {
-            return Err(init_err(format!(
-                "nambe.frontend={other:?}; expected 'graph'"
-            )));
-        }
-    };
-
-    let bit_order = match require(&props, "nambe.field_bit_order")? {
-        "mbelib" => BitOrder::Mbelib,
-        other => {
-            return Err(init_err(format!(
-                "nambe.field_bit_order={other:?}; only 'mbelib' supported"
-            )));
-        }
-    };
+    expect_eq(&props, "nambe.frontend", "graph")?;
+    expect_eq(&props, "nambe.field_bit_order", "mbelib")?;
 
     let expected_field_names: String = FIELDS_DMR_3600X2450
         .iter()
@@ -453,8 +419,6 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
         context_frames,
         context_lookahead,
         harness_lookback_samples,
-        frontend,
-        bit_order,
     })
 }
 
