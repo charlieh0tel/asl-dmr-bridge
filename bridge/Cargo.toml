@@ -56,7 +56,10 @@ to AMBE+2 via a ThumbDV / AMBEserver / mbelib backend.  Includes a \
 systemd unit and a sample configuration."""
 section = "hamradio"
 priority = "optional"
-depends = "$auto"
+# $auto picks up dynamically-linked deps (libc, etc.).  libudev1 is
+# loaded via dlopen by the serialport crate (thumbdv backend), which
+# dpkg-shlibdeps cannot see, so list it explicitly.
+depends = "$auto, libudev1"
 maintainer-scripts = "../packaging/maintainer-scripts/"
 assets = [
     ["target/release/asl-dmr-bridge", "usr/bin/", "755"],
