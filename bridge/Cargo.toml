@@ -6,7 +6,7 @@ license.workspace = true
 description = "Bridge between AllStarLink (ASL3) FM repeaters and Brandmeister DMR networks via the Homebrew protocol."
 
 [features]
-default = ["mbelib", "neural"]
+default = ["mbelib", "neural", "thumbdv"]
 mbelib = ["ambe/mbelib"]
 thumbdv = ["ambe/thumbdv"]
 neural = ["ambe/neural"]
