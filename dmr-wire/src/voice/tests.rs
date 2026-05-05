@@ -714,6 +714,12 @@ async fn tx_timeout_emits_terminator() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_audio(&voice_audio()).await; // enter Tx, emits header
     let _ = dmrd_control_rx.try_recv(); // drain header
+    // Simulate a hang that's already expired so on_timeout fires the
+    // terminator (the actual tx_timeout default is 180s; faking it
+    // via pending_terminate exercises the same terminator path).
+    if let PttState::Tx(ref mut tx) = m.state {
+        tx.pending_terminate = Some(Instant::now() - Duration::from_millis(1));
+    }
     m.on_timeout().await;
     let mut saw_term = false;
     while let Ok(pkt) = dmrd_control_rx.try_recv() {
@@ -723,6 +729,96 @@ async fn tx_timeout_emits_terminator() {
         }
     }
     assert!(saw_term, "expected terminator after TX timeout");
+}
+
+#[tokio::test]
+async fn hang_fill_emits_silence_burst_at_cadence() {
+    // PTT-down with min_tx_hang > 0 schedules a hang-fill tick.
+    // When the tick fires (simulated via pending_terminate +
+    // next_hang_fill in the past, but pending_terminate not yet
+    // expired), on_timeout emits a voice burst on the voice channel
+    // and stays in Tx.
+    let mut cfg = test_voice_config();
+    cfg.min_tx_hang = Duration::from_secs(5);
+    let (audio_tx, _audio_rx) = mpsc::channel(16);
+    let (dmrd_voice_out, mut dmrd_voice_rx) = mpsc::channel(16);
+    let (dmrd_control_out, mut dmrd_control_rx) = mpsc::unbounded_channel();
+    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
+    let mut m = PttMachine::new(
+        cfg,
+        Box::new(StubVocoder),
+        audio_tx,
+        dmrd_voice_out,
+        dmrd_control_out,
+        metadata_tx,
+        None,
+        None,
+        CancellationToken::new(),
+    );
+    m.on_audio(&voice_audio()).await; // enter Tx
+    let _ = dmrd_control_rx.try_recv(); // drain header
+    m.on_audio(&unkey_audio()).await; // PTT-down -> hang
+    // Drain any flush burst from the voice channel.
+    while dmrd_voice_rx.try_recv().is_ok() {}
+    // Force next_hang_fill into the past while pending_terminate
+    // remains in the future.
+    if let PttState::Tx(ref mut tx) = m.state {
+        assert!(tx.pending_terminate.is_some());
+        tx.next_hang_fill = Some(Instant::now() - Duration::from_millis(1));
+    } else {
+        panic!("expected Tx state after PTT-down with min_tx_hang > 0");
+    }
+    m.on_timeout().await;
+    let pkt = dmrd_voice_rx
+        .try_recv()
+        .expect("hang-fill should have emitted a voice burst");
+    let dmrd = Dmrd::parse(&pkt).unwrap();
+    assert!(matches!(
+        dmrd.frame_type,
+        FrameType::Voice | FrameType::VoiceSync
+    ));
+    assert!(matches!(m.state, PttState::Tx(_)));
+    if let PttState::Tx(ref tx) = m.state {
+        assert!(tx.next_hang_fill.is_some());
+    }
+}
+
+#[tokio::test]
+async fn rekey_clears_hang_fill() {
+    // A re-key during the hang window must clear next_hang_fill so
+    // the timer-driven cadence stops and PCM-driven cadence resumes.
+    let mut cfg = test_voice_config();
+    cfg.min_tx_hang = Duration::from_secs(5);
+    let (audio_tx, _audio_rx) = mpsc::channel(16);
+    let (dmrd_voice_out, _dmrd_voice_rx) = mpsc::channel(16);
+    let (dmrd_control_out, _dmrd_control_rx) = mpsc::unbounded_channel();
+    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
+    let mut m = PttMachine::new(
+        cfg,
+        Box::new(StubVocoder),
+        audio_tx,
+        dmrd_voice_out,
+        dmrd_control_out,
+        metadata_tx,
+        None,
+        None,
+        CancellationToken::new(),
+    );
+    m.on_audio(&voice_audio()).await;
+    m.on_audio(&unkey_audio()).await;
+    if let PttState::Tx(ref tx) = m.state {
+        assert!(tx.next_hang_fill.is_some(), "hang-fill should be scheduled");
+    }
+    m.on_audio(&voice_audio()).await; // re-key
+    if let PttState::Tx(ref tx) = m.state {
+        assert!(
+            tx.next_hang_fill.is_none(),
+            "re-key must clear next_hang_fill"
+        );
+        assert!(tx.pending_terminate.is_none(), "re-key must clear hang");
+    } else {
+        panic!("expected Tx state after re-key");
+    }
 }
 
 #[tokio::test]

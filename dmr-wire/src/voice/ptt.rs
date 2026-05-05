@@ -91,6 +91,10 @@ type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 /// instead of per-frame compensation).
 const GAP_BOUNDARY_PACKETS: u8 = 3;
 
+/// Cadence for hang-window fill bursts.  Matches DMR slot 1 burst
+/// rate so the wire never goes quiet during `min_tx_hang`.
+const HANG_FILL_INTERVAL: Duration = Duration::from_millis(60);
+
 pub(crate) struct RxCall {
     pub(crate) stream_id: u32,
     src_id: u32,
@@ -130,6 +134,10 @@ pub(crate) struct TxCall {
     /// state goes Idle.  `None` when min_tx_hang = 0 or no unkey
     /// pending.
     pub(crate) pending_terminate: Option<Instant>,
+    /// While `pending_terminate` is set, the next fill-burst tick
+    /// (silence-sentinel AMBE × 3) so the wire stays at the DMR
+    /// burst cadence during the hang.  Cleared on re-key.
+    pub(crate) next_hang_fill: Option<Instant>,
 }
 
 pub(crate) enum PttState {
@@ -310,10 +318,14 @@ impl PttMachine {
             PttState::Rx(rx) => rx.last_voice + self.config.stream_timeout,
             PttState::RxHang(dl) => *dl,
             PttState::Tx(tx) => {
-                let tx_timeout_dl = tx.started + self.config.tx_timeout;
-                tx.pending_terminate
-                    .map(|hang| hang.min(tx_timeout_dl))
-                    .unwrap_or(tx_timeout_dl)
+                let mut deadline = tx.started + self.config.tx_timeout;
+                if let Some(hang) = tx.pending_terminate {
+                    deadline = deadline.min(hang);
+                }
+                if let Some(fill) = tx.next_hang_fill {
+                    deadline = deadline.min(fill);
+                }
+                deadline
             }
             PttState::Idle => Instant::now() + Duration::from_secs(3600),
         }
@@ -460,12 +472,20 @@ impl PttMachine {
                 }
             }
         }
-        // Burst A (vseq=0): voice sync pattern.
-        // Bursts B-E (vseq 1..=4): embedded LC fragments 0..3 with
-        // LCSS 1/3/3/2 per ETSI TS 102 361-1.  Fragment set is
-        // chosen from lc_rotation by superframe index, so multi-LC
-        // setups (voice + TA) alternate per superframe.
-        // Burst F (vseq=5): null EMB (LCSS=0, RC slot unused).
+        Some((self.build_voice_burst(&ambe, tx), transcode_times))
+    }
+
+    /// Wrap 3 channel-coded AMBE frames in a DMR voice burst with the
+    /// vseq-correct sync/EMB section, build the DMRD packet, and
+    /// advance `tx`'s vseq + dmrd_seq + superframe_idx.  Burst A
+    /// (vseq=0) carries `BS_VOICE_SYNC`; bursts B-E (vseq 1..=4) carry
+    /// embedded-LC fragments 0..3 with LCSS 1/3/3/2 per ETSI
+    /// TS 102 361-1; burst F (vseq=5) carries null EMB.
+    fn build_voice_burst(
+        &self,
+        ambe: &[ambe::AmbeFrame; FRAMES_PER_BURST],
+        tx: &mut TxCall,
+    ) -> Vec<u8> {
         let sync = match tx.vseq {
             0 => BS_VOICE_SYNC,
             n @ 1..=4 => {
@@ -479,7 +499,7 @@ impl PttMachine {
             }
             _ => build_null_emb(self.config.color_code.value()),
         };
-        let burst = assemble_burst(&ambe, &sync);
+        let burst = assemble_burst(ambe, &sync);
         let ft = if tx.vseq == 0 {
             FrameType::VoiceSync
         } else {
@@ -492,7 +512,15 @@ impl PttMachine {
             tx.superframe_idx = tx.superframe_idx.wrapping_add(1);
         }
         tx.vseq = next_vseq;
-        Some((pkt.serialize().to_vec(), transcode_times))
+        pkt.serialize().to_vec()
+    }
+
+    /// Hang-window fill burst: three silence-sentinel AMBE frames
+    /// wrapped in a normal voice-burst envelope so receivers see an
+    /// unbroken stream during `min_tx_hang`.
+    fn build_hang_fill_burst(&self, tx: &mut TxCall) -> Vec<u8> {
+        let ambe = [*ambe::SILENCE_FRAME; FRAMES_PER_BURST];
+        self.build_voice_burst(&ambe, tx)
     }
 
     /// try_send + warn-on-full for the bounded DMRD voice channel.
@@ -838,7 +866,9 @@ impl PttMachine {
                     });
                     self.on_tx_call_end(tx.stream_id);
                 } else {
-                    tx.pending_terminate = Some(Instant::now() + self.config.min_tx_hang);
+                    let now = Instant::now();
+                    tx.pending_terminate = Some(now + self.config.min_tx_hang);
+                    tx.next_hang_fill = Some(now + HANG_FILL_INTERVAL);
                     debug!(stream_id = tx.stream_id, "TX hang start");
                     self.state = PttState::Tx(tx);
                 }
@@ -889,6 +919,7 @@ impl PttMachine {
                 lc_rotation,
                 superframe_idx: 0,
                 pending_terminate: None,
+                next_hang_fill: None,
             };
             info!(stream_id = tx.stream_id, "TX header");
             self.on_ptt_up();
@@ -914,6 +945,7 @@ impl PttMachine {
         // Re-key during the min_tx_hang window: cancel the pending
         // terminator so this audio extends the same call.
         if tx.pending_terminate.take().is_some() {
+            tx.next_hang_fill = None;
             debug!(stream_id = tx.stream_id, "TX hang cancelled (re-key)");
         }
         tx.pcm_buf.push(audio);
@@ -958,29 +990,44 @@ impl PttMachine {
                 // state already Idle from mem::replace.
             }
             PttState::Tx(mut tx) => {
-                // Two timeout cases:
-                //   1. min_tx_hang expired (pending_terminate hit) ->
-                //      send terminator, normal end-of-call.
-                //   2. tx_timeout (long stuck call) -> warn + same.
-                // flush_tx runs unconditionally so any audio buffered
-                // by an in-flight burst is preserved before the
-                // terminator fires.  Empty pcm_buf is a no-op flush.
-                let hang_expired = tx.pending_terminate.is_some_and(|dl| Instant::now() >= dl);
-                let reason = if hang_expired {
-                    info!(stream_id = tx.stream_id, "TX hang expired -> terminator");
-                    TerminationReason::Normal
+                // Three timeout cases, checked in priority order:
+                //   1. tx_timeout (long stuck call) or min_tx_hang
+                //      expired -> terminator, normal/timeout end.
+                //   2. hang-fill tick due -> emit silence-sentinel
+                //      burst and reschedule, stay in Tx.
+                //   3. spurious wake (deadlines moved) -> restore Tx
+                //      state and let the select re-arm.
+                let now = Instant::now();
+                let tx_timeout_hit = now >= tx.started + self.config.tx_timeout;
+                let hang_expired = tx.pending_terminate.is_some_and(|deadline| now >= deadline);
+                if tx_timeout_hit || hang_expired {
+                    let reason = if hang_expired {
+                        info!(stream_id = tx.stream_id, "TX hang expired -> terminator");
+                        TerminationReason::Normal
+                    } else {
+                        warn!(stream_id = tx.stream_id, "TX timeout");
+                        TerminationReason::TxTimeout
+                    };
+                    self.flush_tx(&mut tx).await;
+                    let term = self.build_tx_terminator(&mut tx);
+                    self.send_control_dmrd(term, "tx_timeout_terminator");
+                    self.try_send_stats(StatsEvent::CallEnd {
+                        dir: CallDirection::FmToDmr,
+                        reason,
+                    });
+                    self.on_tx_call_end(tx.stream_id);
+                } else if tx.next_hang_fill.is_some_and(|deadline| now >= deadline) {
+                    let pkt = self.build_hang_fill_burst(&mut tx);
+                    self.try_send_voice_dmrd(
+                        pkt,
+                        [Duration::ZERO; FRAMES_PER_BURST],
+                        "tx_hang_fill",
+                    );
+                    tx.next_hang_fill = Some(now + HANG_FILL_INTERVAL);
+                    self.state = PttState::Tx(tx);
                 } else {
-                    warn!(stream_id = tx.stream_id, "TX timeout");
-                    TerminationReason::TxTimeout
-                };
-                self.flush_tx(&mut tx).await;
-                let term = self.build_tx_terminator(&mut tx);
-                self.send_control_dmrd(term, "tx_timeout_terminator");
-                self.try_send_stats(StatsEvent::CallEnd {
-                    dir: CallDirection::FmToDmr,
-                    reason,
-                });
-                self.on_tx_call_end(tx.stream_id);
+                    self.state = PttState::Tx(tx);
+                }
             }
             PttState::Idle => {}
         }
