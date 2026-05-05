@@ -43,6 +43,17 @@ pub type PcmFrame = [i16; PCM_SAMPLES];
 /// AMBE+2 encoded frame type.
 pub type AmbeFrame = [u8; AMBE_FRAME_SIZE];
 
+/// Channel-coded AMBE+2 frame-repeat sentinel (`b0=124`, others 0):
+/// a valid silent frame for warm-up / hang padding.
+pub static SILENCE_FRAME: std::sync::LazyLock<AmbeFrame> = std::sync::LazyLock::new(|| {
+    // 124 = 0b1111100, MSB-first into b0 positions [0,1,2,3,37,38,39].
+    let mut ambe_d = [0u8; 49];
+    for &p in &[0usize, 1, 2, 3, 37] {
+        ambe_d[p] = 1;
+    }
+    voice_channel::encode_from_ambe_d(&ambe_d)
+});
+
 #[derive(Debug, thiserror::Error)]
 pub enum VocoderError {
     #[error("encode failed: {0}")]

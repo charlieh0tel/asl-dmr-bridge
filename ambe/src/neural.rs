@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::LazyLock;
 
 use tracing::info;
 use tract_onnx::pb;
@@ -55,18 +54,6 @@ pub(crate) struct Field {
     pub(crate) vq_size: u16,
     pub(crate) ambe_d: &'static [u8],
 }
-
-/// Channel-coded AMBE+2 frame-repeat sentinel (`b0=124`, others 0).
-/// Emitted during encoder warm-up so the receiver decodes a valid
-/// frame -> silence instead of garbage from raw-zero channel bits.
-pub(crate) static SILENCE_FRAME: LazyLock<AmbeFrame> = LazyLock::new(|| {
-    // 124 = 0b1111100, MSB-first into b0 positions [0,1,2,3,37,38,39].
-    let mut ambe_d = [0u8; 49];
-    for &p in &[0usize, 1, 2, 3, 37] {
-        ambe_d[p] = 1;
-    }
-    crate::voice_channel::encode_from_ambe_d(&ambe_d)
-});
 
 /// DMR / P25 half-rate field layout.  Source of truth:
 /// `nambe/field_layout.py::FIELDS_DMR_3600X2450`.  Stable since
@@ -299,7 +286,7 @@ impl Vocoder for NeuralVocoder {
             self.samples.pop_front();
         }
         if self.samples.len() < self.buffer_cap {
-            return Ok(*SILENCE_FRAME);
+            return Ok(*crate::SILENCE_FRAME);
         }
         self.encode_real_frame()
     }
@@ -511,7 +498,7 @@ mod tests {
         // reset decoder.  If this fails, mbelib has a quirk and the
         // warm-up bytes will produce noise on the wire.
         let mut decoder = Mbelib::new();
-        let pcm = decoder.decode(Some(&SILENCE_FRAME)).unwrap();
+        let pcm = decoder.decode(Some(&crate::SILENCE_FRAME)).unwrap();
         let mean_sq: f64 =
             pcm.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / pcm.len() as f64;
         let rms_dbfs = if mean_sq > 0.0 {
