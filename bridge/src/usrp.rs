@@ -74,7 +74,7 @@ pub(crate) async fn rx_task(
                         let audio = AudioFrame {
                             keyup: frame.keyup,
                             samples: frame.audio,
-                            call_id: None,
+                            dmr_stream_id: None,
                         };
                         // try_send rather than send().await: backpressuring
                         // the recv loop would just push the drop down to
@@ -136,7 +136,7 @@ pub(crate) async fn tx_task(
     // the FM peer).  Resets and emits a summary on each unkey.
     let mut agc_out_levels = LevelAccumulator::default();
     let mut agc_out_recorder: Option<WavRecorder> = None;
-    let mut current_call_id: Option<u32> = None;
+    let mut current_dmr_stream_id: Option<u32> = None;
     let mut had_voice_in_call = false;
     loop {
         tokio::select! {
@@ -145,7 +145,7 @@ pub(crate) async fn tx_task(
                 finalize_agc_out_call(
                     &mut agc_out_levels,
                     &mut agc_out_recorder,
-                    &mut current_call_id,
+                    &mut current_dmr_stream_id,
                     &mut had_voice_in_call,
                 );
                 return Ok(());
@@ -190,7 +190,7 @@ pub(crate) async fn tx_task(
                     finalize_agc_out_call(
                         &mut agc_out_levels,
                         &mut agc_out_recorder,
-                        &mut current_call_id,
+                        &mut current_dmr_stream_id,
                         &mut had_voice_in_call,
                     );
                     return Ok(());
@@ -207,7 +207,7 @@ pub(crate) async fn tx_task(
                                 finalize_agc_out_call(
                                     &mut agc_out_levels,
                                     &mut agc_out_recorder,
-                                    &mut current_call_id,
+                                    &mut current_dmr_stream_id,
                                     &mut had_voice_in_call,
                                 );
                                 return Ok(());
@@ -242,10 +242,10 @@ pub(crate) async fn tx_task(
                 if audio.keyup {
                     if let Some(buf) = samples.as_ref() {
                         if !had_voice_in_call {
-                            current_call_id = audio.call_id;
+                            current_dmr_stream_id = audio.dmr_stream_id;
                             agc_out_recorder = open_agc_out_recorder(
                                 pcm_record_dir.as_deref(),
-                                audio.call_id,
+                                audio.dmr_stream_id,
                             );
                         }
                         agc_out_levels.add_frame(buf);
@@ -261,7 +261,7 @@ pub(crate) async fn tx_task(
                     finalize_agc_out_call(
                         &mut agc_out_levels,
                         &mut agc_out_recorder,
-                        &mut current_call_id,
+                        &mut current_dmr_stream_id,
                         &mut had_voice_in_call,
                     );
                 }
@@ -291,14 +291,14 @@ pub(crate) async fn tx_task(
 fn finalize_agc_out_call(
     levels: &mut LevelAccumulator,
     recorder: &mut Option<WavRecorder>,
-    call_id: &mut Option<u32>,
+    dmr_stream_id: &mut Option<u32>,
     had_voice: &mut bool,
 ) {
     if !*had_voice {
         return;
     }
     let (peak, rms, voiced_rms) = levels.summary();
-    let sid = call_id.unwrap_or(0);
+    let sid = dmr_stream_id.unwrap_or(0);
     info!(
         "call_levels dir=dmr_to_fm point=agc_out stream_id={sid} \
          peak={} rms={} voiced_rms={}",
@@ -308,17 +308,17 @@ fn finalize_agc_out_call(
     );
     *levels = LevelAccumulator::default();
     *recorder = None;
-    *call_id = None;
+    *dmr_stream_id = None;
     *had_voice = false;
 }
 
-fn open_agc_out_recorder(dir: Option<&Path>, call_id: Option<u32>) -> Option<WavRecorder> {
+fn open_agc_out_recorder(dir: Option<&Path>, dmr_stream_id: Option<u32>) -> Option<WavRecorder> {
     let dir = dir?;
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let sid = call_id.unwrap_or(0);
+    let sid = dmr_stream_id.unwrap_or(0);
     let path = dir.join(format!("dmr_to_fm_agc_out_{now_ms}_{sid}.wav"));
     match WavRecorder::create(&path) {
         Ok(rec) => Some(rec),

@@ -147,19 +147,19 @@ fn new_stream_id() -> u32 {
 
 // --- Audio frame builders ---
 
-fn make_voice_frame(audio: [i16; VOICE_SAMPLES], call_id: u32) -> AudioFrame {
+fn make_voice_frame(audio: [i16; VOICE_SAMPLES], dmr_stream_id: u32) -> AudioFrame {
     AudioFrame {
         keyup: true,
         samples: Some(audio),
-        call_id: Some(call_id),
+        dmr_stream_id: Some(dmr_stream_id),
     }
 }
 
-fn make_unkey_frame(call_id: Option<u32>) -> AudioFrame {
+fn make_unkey_frame(dmr_stream_id: Option<u32>) -> AudioFrame {
     AudioFrame {
         keyup: false,
         samples: None,
-        call_id,
+        dmr_stream_id,
     }
 }
 

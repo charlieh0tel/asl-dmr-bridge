@@ -136,7 +136,7 @@ fn voice_audio() -> AudioFrame {
     AudioFrame {
         keyup: true,
         samples: Some([1000i16; ambe::PCM_SAMPLES]),
-        call_id: None,
+        dmr_stream_id: None,
     }
 }
 
@@ -144,7 +144,7 @@ fn unkey_audio() -> AudioFrame {
     AudioFrame {
         keyup: false,
         samples: None,
-        call_id: None,
+        dmr_stream_id: None,
     }
 }
 
@@ -343,7 +343,7 @@ async fn rx_stream_change_emits_unkey_for_prior_stream() {
     let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_dmrd(&voice_dmrd(0x111)).await;
     while let Ok(f) = audio_rx.try_recv() {
-        assert_eq!(f.call_id, Some(0x111));
+        assert_eq!(f.dmr_stream_id, Some(0x111));
         assert!(f.keyup);
     }
     m.on_dmrd(&voice_dmrd(0x222)).await;
@@ -354,10 +354,10 @@ async fn rx_stream_change_emits_unkey_for_prior_stream() {
         !unkey.keyup,
         "first frame after stream change must be unkey"
     );
-    assert_eq!(unkey.call_id, Some(0x111));
+    assert_eq!(unkey.dmr_stream_id, Some(0x111));
     let next = audio_rx.try_recv().expect("expected new-stream voice");
     assert!(next.keyup);
-    assert_eq!(next.call_id, Some(0x222));
+    assert_eq!(next.dmr_stream_id, Some(0x222));
 }
 
 #[tokio::test]
