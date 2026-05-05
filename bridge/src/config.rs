@@ -129,17 +129,14 @@ pub(crate) struct Config {
 /// AGC parameters with sensible defaults; `enabled = false` skips
 /// processing entirely so the path stays bit-exact when AGC is off.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct AgcConfig {
-    #[serde(default)]
     pub(crate) enabled: bool,
-    #[serde(default = "default_agc_target_dbfs")]
     pub(crate) target_dbfs: f32,
-    #[serde(default = "default_agc_attack", with = "humantime_serde")]
+    #[serde(with = "humantime_serde")]
     pub(crate) attack: Duration,
-    #[serde(default = "default_agc_release", with = "humantime_serde")]
+    #[serde(with = "humantime_serde")]
     pub(crate) release: Duration,
-    #[serde(default = "default_agc_max_gain_db")]
     pub(crate) max_gain_db: f32,
 }
 
@@ -147,69 +144,42 @@ impl Default for AgcConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            target_dbfs: default_agc_target_dbfs(),
-            attack: default_agc_attack(),
-            release: default_agc_release(),
-            max_gain_db: default_agc_max_gain_db(),
+            target_dbfs: -6.0,
+            attack: Duration::from_millis(10),
+            release: Duration::from_millis(200),
+            max_gain_db: 30.0,
         }
     }
-}
-
-fn default_agc_target_dbfs() -> f32 {
-    -6.0
-}
-fn default_agc_attack() -> Duration {
-    Duration::from_millis(10)
-}
-fn default_agc_release() -> Duration {
-    Duration::from_millis(200)
-}
-fn default_agc_max_gain_db() -> f32 {
-    30.0
 }
 
 /// Per-call + heartbeat stats logging.  All fields optional; section
 /// absent leaves the bridge with the defaults.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct StatsConfig {
     /// Period for the cumulative-counters heartbeat log.  `0s` disables
     /// the heartbeat entirely (per-call lines still emit).
-    #[serde(default = "default_stats_heartbeat_interval", with = "humantime_serde")]
+    #[serde(with = "humantime_serde")]
     pub(crate) heartbeat_interval: Duration,
     /// When true, a heartbeat tick that saw zero new frames in either
     /// direction since the previous tick is suppressed.  Predictable
     /// cadence ops can prefer false; quiet logs prefer true.
-    #[serde(default = "default_stats_skip_idle_heartbeat")]
     pub(crate) skip_idle_heartbeat: bool,
     /// Per-call summary lines below this duration are suppressed.
     /// Cumulative counters still see the call's frames + drops.
     /// Filters out PTT-tap noise.
-    #[serde(
-        default = "default_stats_min_call_log_duration",
-        with = "humantime_serde"
-    )]
+    #[serde(with = "humantime_serde")]
     pub(crate) min_call_log_duration: Duration,
 }
 
 impl Default for StatsConfig {
     fn default() -> Self {
         Self {
-            heartbeat_interval: default_stats_heartbeat_interval(),
-            skip_idle_heartbeat: default_stats_skip_idle_heartbeat(),
-            min_call_log_duration: default_stats_min_call_log_duration(),
+            heartbeat_interval: Duration::from_secs(60),
+            skip_idle_heartbeat: true,
+            min_call_log_duration: Duration::from_millis(250),
         }
     }
-}
-
-fn default_stats_heartbeat_interval() -> Duration {
-    Duration::from_secs(60)
-}
-fn default_stats_skip_idle_heartbeat() -> bool {
-    true
-}
-fn default_stats_min_call_log_duration() -> Duration {
-    Duration::from_millis(250)
 }
 
 /// Optional Brandmeister Halligan API integration.
@@ -469,32 +439,18 @@ pub(crate) struct RuntimeConfig {
 
 /// Diagnostic capture knobs.  All optional, off by default.
 #[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct DiagnosticsConfig {
     /// Per-call PCM capture directory.  When set, the bridge writes
     /// 8 kHz mono int16 LE WAV files (one per call per direction).
-    #[serde(default)]
     pub(crate) pcm_record_dir: Option<std::path::PathBuf>,
 }
 
-/// Pre-encode filter on the FM->DMR path; default on.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Pre-encode filter on the FM->DMR path; off by default.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct EncodeFilterConfig {
-    #[serde(default = "default_encode_filter_enabled")]
     pub(crate) enabled: bool,
-}
-
-impl Default for EncodeFilterConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_encode_filter_enabled(),
-        }
-    }
-}
-
-fn default_encode_filter_enabled() -> bool {
-    false
 }
 
 /// Network section after password resolution.  Mirrors `NetworkConfig`
