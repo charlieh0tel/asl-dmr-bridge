@@ -1,13 +1,28 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     check_prerequisites();
 
     let vendor = PathBuf::from("vendor/md380_vocoder_dynarmic");
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
 
-    let dst = cmake::Config::new(&vendor)
-        .build_target("md380_vocoder")
-        .build();
+    let mut config = cmake::Config::new(&vendor);
+    config
+        // dynarmic's robin-map external declares cmake_minimum_required(VERSION 2.x),
+        // which cmake 4.x rejects.  Override the policy floor to keep cmake 4 happy
+        // without touching upstream.
+        .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
+        .build_target("md380_vocoder");
+
+    // Ubuntu 22.04 ships xxd 8.2 (vim-common), which lacks `-n NAME`.
+    // The flag arrived in vim 9.0.  Install a shim that emulates it.
+    if !xxd_supports_n() {
+        let shim_dir = install_xxd_shim(&out_dir);
+        let path = std::env::var("PATH").unwrap_or_default();
+        config.env("PATH", format!("{}:{path}", shim_dir.display()));
+    }
+
+    let dst = config.build();
 
     let build_dir = dst.join("build");
     let dynarmic_dir = build_dir.join("_deps/dynarmic-build");
@@ -51,9 +66,13 @@ fn main() {
 /// Verify all system prerequisites before invoking cmake.
 fn check_prerequisites() {
     // Boost doesn't always ship a .pc file; search for the header directly.
-    let boost_found = ["/usr/include", "/usr/local/include", "/opt/homebrew/include"]
-        .iter()
-        .any(|dir| std::path::Path::new(dir).join("boost/version.hpp").exists());
+    let boost_found = [
+        "/usr/include",
+        "/usr/local/include",
+        "/opt/homebrew/include",
+    ]
+    .iter()
+    .any(|dir| std::path::Path::new(dir).join("boost/version.hpp").exists());
     if !boost_found {
         panic!(
             "Boost headers not found (required by dynarmic).\n\
@@ -85,6 +104,46 @@ fn which(tool: &str) -> Option<PathBuf> {
 
 fn link_search(dir: impl AsRef<std::path::Path>) {
     println!("cargo:rustc-link-search=native={}", dir.as_ref().display());
+}
+
+/// True if xxd accepts `-n NAME` (vim 9.0+).  Ubuntu 22.04 ships vim 8.2, which doesn't.
+fn xxd_supports_n() -> bool {
+    use std::process::{Command, Stdio};
+    Command::new("xxd")
+        .args(["-i", "-n", "probe"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Write an `xxd` shim that emulates `-n NAME FILE` and return its directory.
+/// Real xxd's auto-generated identifier maps non-alnum to _ (and prepends _ if leading digit);
+/// the shim runs xxd without -n then sed-renames that identifier to NAME.
+fn install_xxd_shim(out_dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = out_dir.join("xxd-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("xxd");
+    std::fs::write(
+        &path,
+        concat!(
+            "#!/bin/sh\n",
+            "if [ \"$1\" = \"-i\" ] && [ \"$2\" = \"-n\" ]; then\n",
+            "    auto=$(printf %s \"$4\" | tr -c 'a-zA-Z0-9_' '_' | sed 's/^[0-9]/_&/')\n",
+            "    /usr/bin/xxd -i \"$4\" | sed \"s/${auto}/$3/g\"\n",
+            "else\n",
+            "    exec /usr/bin/xxd \"$@\"\n",
+            "fi\n",
+        ),
+    )
+    .unwrap();
+    let mut perms = std::fs::metadata(&path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&path, perms).unwrap();
+    dir
 }
 
 /// Find the stem of a `lib<stem>.a` (or `lib<stem>d.a`) in `dir`.
