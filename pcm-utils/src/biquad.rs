@@ -196,4 +196,28 @@ mod tests {
         // the LP into voice band.
         assert!(r_3800 < 0.05, "3800Hz ratio {r_3800} not <0.05");
     }
+
+    /// Long-run stability: feed a steady tone for a million samples
+    /// (~2 minutes at 8 kHz) and assert the cascade never produces
+    /// NaN/Inf and stays bounded.  Catches accidental regressions to
+    /// a less-stable topology that would slowly accumulate error.
+    #[test]
+    fn pre_encode_long_run_stays_bounded() {
+        let mut f = pre_encode_voice_8khz();
+        let fs = 8000.0_f32;
+        let freq = 1000.0_f32;
+        let amp = 0.5_f32;
+        let n = 1_000_000;
+        let mut peak = 0.0_f32;
+        for i in 0..n {
+            let t = i as f32 / fs;
+            let x = amp * (std::f32::consts::TAU * freq * t).sin();
+            let y = f.process(x);
+            assert!(y.is_finite(), "non-finite output at sample {i}: {y}");
+            peak = peak.max(y.abs());
+        }
+        // Filter gain at 1 kHz is ~0.7 (passband, slight rolloff);
+        // peak well under 1.0 confirms no slow drift.
+        assert!(peak < 1.0, "peak {peak} suspiciously large");
+    }
 }
