@@ -59,6 +59,7 @@ fn main() {
         .compile("md380shim");
 
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=vendor/md380_vocoder_dynarmic/md380_vocoder.cpp");
     println!("cargo:rerun-if-changed=vendor/md380_vocoder_dynarmic/md380_vocoder.h");
     println!("cargo:rerun-if-changed=vendor/md380_vocoder_dynarmic/CMakeLists.txt");
 }

@@ -49,7 +49,10 @@ mod dv3000 {
     ];
 
     #[derive(Debug)]
-    #[expect(clippy::large_enum_variant, reason = "Audio is short-lived on the stack in handle()")]
+    #[expect(
+        clippy::large_enum_variant,
+        reason = "Audio is short-lived on the stack in handle()"
+    )]
     pub enum Packet {
         Reset,
         /// Rate parameters requested by the client.
