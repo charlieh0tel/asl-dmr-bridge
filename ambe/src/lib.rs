@@ -95,10 +95,16 @@ pub trait Vocoder: Send {
     /// erasure responses are not interchangeable.
     fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError>;
 
-    /// Reset transient per-stream state (decoder predictor /
-    /// smoother history, lookahead buffers).  Called by the bridge
-    /// at PTT-up transitions so a new stream doesn't inherit the
-    /// previous stream's history.
+    /// Reset transient per-stream state -- decoder predictor /
+    /// smoother history, encoder lookahead buffers -- so a new
+    /// stream does not inherit prior history.  Construction-time
+    /// calibration (chip RATEP / gain, model weights) is preserved.
+    ///
+    /// Called at every PTT-up boundary on both TX and RX paths, so
+    /// impls must be non-blocking (no I/O, no chip round-trips).
+    /// Output is only required to be logically reset, not bit-equal
+    /// to a freshly-constructed instance.  A no-op is valid when
+    /// the backend exposes no per-stream state.
     fn reset(&mut self);
 }
 
