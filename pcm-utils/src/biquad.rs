@@ -191,6 +191,9 @@ mod tests {
         let r_3800 = measure(3800.0);
         assert!(r_100 < 0.05, "100Hz ratio {r_100} not <0.05");
         assert!(r_1000 > 0.5, "1kHz ratio {r_1000} not >0.5");
-        assert!(r_3800 < 0.4, "3800Hz ratio {r_3800} not <0.4");
+        // Measured ~0.026 (-32 dB).  Bound at 0.05 (-26 dB) gives ~2x
+        // slack so coefficient retuning has room without weakening
+        // the LP into voice band.
+        assert!(r_3800 < 0.05, "3800Hz ratio {r_3800} not <0.05");
     }
 }
