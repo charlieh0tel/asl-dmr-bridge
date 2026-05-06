@@ -1,0 +1,5 @@
+/target/
+vendor/md380_vocoder_dynarmic/build/
+vendor/md380_vocoder_dynarmic/firmware/D002.032.bin
+vendor/md380_vocoder_dynarmic/firmware/D002.032.zip
+"vendor/md380_vocoder_dynarmic/firmware/MD-380-D2.32(AD).bin"
