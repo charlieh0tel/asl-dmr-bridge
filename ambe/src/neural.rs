@@ -494,4 +494,73 @@ mod tests {
         }
         assert!(seen.iter().all(|&b| b));
     }
+
+    /// Streaming buffer must yield the same slice the model would see
+    /// if we reset and pushed the corresponding PCM window directly.
+    /// Catches trim/warm-up off-by-ones independently of model
+    /// correctness (which `neural_parity` covers).
+    #[test]
+    fn streaming_matches_offline_for_dmr50() {
+        // Covers the warm-up boundary plus a steady-state margin;
+        // divergence shows on the first few frames anyway.
+        const MAX_REFERENCE_FRAMES: usize = 50;
+
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let model_path = manifest.join("..").join("models").join("dmr50.onnx");
+        let wav_path = manifest
+            .join("tests")
+            .join("fixtures")
+            .join("dmr50")
+            .join("parity_input.wav");
+        if !model_path.exists() || !wav_path.exists() {
+            eprintln!(
+                "streaming_offline_parity: fixtures missing ({} or {}); skipping",
+                model_path.display(),
+                wav_path.display(),
+            );
+            return;
+        }
+
+        let bytes = std::fs::read(&wav_path).unwrap();
+        assert!(bytes.len() > 44, "WAV too short");
+        let pcm: Vec<i16> = bytes[44..]
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        assert_eq!(pcm.len() % PCM_SAMPLES, 0);
+        let total_frames = pcm.len() / PCM_SAMPLES;
+
+        let mut streaming = NeuralVocoder::open(&model_path).expect("open neural (streaming)");
+        let mut streaming_vqs: Vec<(usize, [u16; 9])> = Vec::new();
+        for k in 0..total_frames {
+            let mut frame = [0i16; PCM_SAMPLES];
+            frame.copy_from_slice(&pcm[k * PCM_SAMPLES..(k + 1) * PCM_SAMPLES]);
+            if let Some(vq) = streaming.encode_vq(&frame).expect("encode_vq") {
+                streaming_vqs.push((k, vq));
+                if streaming_vqs.len() == MAX_REFERENCE_FRAMES {
+                    break;
+                }
+            }
+        }
+        assert!(
+            !streaming_vqs.is_empty(),
+            "no post-warm-up frames produced; fixture too short?"
+        );
+
+        let mut reference = NeuralVocoder::open(&model_path).expect("open neural (reference)");
+        let buffer_cap = reference.buffer_cap;
+        let pcm_input_samples = reference.meta.pcm_input_samples;
+        for (k, expected_vq) in &streaming_vqs {
+            let total_seen = (k + 1) * PCM_SAMPLES;
+            let slice_start = total_seen - buffer_cap;
+            let slice = &pcm[slice_start..slice_start + pcm_input_samples];
+            reference.samples.clear();
+            reference.samples.extend(slice.iter().copied());
+            let actual_vq = reference.run_inference().expect("run_inference");
+            assert_eq!(
+                &actual_vq, expected_vq,
+                "VQ mismatch at frame {k}: streaming={expected_vq:?} offline={actual_vq:?}",
+            );
+        }
+    }
 }
