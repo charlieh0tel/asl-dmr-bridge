@@ -55,6 +55,7 @@ dependencies = [
 name = "ambe"
 version = "1.4.0"
 dependencies = [
+ "anyhow",
  "clap",
  "dynarmic-sys",
  "hound",
