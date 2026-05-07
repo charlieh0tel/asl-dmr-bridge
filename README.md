@@ -24,10 +24,12 @@ cargo build --release
 Feature flags:
 - `--features mbelib` -- software AMBE decode via mbelib (decode only)
 - `--features thumbdv` -- ThumbDV serial backend (encode + decode)
+- `--features dynarmic` -- software AMBE codec via the MD380 firmware
+  JIT-emulated by dynarmic (encode + decode)
 - `--features neural` -- neural-encoder backend via tract-loaded ONNX
-  (encode neural; decode delegated to mbelib; implies `mbelib`).
+  (encode neural; decode delegated to dynarmic; implies `dynarmic`).
 
-Combinable: `--features mbelib,thumbdv,neural`.
+Combinable: `--features mbelib,thumbdv,dynarmic,neural`.
 
 ## Usage
 
@@ -79,7 +81,7 @@ talkgroup = 91        # talkgroup to bridge
 call_type = "group"   # "group" or "private"
 
 [vocoder]
-backend = "neural"    # "neural", "mbelib", "thumbdv", or "ambeserver"
+backend = "neural"    # "neural", "dynarmic", "mbelib", "thumbdv", or "ambeserver"
 model_path = "/usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx"
 ```
 

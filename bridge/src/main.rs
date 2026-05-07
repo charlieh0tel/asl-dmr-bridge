@@ -117,6 +117,12 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
         VocoderBackend::Neural => {
             anyhow::bail!("neural backend not compiled (enable the 'neural' feature)")
         }
+        #[cfg(feature = "dynarmic")]
+        VocoderBackend::Dynarmic => Ok(ambe::open_dynarmic()),
+        #[cfg(not(feature = "dynarmic"))]
+        VocoderBackend::Dynarmic => {
+            anyhow::bail!("dynarmic backend not compiled (enable the 'dynarmic' feature)")
+        }
     }
 }
 

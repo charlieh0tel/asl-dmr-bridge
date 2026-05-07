@@ -300,6 +300,7 @@ pub(crate) enum VocoderBackend {
     Ambeserver,
     Mbelib,
     Neural,
+    Dynarmic,
 }
 
 #[derive(Debug, Deserialize)]
