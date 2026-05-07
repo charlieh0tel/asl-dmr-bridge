@@ -45,7 +45,7 @@ remote_port = 34002
 backend = "neural"
 # Required when backend = "neural".  The .deb installs the shipped
 # model under /usr/share/asl-dmr-bridge/models/.
-model_path = "/usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx"
+model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
 # For thumbdv:
 # backend = "thumbdv"
 # serial_port = "/dev/ttyUSB0"

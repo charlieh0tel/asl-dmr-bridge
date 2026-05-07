@@ -69,6 +69,7 @@ assets = [
     ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "644"],
     ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "644"],
     ["../models/dmr50.onnx", "usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx", "644"],
+    ["../models/aug50.onnx", "usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx", "644"],
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",
