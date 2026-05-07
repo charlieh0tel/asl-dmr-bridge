@@ -68,17 +68,19 @@ priority = "optional"
 depends = "$auto, libudev1, wget"
 maintainer-scripts = "../packaging/maintainer-scripts/"
 assets = [
-    ["target/release/asl-dmr-bridge", "usr/bin/", "755"],
-    ["../config.example.toml", "usr/share/doc/asl-dmr-bridge/examples/config.example.toml", "644"],
-    ["../packaging/asl-dmr-bridge.default", "etc/default/asl-dmr-bridge", "600"],
-    ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "644"],
-    ["../packaging/asl-dmr-bridge-update-subscribers.service", "lib/systemd/system/", "644"],
-    ["../packaging/asl-dmr-bridge-update-subscribers.timer", "lib/systemd/system/", "644"],
-    ["../packaging/asl-dmr-bridge-update-subscribers", "usr/lib/asl-dmr-bridge/update-subscribers", "755"],
-    ["../packaging/asl-dmr-bridge.tmpfiles", "usr/lib/tmpfiles.d/asl-dmr-bridge.conf", "644"],
-    ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "644"],
-    ["../models/dmr50.onnx", "usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx", "644"],
-    ["../models/aug50.onnx", "usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx", "644"],
+    ["target/release/asl-dmr-bridge", "usr/bin/", "0755"],
+    ["target/release/man/asl-dmr-bridge.1", "usr/share/man/man1/", "0644"],
+    ["../config.example.toml", "usr/share/doc/asl-dmr-bridge/examples/config.example.toml", "0644"],
+    ["../docs/INSTALL.md", "usr/share/doc/asl-dmr-bridge/INSTALL.md", "0644"],
+    ["../packaging/asl-dmr-bridge.default", "etc/default/asl-dmr-bridge", "0600"],
+    ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "0644"],
+    ["../packaging/asl-dmr-bridge-update-subscribers.service", "lib/systemd/system/", "0644"],
+    ["../packaging/asl-dmr-bridge-update-subscribers.timer", "lib/systemd/system/", "0644"],
+    ["../packaging/asl-dmr-bridge-update-subscribers", "usr/lib/asl-dmr-bridge/update-subscribers", "0755"],
+    ["../packaging/asl-dmr-bridge.tmpfiles", "usr/lib/tmpfiles.d/asl-dmr-bridge.conf", "0644"],
+    ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "0644"],
+    ["../models/dmr50.onnx", "usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx", "0644"],
+    ["../models/aug50.onnx", "usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx", "0644"],
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",
