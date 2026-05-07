@@ -17,4 +17,5 @@ jobs:
       package: asl-dmr-bridge
       build-deps: "libasound2-dev libudev-dev libboost-dev cmake"
       run-tests: false
+      submodules: recursive
     secrets: inherit
