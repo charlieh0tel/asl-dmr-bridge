@@ -51,6 +51,7 @@ fn test_voice_config() -> VoiceConfig {
         stream_timeout: Duration::from_secs(10),
         tx_timeout: Duration::from_secs(180),
         min_tx_hang: Duration::ZERO,
+        min_rx_hang: Duration::ZERO,
         repeater_id: DmrId::try_from(12345).unwrap(),
         src_id: SubscriberId::try_from(12345).unwrap(),
         color_code: ColorCode::try_from(1).unwrap(),
@@ -299,6 +300,134 @@ async fn rx_terminator_clears_metadata() {
     assert!(matches!(metadata_rx.try_recv(), Ok(MetaEvent::Clear)));
 }
 
+/// `make_machine` with `min_rx_hang` overridden so RX coalesce
+/// behavior can be exercised without subjecting the rest of the
+/// suite to the 2.5s default delay.
+fn make_machine_with_min_rx_hang(min_rx_hang: Duration) -> TestMachine {
+    let mut cfg = test_voice_config();
+    cfg.min_rx_hang = min_rx_hang;
+    let (audio_tx, audio_rx) = mpsc::channel(16);
+    let (dmrd_voice_out, dmrd_voice_rx) = mpsc::channel(16);
+    let (dmrd_control_out, dmrd_control_rx) = mpsc::unbounded_channel();
+    let (metadata_tx, metadata_rx) = mpsc::channel(16);
+    let m = PttMachine::new(
+        cfg,
+        PttDiagnostics::default(),
+        PttPolicy::default(),
+        Box::new(StubVocoder),
+        audio_tx,
+        dmrd_voice_out,
+        dmrd_control_out,
+        metadata_tx,
+        None,
+        None,
+        CancellationToken::new(),
+    );
+    (m, audio_rx, dmrd_voice_rx, dmrd_control_rx, metadata_rx)
+}
+
+#[tokio::test]
+async fn rx_terminator_with_min_rx_hang_defers_clear_and_unkey() {
+    let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, mut metadata_rx) =
+        make_machine_with_min_rx_hang(Duration::from_secs(1));
+    m.on_dmrd(&header_dmrd(0xAA)).await;
+    let _ = expect_call(&mut metadata_rx);
+    // Drain any audio frames produced by the header path so we
+    // only see what the terminator emits.
+    while audio_rx.try_recv().is_ok() {}
+
+    m.on_dmrd(&terminator_dmrd(0xAA)).await;
+
+    let meta = metadata_rx.try_recv();
+    assert!(meta.is_err(), "expected no Clear yet, got: {meta:?}");
+    let audio = audio_rx.try_recv();
+    assert!(audio.is_err(), "expected no unkey yet, got: {audio:?}");
+}
+
+#[tokio::test]
+async fn rx_re_key_same_src_within_min_rx_hang_coalesces() {
+    let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, mut metadata_rx) =
+        make_machine_with_min_rx_hang(Duration::from_secs(1));
+    m.on_dmrd(&header_dmrd(0xAA)).await;
+    let _ = expect_call(&mut metadata_rx);
+    m.on_dmrd(&terminator_dmrd(0xAA)).await;
+    while audio_rx.try_recv().is_ok() {}
+
+    // New stream from the same src_id (header_dmrd uses 12345) is
+    // a continuation: no Clear, no unkey, no fresh Call.
+    m.on_dmrd(&header_dmrd(0xBB)).await;
+
+    assert!(
+        metadata_rx.try_recv().is_err(),
+        "coalesced re-key must not emit any metadata event"
+    );
+    assert!(
+        audio_rx.try_recv().is_err(),
+        "coalesced re-key must not emit any audio frame"
+    );
+    assert!(matches!(m.state, PttState::Rx(ref rx) if rx.stream_id == 0xBB));
+}
+
+#[tokio::test]
+async fn rx_re_key_diff_src_within_min_rx_hang_flushes() {
+    let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, mut metadata_rx) =
+        make_machine_with_min_rx_hang(Duration::from_secs(1));
+    m.on_dmrd(&header_dmrd(0xAA)).await;
+    let _ = expect_call(&mut metadata_rx);
+    m.on_dmrd(&terminator_dmrd(0xAA)).await;
+    while audio_rx.try_recv().is_ok() {}
+
+    // Different talker on the second stream: flush deferred Clear
+    // + unkey, then emit the new Call.
+    let mut second = header_dmrd(0xBB);
+    second.src_id = 67890;
+    m.on_dmrd(&second).await;
+
+    assert!(
+        matches!(metadata_rx.try_recv(), Ok(MetaEvent::Clear)),
+        "diff-src flush must emit deferred Clear"
+    );
+    let unkey = audio_rx.try_recv().expect("expected deferred unkey frame");
+    assert!(!unkey.keyup, "deferred frame must be an unkey");
+    let meta = expect_call(&mut metadata_rx);
+    assert_eq!(meta.dmr_id.as_u32(), 67890);
+}
+
+#[tokio::test(start_paused = true)]
+async fn rx_min_rx_hang_expiry_fires_clear_and_unkey() {
+    let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, mut metadata_rx) =
+        make_machine_with_min_rx_hang(Duration::from_secs(1));
+    m.on_dmrd(&header_dmrd(0xAA)).await;
+    let _ = expect_call(&mut metadata_rx);
+    m.on_dmrd(&terminator_dmrd(0xAA)).await;
+    while audio_rx.try_recv().is_ok() {}
+
+    // Past the coalesce window with no re-key: on_timeout must
+    // flush the deferred Clear + unkey.
+    tokio::time::advance(Duration::from_millis(1100)).await;
+    m.on_timeout().await;
+
+    assert!(matches!(metadata_rx.try_recv(), Ok(MetaEvent::Clear)));
+    let unkey = audio_rx.try_recv().expect("expected deferred unkey frame");
+    assert!(!unkey.keyup);
+}
+
+#[tokio::test]
+async fn rx_shutdown_during_min_rx_hang_emits_clear() {
+    let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, mut metadata_rx) =
+        make_machine_with_min_rx_hang(Duration::from_secs(1));
+    m.on_dmrd(&header_dmrd(0xAA)).await;
+    let _ = expect_call(&mut metadata_rx);
+    m.on_dmrd(&terminator_dmrd(0xAA)).await;
+    while audio_rx.try_recv().is_ok() {}
+
+    m.on_shutdown().await;
+
+    assert!(matches!(metadata_rx.try_recv(), Ok(MetaEvent::Clear)));
+    let unkey = audio_rx.try_recv().expect("expected deferred unkey frame");
+    assert!(!unkey.keyup);
+}
+
 #[tokio::test]
 async fn shutdown_during_rxhang_does_not_double_clear() {
     // Terminator emits Clear and parks the machine in RxHang.
@@ -363,7 +492,10 @@ async fn rx_stream_change_emits_unkey_for_prior_stream() {
 #[tokio::test]
 async fn rx_hang_blocks_tx() {
     let (mut m, _audio_rx, mut dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
-    m.state = PttState::RxHang(Instant::now() + Duration::from_secs(10));
+    m.state = PttState::RxHang(super::ptt::RxHang {
+        deadline: Instant::now() + Duration::from_secs(10),
+        coalesce: None,
+    });
     m.on_audio(&voice_audio()).await;
     assert!(matches!(m.state, PttState::RxHang(_)));
     assert!(dmrd_voice_rx.try_recv().is_err());
@@ -686,7 +818,10 @@ async fn rx_blocked_during_tx() {
 #[tokio::test]
 async fn rx_during_hang_restarts_rx() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
-    m.state = PttState::RxHang(Instant::now() + Duration::from_secs(10));
+    m.state = PttState::RxHang(super::ptt::RxHang {
+        deadline: Instant::now() + Duration::from_secs(10),
+        coalesce: None,
+    });
     m.on_dmrd(&header_dmrd(0xFF)).await;
     assert!(matches!(m.state, PttState::Rx(ref rx) if rx.stream_id == 0xFF));
 }
@@ -708,7 +843,10 @@ async fn rx_timeout_emits_unkey_and_enters_hang() {
 #[tokio::test]
 async fn rx_hang_timeout_returns_to_idle() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
-    m.state = PttState::RxHang(Instant::now());
+    m.state = PttState::RxHang(super::ptt::RxHang {
+        deadline: Instant::now(),
+        coalesce: None,
+    });
     m.on_timeout().await;
     assert!(matches!(m.state, PttState::Idle));
 }
@@ -873,7 +1011,10 @@ async fn unkey_usrp_during_rx_does_not_drop_state() {
 #[tokio::test]
 async fn unkey_usrp_during_rxhang_does_not_drop_state() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
-    m.state = PttState::RxHang(Instant::now() + Duration::from_secs(10));
+    m.state = PttState::RxHang(super::ptt::RxHang {
+        deadline: Instant::now() + Duration::from_secs(10),
+        coalesce: None,
+    });
     m.on_audio(&unkey_audio()).await;
     assert!(matches!(m.state, PttState::RxHang(_)));
 }

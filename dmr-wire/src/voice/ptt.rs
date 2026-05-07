@@ -140,8 +140,27 @@ pub(crate) struct TxCall {
 pub(crate) enum PttState {
     Idle,
     Rx(RxCall),
-    RxHang(Instant),
+    RxHang(RxHang),
     Tx(TxCall),
+}
+
+pub(crate) struct RxHang {
+    /// When the hang expires and state -> Idle.  When `coalesce` is
+    /// `Some`, this is `max(hang_time, min_rx_hang)`.
+    pub(crate) deadline: Instant,
+    /// `Some` while a Clear + USRP unkey from the just-ended RX
+    /// call are deferred for `min_rx_hang` coalescing.  Cleared
+    /// (taking the inner) when:
+    ///   - a same-src RX header arrives within the window and we
+    ///     suppress its Call/PTT-up emissions, or
+    ///   - a different-src or expired transition flushes them.
+    pub(crate) coalesce: Option<RxCoalesce>,
+}
+
+pub(crate) struct RxCoalesce {
+    pub(crate) expires_at: Instant,
+    pub(crate) stream_id: u32,
+    pub(crate) src_id: u32,
 }
 
 pub(crate) struct PttMachine {
@@ -277,6 +296,58 @@ impl PttMachine {
         let _ = self.metadata_tx.try_send(MetaEvent::Clear);
     }
 
+    /// Build the `RxHang` state to enter on RX terminator / stream
+    /// timeout.  When `min_rx_hang > 0`, returns a hang with
+    /// coalesce armed; the caller MUST NOT have already emitted
+    /// Clear / unkey.  When `min_rx_hang = 0`, fires Clear + unkey
+    /// here (legacy behavior) and returns a hang without coalesce.
+    async fn build_rx_hang(&self, stream_id: u32, src_id: u32) -> RxHang {
+        let now = Instant::now();
+        if self.config.min_rx_hang.is_zero() {
+            self.emit_clear_metadata();
+            let _ = self.audio_tx.send(make_unkey_frame(Some(stream_id))).await;
+            RxHang {
+                deadline: now + self.config.hang_time,
+                coalesce: None,
+            }
+        } else {
+            let hold = self.config.hang_time.max(self.config.min_rx_hang);
+            RxHang {
+                deadline: now + hold,
+                coalesce: Some(RxCoalesce {
+                    expires_at: now + self.config.min_rx_hang,
+                    stream_id,
+                    src_id,
+                }),
+            }
+        }
+    }
+
+    /// Drain a pending coalesce entry from the current `RxHang` (if
+    /// any) for a fresh RX from `src_id` at `now`.  Returns `true`
+    /// when the new call continues the just-ended one (same
+    /// `src_id`, still in the window): the deferred Clear + unkey
+    /// are dropped silently and the caller suppresses its
+    /// `metadata Call` + PTT-up emissions.  Returns `false`
+    /// otherwise; a stale pending entry is flushed first.
+    async fn take_rx_coalesce(&mut self, src_id: u32, now: Instant) -> bool {
+        let PttState::RxHang(hang) = &mut self.state else {
+            return false;
+        };
+        let Some(c) = hang.coalesce.take() else {
+            return false;
+        };
+        if now < c.expires_at && c.src_id == src_id {
+            return true;
+        }
+        self.emit_clear_metadata();
+        let _ = self
+            .audio_tx
+            .send(make_unkey_frame(Some(c.stream_id)))
+            .await;
+        false
+    }
+
     /// `true` if the configured call_type is a group call.
     fn is_group_call(&self) -> bool {
         matches!(self.config.call_type, CallType::Group)
@@ -296,7 +367,10 @@ impl PttMachine {
     pub(crate) fn deadline(&self) -> Instant {
         match &self.state {
             PttState::Rx(rx) => rx.last_voice + self.config.stream_timeout,
-            PttState::RxHang(dl) => *dl,
+            PttState::RxHang(hang) => match &hang.coalesce {
+                Some(c) => hang.deadline.min(c.expires_at),
+                None => hang.deadline,
+            },
             PttState::Tx(tx) => {
                 let mut deadline = tx.started + self.config.tx_timeout;
                 if let Some(hang) = tx.pending_terminate {
@@ -618,22 +692,26 @@ impl PttMachine {
                 if matches!(&self.state, PttState::Rx(rx) if rx.stream_id == pkt.stream_id) {
                     return;
                 }
+                let now = Instant::now();
+                let coalesce = self.take_rx_coalesce(pkt.src_id, now).await;
                 info!(
                     stream_id = pkt.stream_id,
                     src_id = pkt.src_id,
                     dst_id = pkt.dst_id,
+                    coalesce,
                     "RX header"
                 );
                 check_voice_lc(pkt);
-                self.emit_call_metadata(pkt);
-                let now = Instant::now();
+                if !coalesce {
+                    self.emit_call_metadata(pkt);
+                    self.on_ptt_up();
+                }
                 self.try_send_stats(StatsEvent::CallStart {
                     dir: CallDirection::DmrToFm,
                     src_id: pkt.src_id,
                     dst_id: pkt.dst_id,
                     slot: pkt.slot,
                 });
-                self.on_ptt_up();
                 self.on_rx_call_start(pkt.stream_id);
                 self.state = PttState::Rx(RxCall {
                     stream_id: pkt.stream_id,
@@ -646,42 +724,38 @@ impl PttMachine {
                 });
             }
             FrameType::DataSync if pkt.dtype_vseq == DATA_TYPE_VOICE_TERMINATOR => {
-                // matches! ends the immutable borrow on self.state before
-                // we need to mutate it; an if-let binding would linger.
-                let same_stream =
-                    matches!(&self.state, PttState::Rx(rx) if rx.stream_id == pkt.stream_id);
-                if same_stream {
+                let prior_src = if let PttState::Rx(rx) = &self.state {
+                    (rx.stream_id == pkt.stream_id).then_some(rx.src_id)
+                } else {
+                    None
+                };
+                if let Some(src_id) = prior_src {
                     info!(stream_id = pkt.stream_id, "RX terminator");
                     check_voice_lc(pkt);
-                    self.emit_clear_metadata();
                     self.try_send_stats(StatsEvent::CallEnd {
                         dir: CallDirection::DmrToFm,
                         reason: TerminationReason::Normal,
                     });
                     self.on_rx_call_end(pkt.stream_id);
-                    let _ = self
-                        .audio_tx
-                        .send(make_unkey_frame(Some(pkt.stream_id)))
-                        .await;
-                    self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
+                    let hang = self.build_rx_hang(pkt.stream_id, src_id).await;
+                    self.state = PttState::RxHang(hang);
                 }
             }
             FrameType::Voice | FrameType::VoiceSync => {
-                // Update existing Rx or implicit-start from Idle/RxHang.
-                // Tx already excluded above, so the else branch covers
-                // only Idle/RxHang.  Emission of the call-boundary
-                // events is deferred until after the borrow on
-                // self.state ends.
-                let mut emit_metadata = false;
-                let mut emit_call_start = false;
+                // Three sub-cases, distinguished after we update state:
+                //   - same Rx stream: just refresh seq gap accounting.
+                //   - Rx stream change: end prior, start new.
+                //   - implicit start from Idle/RxHang: start new (with
+                //     possible coalesce continuation when from RxHang).
+                let now = Instant::now();
+                let coalesce = self.take_rx_coalesce(pkt.src_id, now).await;
+                let mut new_call = false;
                 let mut prior_call_end: Option<u32> = None;
                 let mut seq_gap: u8 = 0;
-                let now = Instant::now();
                 if let PttState::Rx(rx) = &mut self.state {
                     if rx.stream_id != pkt.stream_id {
                         info!(old = rx.stream_id, new = pkt.stream_id, "RX stream change");
-                        emit_metadata = true;
-                        emit_call_start = true;
+                        new_call = true;
                         prior_call_end = Some(rx.stream_id);
                         rx.stream_id = pkt.stream_id;
                         rx.src_id = pkt.src_id;
@@ -701,9 +775,8 @@ impl PttMachine {
                     rx.last_seq = Some(pkt.seq);
                     rx.last_voice = now;
                 } else {
-                    debug!(stream_id = pkt.stream_id, "RX implicit start");
-                    emit_metadata = true;
-                    emit_call_start = true;
+                    debug!(stream_id = pkt.stream_id, coalesce, "RX implicit start");
+                    new_call = true;
                     self.state = PttState::Rx(RxCall {
                         stream_id: pkt.stream_id,
                         src_id: pkt.src_id,
@@ -722,18 +795,18 @@ impl PttMachine {
                     self.on_rx_call_end(prior_sid);
                     let _ = self.audio_tx.send(make_unkey_frame(Some(prior_sid))).await;
                 }
-                if emit_call_start {
-                    self.on_ptt_up();
-                    self.on_rx_call_start(pkt.stream_id);
+                if new_call {
                     self.try_send_stats(StatsEvent::CallStart {
                         dir: CallDirection::DmrToFm,
                         src_id: pkt.src_id,
                         dst_id: pkt.dst_id,
                         slot: pkt.slot,
                     });
-                }
-                if emit_metadata {
-                    self.emit_call_metadata(pkt);
+                    self.on_rx_call_start(pkt.stream_id);
+                    if !coalesce {
+                        self.on_ptt_up();
+                        self.emit_call_metadata(pkt);
+                    }
                 }
                 for _ in 0..seq_gap {
                     self.try_send_stats(StatsEvent::Drop {
@@ -954,20 +1027,38 @@ impl PttMachine {
     }
 
     pub(crate) async fn on_timeout(&mut self) {
+        let now = Instant::now();
+        // Coalesce expiry can fire before the parent RxHang ends
+        // (when min_rx_hang < hang_time).  Handle in-place so the
+        // hang state survives without entering the state match.
+        let mut coalesce_fired = None;
+        let mut hang_still_alive = false;
+        if let PttState::RxHang(hang) = &mut self.state
+            && hang.coalesce.as_ref().is_some_and(|c| now >= c.expires_at)
+        {
+            coalesce_fired = hang.coalesce.take();
+            hang_still_alive = now < hang.deadline;
+        }
+        if let Some(c) = coalesce_fired {
+            self.emit_clear_metadata();
+            let _ = self
+                .audio_tx
+                .send(make_unkey_frame(Some(c.stream_id)))
+                .await;
+            if hang_still_alive {
+                return;
+            }
+        }
         match self.take_state() {
             PttState::Rx(rx) => {
                 warn!(stream_id = rx.stream_id, "RX stream timeout");
-                self.emit_clear_metadata();
                 self.try_send_stats(StatsEvent::CallEnd {
                     dir: CallDirection::DmrToFm,
                     reason: TerminationReason::StreamTimeout,
                 });
                 self.on_rx_call_end(rx.stream_id);
-                let _ = self
-                    .audio_tx
-                    .send(make_unkey_frame(Some(rx.stream_id)))
-                    .await;
-                self.state = PttState::RxHang(Instant::now() + self.config.hang_time);
+                let hang = self.build_rx_hang(rx.stream_id, rx.src_id).await;
+                self.state = PttState::RxHang(hang);
             }
             PttState::RxHang(_) => {
                 debug!("RX hang expired");
@@ -1031,11 +1122,21 @@ impl PttMachine {
                     .send(make_unkey_frame(Some(rx.stream_id)))
                     .await;
             }
-            PttState::RxHang(_) => {
-                // Clear was already emitted on the Rx -> RxHang
-                // transition (terminator or stream timeout).  Just
-                // make sure the FM peer ends up unkeyed.
-                let _ = self.audio_tx.send(make_unkey_frame(None)).await;
+            PttState::RxHang(hang) => {
+                // Clear/unkey were either already emitted on the Rx
+                // -> RxHang transition, or are still deferred under
+                // min_rx_hang.  Either way, flush the unkey so the
+                // FM peer ends up unkeyed; emit Clear too if it was
+                // deferred.
+                if let Some(c) = hang.coalesce {
+                    self.emit_clear_metadata();
+                    let _ = self
+                        .audio_tx
+                        .send(make_unkey_frame(Some(c.stream_id)))
+                        .await;
+                } else {
+                    let _ = self.audio_tx.send(make_unkey_frame(None)).await;
+                }
             }
             PttState::Tx(mut tx) => {
                 self.flush_tx(&mut tx).await;

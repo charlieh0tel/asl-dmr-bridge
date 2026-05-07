@@ -219,9 +219,16 @@ pub struct VoiceConfig {
     /// for this long instead of sending the terminator immediately.
     /// A new keyup within the window stays in the same call.  No
     /// silence-padding is inserted; the stream simply pauses, then
-    /// the terminator fires on expiry.  Default `0` preserves the
-    /// immediate-terminator behavior.
+    /// the terminator fires on expiry.
     pub min_tx_hang: Duration,
+    /// If `> 0`, after a DMR-side terminator the bridge holds the
+    /// USRP call open for this long instead of emitting Clear /
+    /// unkey immediately.  A new RX header from the same `src_id`
+    /// within the window is treated as a continuation of the same
+    /// USRP call: no `metadata Clear`, no unkey frame, no fresh
+    /// `metadata Call`.  On expiry (or new src), the deferred Clear
+    /// + unkey fire.
+    pub min_rx_hang: Duration,
     pub stream_timeout: Duration,
     pub tx_timeout: Duration,
     /// Homebrew-protocol repeater identity, used in the DMRD
