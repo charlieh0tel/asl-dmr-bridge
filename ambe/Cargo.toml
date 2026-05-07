@@ -26,6 +26,7 @@ tracing.workspace = true
 tract-onnx = { workspace = true, optional = true }
 
 [dev-dependencies]
+anyhow.workspace = true
 hound = "3.5.1"
 proptest.workspace = true
 serde = { workspace = true }
@@ -69,3 +70,7 @@ required-features = ["dynarmic"]
 [[example]]
 name = "silence_probe"
 required-features = ["neural"]
+
+[[example]]
+name = "cross_loopback"
+required-features = ["dynarmic", "mbelib", "thumbdv", "neural"]
