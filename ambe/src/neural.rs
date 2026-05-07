@@ -3,7 +3,8 @@
 //! argmax to VQ indices; the harness scatters them into mbelib
 //! `ambe_d[]` order, permutes to chip order, and channel-encodes
 //! via `crate::voice_channel`.  Decode delegates to the inner
-//! `Mbelib` instance (the `neural` Cargo feature implies `mbelib`).
+//! dynarmic `DynarmicVocoder` (the `neural` Cargo feature implies
+//! `dynarmic`).
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -25,7 +26,7 @@ use crate::PCM_SAMPLES;
 use crate::PcmFrame;
 use crate::Vocoder;
 use crate::VocoderError;
-use crate::mbelib::Mbelib;
+use crate::dynarmic::DynarmicVocoder;
 
 /// Field layout name carried in ONNX metadata (`nambe.layout`).
 const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";
@@ -120,7 +121,7 @@ pub(crate) struct NeuralVocoder {
     /// `pcm_input_samples` of `samples`.
     buffer_cap: usize,
     samples: VecDeque<i16>,
-    decoder: Mbelib,
+    decoder: DynarmicVocoder,
 }
 
 impl NeuralVocoder {
@@ -162,7 +163,7 @@ impl NeuralVocoder {
             meta,
             buffer_cap,
             samples: VecDeque::with_capacity(buffer_cap),
-            decoder: Mbelib::new(),
+            decoder: DynarmicVocoder::new(),
         })
     }
 
@@ -458,10 +459,11 @@ mod tests {
 
     #[test]
     fn silence_sentinel_decodes_to_silence() {
-        // mbelib must honor b0=124 and emit ~zero PCM from a freshly-
-        // reset decoder.  If this fails, mbelib has a quirk and the
-        // warm-up bytes will produce noise on the wire.
-        let mut decoder = Mbelib::new();
+        // The decoder must honor b0=124 and emit ~zero PCM from a
+        // freshly-reset state.  If this fails, the warm-up bytes
+        // will produce noise on the wire.
+        let mut decoder = DynarmicVocoder::new();
+        decoder.reset();
         let pcm = decoder.decode(Some(&crate::SILENCE_FRAME)).unwrap();
         let mean_sq: f64 =
             pcm.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / pcm.len() as f64;
