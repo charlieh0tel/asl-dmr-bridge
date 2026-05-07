@@ -39,6 +39,7 @@ use super::dmrd::DMR_DATA_SIZE;
 use super::dmrd::Dmrd;
 use super::dmrd::FrameType;
 
+mod diagnostics;
 mod ptt;
 
 const DATA_TYPE_VOICE_HEADER: u8 = 1;

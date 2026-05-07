@@ -13,8 +13,6 @@ use std::time::Duration;
 
 use pcm_utils::biquad::BiquadCascade;
 use pcm_utils::biquad::pre_encode_voice_8khz;
-use pcm_utils::levels;
-use pcm_utils::wav;
 
 use ambe::AmbeFrame;
 use ambe::PcmFrame;
@@ -148,7 +146,6 @@ pub(crate) enum PttState {
 
 pub(crate) struct PttMachine {
     config: VoiceConfig,
-    diagnostics: PttDiagnostics,
     vocoder: SharedVocoder,
     audio_tx: mpsc::Sender<AudioFrame>,
     dmrd_voice_out: mpsc::Sender<Vec<u8>>,
@@ -167,10 +164,7 @@ pub(crate) struct PttMachine {
     callsign_lookup: Option<CallsignLookup>,
     cancel: CancellationToken,
     pub(crate) state: PttState,
-    tx_recorder: Option<wav::WavRecorder>,
-    rx_recorder: Option<wav::WavRecorder>,
-    tx_levels: levels::LevelAccumulator,
-    rx_levels: levels::LevelAccumulator,
+    diag: super::diagnostics::CallDiagnostics,
     /// FM->DMR pre-encode filter; resets at TX call start.
     pre_encode_filter: Option<BiquadCascade<3>>,
 }
@@ -194,9 +188,9 @@ impl PttMachine {
         cancel: CancellationToken,
     ) -> Self {
         let pre_encode_filter = policy.pre_encode_filter.then(pre_encode_voice_8khz);
+        let diag = super::diagnostics::CallDiagnostics::new(diagnostics.pcm_record_dir);
         Self {
             config,
-            diagnostics,
             vocoder: Arc::new(Mutex::new(vocoder)),
             audio_tx,
             dmrd_voice_out,
@@ -206,10 +200,7 @@ impl PttMachine {
             callsign_lookup,
             cancel,
             state: PttState::Idle,
-            tx_recorder: None,
-            rx_recorder: None,
-            tx_levels: levels::LevelAccumulator::default(),
-            rx_levels: levels::LevelAccumulator::default(),
+            diag,
             pre_encode_filter,
         }
     }
@@ -219,40 +210,26 @@ impl PttMachine {
     //     `on_ptt_up()` and is the caller's separate responsibility.
 
     fn on_tx_call_start(&mut self, stream_id: u32) {
-        self.tx_levels = levels::LevelAccumulator::default();
-        self.tx_recorder = wav::open_call_recorder(
-            self.diagnostics.pcm_record_dir.as_deref(),
-            "fm_to_dmr_encode_in",
-            stream_id,
-        );
+        self.diag.on_tx_start(stream_id);
         if let Some(f) = self.pre_encode_filter.as_mut() {
             f.reset();
         }
     }
 
     fn on_tx_call_end(&mut self, stream_id: u32) {
-        log_call_levels("fm_to_dmr", "encode_in", stream_id, &self.tx_levels);
-        self.tx_recorder = None; // Drop finalizes.
-        self.tx_levels = levels::LevelAccumulator::default();
+        self.diag.on_tx_end(stream_id);
     }
 
     fn on_rx_call_start(&mut self, stream_id: u32) {
-        self.rx_levels = levels::LevelAccumulator::default();
-        self.rx_recorder = wav::open_call_recorder(
-            self.diagnostics.pcm_record_dir.as_deref(),
-            "dmr_to_fm_decode_out",
-            stream_id,
-        );
+        self.diag.on_rx_start(stream_id);
     }
 
     fn on_rx_call_end(&mut self, stream_id: u32) {
-        log_call_levels("dmr_to_fm", "decode_out", stream_id, &self.rx_levels);
-        self.rx_recorder = None;
-        self.rx_levels = levels::LevelAccumulator::default();
+        self.diag.on_rx_end(stream_id);
     }
 
     fn record_tx_frame(&mut self, pcm: &PcmFrame) {
-        record_pcm(&mut self.tx_recorder, &mut self.tx_levels, pcm, "tx");
+        self.diag.record_tx_pcm(pcm);
     }
 
     fn try_send_stats(&self, evt: StatsEvent) {
@@ -468,6 +445,7 @@ impl PttMachine {
                 Ok(encoded) => {
                     ambe[i] = encoded;
                     transcode_times[i] = t0.elapsed();
+                    self.diag.record_tx_ambe(&encoded);
                 }
                 Err(e) => {
                     warn!(vseq = tx.vseq, sub = i, "encode error: {e}");
@@ -792,13 +770,13 @@ impl PttMachine {
                 // Take recorder + levels out of self so the per-
                 // frame work doesn't need `&mut self` while
                 // `permits` holds a shared borrow on self.audio_tx.
-                let mut rx_rec = self.rx_recorder.take();
-                let mut rx_acc = std::mem::take(&mut self.rx_levels);
+                let mut rx_rec = self.diag.rx_recorder.take();
+                let mut rx_acc = std::mem::take(&mut self.diag.rx_levels);
                 for _ in 0..gap_frames {
                     let permit = permits.next().expect("reserved gap-fill permit");
                     match self.decode(None).await {
                         Ok(pcm) => {
-                            record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
+                            super::diagnostics::record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
                             permit.send(make_voice_frame(pcm, pkt.stream_id));
                         }
                         Err(e) => {
@@ -816,7 +794,7 @@ impl PttMachine {
                                 dir: CallDirection::DmrToFm,
                                 transcode: t0.elapsed(),
                             });
-                            record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
+                            super::diagnostics::record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
                             permit.send(make_voice_frame(pcm, pkt.stream_id));
                         }
                         Err(e) => {
@@ -828,8 +806,8 @@ impl PttMachine {
                         }
                     }
                 }
-                self.rx_recorder = rx_rec;
-                self.rx_levels = rx_acc;
+                self.diag.rx_recorder = rx_rec;
+                self.diag.rx_levels = rx_acc;
             }
             _ => {}
         }
@@ -1069,30 +1047,4 @@ impl PttMachine {
             PttState::Idle => {}
         }
     }
-}
-
-fn record_pcm(
-    recorder: &mut Option<wav::WavRecorder>,
-    accumulator: &mut levels::LevelAccumulator,
-    pcm: &PcmFrame,
-    kind: &str,
-) {
-    accumulator.add_frame(pcm);
-    if let Some(rec) = recorder.as_mut()
-        && let Err(e) = rec.write(pcm)
-    {
-        warn!("{kind} pcm record write: {e}");
-        *recorder = None;
-    }
-}
-
-fn log_call_levels(dir: &str, point: &str, stream_id: u32, levels: &levels::LevelAccumulator) {
-    let (peak, rms, voiced_rms) = levels.summary();
-    info!(
-        "call_levels dir={dir} point={point} stream_id={stream_id} \
-         peak={} rms={} voiced_rms={}",
-        levels::fmt_dbfs(peak),
-        levels::fmt_dbfs(rms),
-        levels::fmt_dbfs(voiced_rms),
-    );
 }

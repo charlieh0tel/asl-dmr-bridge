@@ -230,6 +230,15 @@ pub fn channel_decode(coded: &[u8; CODED_BYTES]) -> [u8; RAW_BYTES] {
     pack_msb_first(&chip_bits)
 }
 
+/// Recover the 49 source bits in mbelib bit order, MSB-packed into
+/// 7 bytes.  Same wire format as `parity_expected_49bit.bin`:
+/// channel-decode the FEC-coded frame to chip-order, then permute to
+/// mbelib order.  Useful for capture / cross-decoder analysis.
+pub fn to_source_bits(coded: &[u8; CODED_BYTES]) -> [u8; RAW_BYTES] {
+    let chip = channel_decode(coded);
+    permute_chip_to_mbelib(&chip)
+}
+
 /// Encode 49 raw codec bits (packed MSB-first into 7 bytes in the
 /// chip's natural rate-34 output order) into the 9-byte channel-coded
 /// form.
