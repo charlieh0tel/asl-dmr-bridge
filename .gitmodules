@@ -1,0 +1,3 @@
+[submodule "ambe/dynarmic-sys/vendor/md380_vocoder_dynarmic"]
+	path = ambe/dynarmic-sys/vendor/md380_vocoder_dynarmic
+	url = https://github.com/nostar/md380_vocoder_dynarmic.git

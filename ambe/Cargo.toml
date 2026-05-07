@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
+dynarmic = ["dep:dynarmic-sys"]
 mbelib = ["dep:mbelib-sys"]
 thumbdv = ["dep:serialport"]
 # Implies mbelib because the v1 neural backend delegates decode to
@@ -17,6 +18,7 @@ testing = []
 
 [dependencies]
 clap.workspace = true
+dynarmic-sys = { workspace = true, optional = true }
 mbelib-sys = { workspace = true, optional = true }
 serialport = { workspace = true, optional = true }
 thiserror.workspace = true

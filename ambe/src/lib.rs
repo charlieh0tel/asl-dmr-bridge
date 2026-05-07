@@ -7,6 +7,8 @@ pub mod cli;
 #[cfg(feature = "mbelib")]
 pub(crate) mod codeword;
 pub(crate) mod dv3000;
+#[cfg(feature = "dynarmic")]
+pub(crate) mod dynarmic;
 #[cfg(feature = "mbelib")]
 pub(crate) mod mbelib;
 #[cfg(feature = "neural")]
@@ -139,6 +141,13 @@ pub fn open_thumbdv(
 #[cfg(feature = "mbelib")]
 pub fn open_mbelib() -> Box<dyn Vocoder> {
     Box::new(mbelib::Mbelib::new())
+}
+
+/// Construct a dynarmic (software, JIT-emulated MD380 firmware)
+/// backend.
+#[cfg(feature = "dynarmic")]
+pub fn open_dynarmic() -> Box<dyn Vocoder> {
+    Box::new(dynarmic::DynarmicVocoder::new())
 }
 
 /// Construct a neural-vocoder backend from an ONNX model file.

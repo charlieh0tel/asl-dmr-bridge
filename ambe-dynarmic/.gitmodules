@@ -1,3 +1,0 @@
-[submodule "vendor/md380_vocoder_dynarmic"]
-	path = vendor/md380_vocoder_dynarmic
-	url = https://github.com/nostar/md380_vocoder_dynarmic.git

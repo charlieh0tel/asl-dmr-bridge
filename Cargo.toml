@@ -1,5 +1,5 @@
 [workspace]
-members = ["ambe", "ambe/mbelib-sys", "ambeserver", "bmcli", "brandmeister-api", "bridge", "dmr-events", "dmr-subscriber", "dmr-types", "dmr-wire", "pcm-utils", "usrp-wire"]
+members = ["ambe", "ambe/dynarmic-sys", "ambe/mbelib-sys", "ambeserver", "bmcli", "brandmeister-api", "bridge", "dmr-events", "dmr-subscriber", "dmr-types", "dmr-wire", "pcm-utils", "usrp-wire"]
 resolver = "3"
 
 [workspace.package]
@@ -14,6 +14,7 @@ dmr-subscriber = { version = "1.4.0", path = "dmr-subscriber" }
 dmr-types = { version = "1.4.0", path = "dmr-types" }
 dmr-events = { version = "1.4.0", path = "dmr-events" }
 dmr-wire = { version = "1.4.0", path = "dmr-wire" }
+dynarmic-sys = { version = "1.4.0", path = "ambe/dynarmic-sys" }
 mbelib-sys = { version = "1.4.0", path = "ambe/mbelib-sys" }
 pcm-utils = { version = "1.4.0", path = "pcm-utils" }
 usrp-wire = { version = "1.4.0", path = "usrp-wire" }

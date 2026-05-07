@@ -56,6 +56,7 @@ name = "ambe"
 version = "1.4.0"
 dependencies = [
  "clap",
+ "dynarmic-sys",
  "mbelib-sys",
  "proptest",
  "serde",
@@ -693,6 +694,14 @@ name = "dyn-hash"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15401da73a9ed8c80e3b2d4dc05fe10e7b72d7243b9f614e516a44fa99986e88"
+
+[[package]]
+name = "dynarmic-sys"
+version = "1.4.0"
+dependencies = [
+ "cc",
+ "cmake",
+]
 
 [[package]]
 name = "either"
