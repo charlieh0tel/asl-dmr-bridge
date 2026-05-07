@@ -2,6 +2,7 @@
 Description=Daily refresh of ASL3-DMR bridge subscriber database
 
 [Timer]
+OnActiveSec=30s
 OnCalendar=daily
 RandomizedDelaySec=1h
 Persistent=true

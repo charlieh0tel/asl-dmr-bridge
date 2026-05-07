@@ -1,7 +1,5 @@
 #!/bin/sh
-# Daily fetch of the RadioID.net subscriber database.  Atomic: download
-# to a temp file in the destination dir, then rename into place so a
-# concurrent reader never sees a half-written file.
+# Daily fetch of the RadioID.net subscriber database.  Atomic update.
 set -eu
 
 URL="https://radioid.net/static/user.csv"
