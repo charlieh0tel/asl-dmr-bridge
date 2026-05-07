@@ -135,11 +135,16 @@ keepalive_missed_limit = 3
 # [encode_filter]
 # enabled = true
 
-# Per-call PCM capture for diagnostics.  When `pcm_record_dir` is set,
-# the bridge writes one 8 kHz mono i16 LE WAV per call per measurement
-# point and emits a `call_levels` log line per point at end-of-call:
-#   fm_to_dmr_encode_in_<ms>_<sid>.wav    encoder input
-#   dmr_to_fm_decode_out_<ms>_<sid>.wav   decoder output, pre-AGC
+# Per-call diagnostic capture.  When `pcm_record_dir` is set, the
+# bridge writes per-call WAVs (8 kHz mono i16 LE) and an AMBE source-
+# bit sidecar to that directory, and emits a `call_levels` log line
+# per measurement point at end-of-call:
+#   fm_to_dmr_encode_in_<ms>_<sid>.wav    encoder input PCM
+#   fm_to_dmr_encoded_<ms>_<sid>.bin      encoded AMBE source bits
+#                                         (49 bits MSB-packed into
+#                                         7 bytes per frame, mbelib
+#                                         bit order, no header)
+#   dmr_to_fm_decode_out_<ms>_<sid>.wav   decoder output PCM, pre-AGC
 #   dmr_to_fm_agc_out_<ms>_<sid>.wav      what's sent on USRP, post-AGC
 # `<sid>` is the DMR stream_id.  Levels are reported as peak / rms /
 # voiced_rms (gate -40dBFS) in dBFS.  Section absent disables capture.

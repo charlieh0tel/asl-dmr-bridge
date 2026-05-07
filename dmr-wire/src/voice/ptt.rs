@@ -742,6 +742,9 @@ impl PttMachine {
                 }
 
                 let ambe_frames = extract_ambe(&pkt.dmr_data);
+                for frame in &ambe_frames {
+                    self.diag.record_rx_ambe(frame);
+                }
                 let gap_frames = if seq_gap > GAP_BOUNDARY_PACKETS {
                     self.on_ptt_up();
                     0

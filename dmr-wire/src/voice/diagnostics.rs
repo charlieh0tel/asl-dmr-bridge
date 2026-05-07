@@ -30,6 +30,7 @@ pub(crate) struct CallDiagnostics {
     pub(crate) tx_levels: LevelAccumulator,
     pub(crate) rx_levels: LevelAccumulator,
     tx_ambe_writer: Option<BufWriter<File>>,
+    rx_ambe_writer: Option<BufWriter<File>>,
 }
 
 impl CallDiagnostics {
@@ -41,6 +42,7 @@ impl CallDiagnostics {
             tx_levels: LevelAccumulator::default(),
             rx_levels: LevelAccumulator::default(),
             tx_ambe_writer: None,
+            rx_ambe_writer: None,
         }
     }
 
@@ -73,11 +75,17 @@ impl CallDiagnostics {
             "dmr_to_fm_decode_out",
             stream_id,
         );
+        self.rx_ambe_writer = open_ambe_writer(
+            self.pcm_record_dir.as_deref(),
+            "dmr_to_fm_decode_in",
+            stream_id,
+        );
     }
 
     pub(crate) fn on_rx_end(&mut self, stream_id: u32) {
         log_call_levels("dmr_to_fm", "decode_out", stream_id, &self.rx_levels);
         self.rx_recorder = None;
+        self.rx_ambe_writer = None;
         self.rx_levels = LevelAccumulator::default();
     }
 
@@ -86,12 +94,20 @@ impl CallDiagnostics {
     }
 
     pub(crate) fn record_tx_ambe(&mut self, coded: &AmbeFrame) {
-        if let Some(w) = self.tx_ambe_writer.as_mut() {
-            let bits = ambe::voice_channel::to_source_bits(coded);
-            if let Err(e) = w.write_all(&bits) {
-                warn!("ambe writer error: {e}; dropping for the rest of this call");
-                self.tx_ambe_writer = None;
-            }
+        record_ambe(&mut self.tx_ambe_writer, coded, "tx");
+    }
+
+    pub(crate) fn record_rx_ambe(&mut self, coded: &AmbeFrame) {
+        record_ambe(&mut self.rx_ambe_writer, coded, "rx");
+    }
+}
+
+fn record_ambe(writer: &mut Option<BufWriter<File>>, coded: &AmbeFrame, kind: &str) {
+    if let Some(w) = writer.as_mut() {
+        let bits = ambe::voice_channel::to_source_bits(coded);
+        if let Err(e) = w.write_all(&bits) {
+            warn!("{kind} ambe writer error: {e}; dropping for the rest of this call");
+            *writer = None;
         }
     }
 }
