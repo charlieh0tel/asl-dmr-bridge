@@ -34,11 +34,18 @@ fn main() {
     link_search(dynarmic_dir.join("src/dynarmic"));
     println!("cargo:rustc-link-lib=static=dynarmic");
 
-    link_search(dynarmic_dir.join("externals/zydis/zycore"));
-    println!("cargo:rustc-link-lib=static=Zycore");
-
-    link_search(dynarmic_dir.join("externals/zydis"));
-    println!("cargo:rustc-link-lib=static=Zydis");
+    // Zydis is dynarmic's x86 disassembler; not built on non-x86
+    // hosts.  Detect presence rather than gating on target arch.
+    let zycore_dir = dynarmic_dir.join("externals/zydis/zycore");
+    if find_lib(&zycore_dir, "Zycore").is_some() {
+        link_search(&zycore_dir);
+        println!("cargo:rustc-link-lib=static=Zycore");
+    }
+    let zydis_dir = dynarmic_dir.join("externals/zydis");
+    if find_lib(&zydis_dir, "Zydis").is_some() {
+        link_search(&zydis_dir);
+        println!("cargo:rustc-link-lib=static=Zydis");
+    }
 
     // fmt has a debug-suffix variant; find whichever name was produced.
     let fmt_dir = dynarmic_dir.join("externals/fmt");
