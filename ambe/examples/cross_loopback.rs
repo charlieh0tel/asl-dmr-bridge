@@ -57,23 +57,32 @@ fn main() -> anyhow::Result<()> {
     let frames = pcm.len() / PCM_SAMPLES;
     eprintln!("input {input}: {} samples ({frames} frames)", pcm.len());
 
-    let mut encoder = open_backend(&encode_spec)?;
-    let mut decoder = open_backend(&decode_spec)?;
-
-    encoder.reset();
-    let mut ambe_stream: Vec<AmbeFrame> = Vec::with_capacity(frames);
-    for f in 0..frames {
-        let mut frame: PcmFrame = [0i16; PCM_SAMPLES];
-        frame.copy_from_slice(&pcm[f * PCM_SAMPLES..(f + 1) * PCM_SAMPLES]);
-        ambe_stream.push(encoder.encode(&frame)?);
-    }
+    // Open and run the encoder, then drop it before opening the
+    // decoder.  Hardware backends (thumbdv) hold an exclusive serial
+    // session per chip; sequential lifetimes let same-spec
+    // encode/decode pairs share one chip.
+    let ambe_stream: Vec<AmbeFrame> = {
+        let mut encoder = open_backend(&encode_spec)?;
+        encoder.reset();
+        let mut stream = Vec::with_capacity(frames);
+        for f in 0..frames {
+            let mut frame: PcmFrame = [0i16; PCM_SAMPLES];
+            frame.copy_from_slice(&pcm[f * PCM_SAMPLES..(f + 1) * PCM_SAMPLES]);
+            stream.push(encoder.encode(&frame)?);
+        }
+        stream
+    };
     eprintln!("{encode_spec} encoded {} frames", ambe_stream.len());
 
-    decoder.reset();
-    let mut out: Vec<i16> = Vec::with_capacity(frames * PCM_SAMPLES);
-    for frame in &ambe_stream {
-        out.extend_from_slice(&decoder.decode(Some(frame))?);
-    }
+    let out: Vec<i16> = {
+        let mut decoder = open_backend(&decode_spec)?;
+        decoder.reset();
+        let mut samples = Vec::with_capacity(frames * PCM_SAMPLES);
+        for frame in &ambe_stream {
+            samples.extend_from_slice(&decoder.decode(Some(frame))?);
+        }
+        samples
+    };
     eprintln!("{decode_spec} decoded {} samples", out.len());
 
     write_wav_8k_mono_i16(&output, &out)?;
