@@ -403,7 +403,7 @@ pub(crate) struct NetworkConfig {
     /// Path to a single-line file containing the password.  Mirrors
     /// `[brandmeister_api].api_key_file`.  Default packaged path is
     /// `/etc/asl-dmr-bridge/password`; operators populate the file
-    /// (mode 600) and reference it from the config.
+    /// (mode 0600) and reference it from the config.
     #[serde(default)]
     pub(crate) password_file: Option<PathBuf>,
     #[serde(with = "humantime_serde")]

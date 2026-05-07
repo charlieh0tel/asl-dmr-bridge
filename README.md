@@ -104,7 +104,7 @@ neural-backend ONNX is shipped at
 prior `dmr50-2026-05-04.onnx` shipped alongside for rollback);
 switching is a config-edit + restart.
 
-Secrets go in `/etc/default/asl-dmr-bridge` (mode 600) as
+Secrets go in `/etc/default/asl-dmr-bridge` (mode 0600) as
 `BRANDMEISTER_PASSWORD=...` / `BRANDMEISTER_API_KEY=...`.  The unit's
 `DynamicUser=yes` precludes reading root-owned files in `/etc/`
 directly; the env-var path works because systemd sources
