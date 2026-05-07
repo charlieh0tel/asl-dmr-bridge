@@ -25,26 +25,26 @@ With `[repeater].subscriber_file` pointing at a RadioID-style
 {"dmr_id":1234567,"tg":91,"slot":1,"cc":1,"call":"N0CALL","name":"Test"}
 ```
 
-The bridge does not fetch the CSV itself.  Download it once and
-refresh on whatever cadence you like (RadioID updates daily but
-hourly refresh is overkill for most operators):
-
-```
-sudo mkdir -p /var/lib/asl-dmr-bridge
-sudo wget -O /var/lib/asl-dmr-bridge/user.csv https://radioid.net/static/user.csv
-```
-
-Then point the config at it:
+The .deb ships an `asl-dmr-bridge-update-subscribers.timer` that
+fetches the CSV daily into `/var/lib/asl-dmr-bridge/subscribers/user.csv`,
+enabled at install time.  Point the config at it:
 
 ```toml
 [repeater]
-subscriber_file = "/var/lib/asl-dmr-bridge/user.csv"
+subscriber_file = "/var/lib/asl-dmr-bridge/subscribers/user.csv"
+subscriber_refresh_interval = "1d"
 ```
 
-A `systemd` timer or cron entry hitting that same `wget` weekly is
-plenty.  Set `[repeater].subscriber_refresh_interval` (e.g. `"1d"`)
-if you want the bridge to re-read the file periodically without a
-restart; default `"0s"` is load-once-at-startup.
+`subscriber_refresh_interval` controls how often the bridge re-reads
+the file in-process; `"0s"` is load-once-at-startup.
+
+For non-packaged installs, fetch on whatever cadence you like:
+
+```
+sudo mkdir -p /var/lib/asl-dmr-bridge/subscribers
+sudo wget -O /var/lib/asl-dmr-bridge/subscribers/user.csv \
+    https://radioid.net/static/user.csv
+```
 
 Field meanings:
 - `dmr_id` -- talker's on-air subscriber ID (the DMRD `src_id` field).

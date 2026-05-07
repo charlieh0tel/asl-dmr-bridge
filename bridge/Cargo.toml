@@ -52,20 +52,25 @@ license-file = ["../LICENSE", "0"]
 extended-description = """\
 asl-dmr-bridge connects an AllStarLink (ASL3) FM node to a Brandmeister \
 DMR repeater over the Homebrew protocol, transcoding USRP-format audio \
-to AMBE+2 via a ThumbDV / AMBEserver / mbelib backend.  Includes a \
-systemd unit and a sample configuration."""
+to AMBE+2 via a neural / dynarmic / ThumbDV / AMBEserver backend.  \
+Includes a systemd unit and a sample configuration."""
 section = "hamradio"
 priority = "optional"
 # $auto picks up dynamically-linked deps (libc, etc.).  libudev1 is
 # loaded via dlopen by the serialport crate (thumbdv backend), which
-# dpkg-shlibdeps cannot see, so list it explicitly.
-depends = "$auto, libudev1"
+# dpkg-shlibdeps cannot see, so list it explicitly.  wget runs the
+# daily subscriber-DB refresh.
+depends = "$auto, libudev1, wget"
 maintainer-scripts = "../packaging/maintainer-scripts/"
 assets = [
     ["target/release/asl-dmr-bridge", "usr/bin/", "755"],
     ["../config.example.toml", "usr/share/doc/asl-dmr-bridge/examples/config.example.toml", "644"],
     ["../packaging/asl-dmr-bridge.default", "etc/default/asl-dmr-bridge", "600"],
     ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "644"],
+    ["../packaging/asl-dmr-bridge-update-subscribers.service", "lib/systemd/system/", "644"],
+    ["../packaging/asl-dmr-bridge-update-subscribers.timer", "lib/systemd/system/", "644"],
+    ["../packaging/asl-dmr-bridge-update-subscribers", "usr/lib/asl-dmr-bridge/update-subscribers", "755"],
+    ["../packaging/asl-dmr-bridge.tmpfiles", "usr/lib/tmpfiles.d/asl-dmr-bridge.conf", "644"],
     ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "644"],
     ["../models/dmr50.onnx", "usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx", "644"],
     ["../models/aug50.onnx", "usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx", "644"],

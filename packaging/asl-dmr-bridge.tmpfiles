@@ -1,0 +1,2 @@
+d /var/lib/asl-dmr-bridge            0755 root root -
+d /var/lib/asl-dmr-bridge/subscribers 0755 root root -

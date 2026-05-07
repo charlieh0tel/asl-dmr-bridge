@@ -20,19 +20,16 @@ tx_freq = 439000000
 # url = ""
 # Optional RadioID-style subscriber CSV for callsign lookup.  When
 # set, the USRP TEXT call-metadata frames gain `call` and `name`
-# fields populated from this table.  Bridge does not auto-download;
-# fetch with:
-#   wget -O /var/lib/asl-dmr-bridge/user.csv https://radioid.net/static/user.csv
-# A missing file at startup logs a warning and the bridge runs
-# without enrichment; the periodic refresh (below) picks up the
-# file when it appears.  An mtime over 30 days old triggers a
-# stale-file warn so an operator whose nightly cron broke notices.
-# See docs/USRP-METADATA.md for details.
-# subscriber_file = "/var/lib/asl-dmr-bridge/user.csv"
+# fields populated from this table.  The .deb installs an
+# asl-dmr-bridge-update-subscribers.timer that refreshes user.csv
+# daily from radioid.net.  A missing file at startup logs a warning
+# and the bridge runs without enrichment; an mtime over 30 days old
+# triggers a stale-file warn.  See docs/USRP-METADATA.md.
+subscriber_file = "/var/lib/asl-dmr-bridge/subscribers/user.csv"
 # Optional periodic re-load of subscriber_file.  Default "0s" loads
 # once at startup only.  Set to a positive humantime duration (e.g.
 # "1h") to pick up edits without a bridge restart.
-# subscriber_refresh_interval = "0s"
+subscriber_refresh_interval = "1d"
 
 [usrp]
 local_host = "127.0.0.1"

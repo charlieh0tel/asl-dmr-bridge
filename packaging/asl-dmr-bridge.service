@@ -15,11 +15,12 @@ ExecStart=/usr/bin/asl-dmr-bridge /etc/asl-dmr-bridge/config.toml
 Restart=on-failure
 RestartSec=5
 
-# ThumbDV access (FTDI serial in /dev/ttyUSB*) needs the "dialout"
-# group on Debian/Ubuntu.  Drop the line if you only use ambeserver
-# or mbelib.
+# ThumbDV access (FTDI serial in /dev/ttyUSB*) needs "dialout" on
+# Debian/Ubuntu; drop SupplementaryGroups for non-thumbdv backends.
 DynamicUser=yes
 SupplementaryGroups=dialout
+# Writable subdir for diagnostics.pcm_record_dir.
+StateDirectory=asl-dmr-bridge/pcm
 
 # Sandboxing.  The bridge needs only loopback / outbound UDP and
 # (optionally) a serial tty; nothing else.

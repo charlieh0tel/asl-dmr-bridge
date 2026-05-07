@@ -110,6 +110,12 @@ Secrets go in `/etc/default/asl-dmr-bridge` (mode 0600) as
 directly; the env-var path works because systemd sources
 `/etc/default/` as PID 1 before fork.
 
+The .deb installs `asl-dmr-bridge-update-subscribers.timer` (daily,
+randomized) which fetches `user.csv` from radioid.net into
+`/var/lib/asl-dmr-bridge/subscribers/` for USRP TEXT call-metadata
+enrichment.  Disable with `systemctl disable --now
+asl-dmr-bridge-update-subscribers.timer` if not wanted.
+
 ## Test tools
 
 Examples for testing without an ASL3 instance:

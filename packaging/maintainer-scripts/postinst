@@ -3,7 +3,14 @@ set -e
 
 case "$1" in
     configure)
-        install -d -m 755 /etc/asl-dmr-bridge
+        install -d -m 0755 /etc/asl-dmr-bridge
+        if [ -x /usr/bin/systemd-tmpfiles ] || [ -x /bin/systemd-tmpfiles ]; then
+            systemd-tmpfiles --create /usr/lib/tmpfiles.d/asl-dmr-bridge.conf >/dev/null 2>&1 || true
+        fi
+        if [ -d /run/systemd/system ]; then
+            deb-systemd-helper enable asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+            deb-systemd-invoke start asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+        fi
         ;;
 esac
 

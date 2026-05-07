@@ -1,0 +1,18 @@
+#!/bin/sh
+# Daily fetch of the RadioID.net subscriber database.  Atomic: download
+# to a temp file in the destination dir, then rename into place so a
+# concurrent reader never sees a half-written file.
+set -eu
+
+URL="https://radioid.net/static/user.csv"
+DEST_DIR="/var/lib/asl-dmr-bridge/subscribers"
+DEST="${DEST_DIR}/user.csv"
+
+mkdir -p "${DEST_DIR}"
+TMP="$(mktemp "${DEST_DIR}/user.csv.XXXXXX")"
+trap 'rm -f "${TMP}"' EXIT
+
+wget --quiet --tries=3 --timeout=30 -O "${TMP}" "${URL}"
+chmod 0644 "${TMP}"
+mv -f "${TMP}" "${DEST}"
+trap - EXIT
