@@ -847,7 +847,7 @@ mod tests {
         remote_port = 34002
 
         [vocoder]
-        backend = "mbelib"
+        backend = "dynarmic"
 
         [dmr]
         slot = 1

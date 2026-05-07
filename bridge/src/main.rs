@@ -99,12 +99,6 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
             let gain = config_gain(config);
             Ok(ambe::open_ambeserver(addr, gain)?)
         }
-        #[cfg(feature = "mbelib")]
-        VocoderBackend::Mbelib => Ok(ambe::open_mbelib()),
-        #[cfg(not(feature = "mbelib"))]
-        VocoderBackend::Mbelib => {
-            anyhow::bail!("mbelib backend not compiled (enable the 'mbelib' feature)")
-        }
         #[cfg(feature = "neural")]
         VocoderBackend::Neural => {
             let path = config

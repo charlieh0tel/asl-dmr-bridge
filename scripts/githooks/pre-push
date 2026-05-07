@@ -11,7 +11,7 @@ set -e
 # Drain stdin so git doesn't block sending the push-info lines.
 cat >/dev/null
 
-if ! cargo test --lib --features mbelib,testing >&2; then
+if ! cargo test --lib --features dynarmic,testing >&2; then
     printf '\npre-push: cargo test --lib failed.\n' >&2
     exit 1
 fi

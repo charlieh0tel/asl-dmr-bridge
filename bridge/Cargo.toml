@@ -6,9 +6,8 @@ license.workspace = true
 description = "Bridge between AllStarLink (ASL3) FM repeaters and Brandmeister DMR networks via the Homebrew protocol."
 
 [features]
-default = ["dynarmic", "mbelib", "neural", "thumbdv"]
+default = ["dynarmic", "neural", "thumbdv"]
 dynarmic = ["ambe/dynarmic"]
-mbelib = ["ambe/mbelib"]
 thumbdv = ["ambe/thumbdv"]
 neural = ["ambe/neural"]
 # Forwards to `ambe/testing` so workspace-wide `cargo test --features

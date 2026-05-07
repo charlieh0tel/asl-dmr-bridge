@@ -6,7 +6,6 @@ license.workspace = true
 
 [features]
 dynarmic = ["dep:dynarmic-sys"]
-mbelib = ["dep:mbelib-sys"]
 thumbdv = ["dep:serialport"]
 # Implies dynarmic because the neural backend is encode-only and
 # delegates decode to dynarmic.
@@ -19,7 +18,6 @@ testing = []
 [dependencies]
 clap.workspace = true
 dynarmic-sys = { workspace = true, optional = true }
-mbelib-sys = { workspace = true, optional = true }
 serialport = { workspace = true, optional = true }
 thiserror.workspace = true
 tracing.workspace = true
@@ -48,10 +46,6 @@ name = "bridge_vq_parity"
 required-features = ["neural"]
 
 [[test]]
-name = "mbelib_golden"
-required-features = ["testing", "mbelib"]
-
-[[test]]
 name = "thumbdv_golden"
 required-features = ["testing", "thumbdv"]
 
@@ -73,4 +67,4 @@ required-features = ["neural"]
 
 [[example]]
 name = "cross_loopback"
-required-features = ["dynarmic", "mbelib", "thumbdv", "neural"]
+required-features = ["dynarmic", "thumbdv", "neural"]

@@ -4,13 +4,12 @@
 //!
 //! Backend specs:
 //!   dynarmic                       (in-process, JIT-emulated)
-//!   mbelib                         (in-process, decode-only)
 //!   neural:/path/to/model.onnx     (in-process, encode-only)
 //!   thumbdv:/dev/ttyUSB0           (USB AMBE-3000R hardware)
 //!   udp:host:port                  (remote AMBEServer-compatible)
 //!
 //! Usage:
-//!   cargo run -p ambe --features dynarmic,mbelib,thumbdv,neural \
+//!   cargo run -p ambe --features dynarmic,thumbdv,neural \
 //!     --example cross_loopback -- \
 //!     --encode <spec> --decode <spec> \
 //!     [--input <in.wav>] [--output <out.wav>]
@@ -95,9 +94,6 @@ fn main() -> anyhow::Result<()> {
 fn open_backend(spec: &str) -> anyhow::Result<Box<dyn Vocoder>> {
     if spec == "dynarmic" {
         return Ok(ambe::open_dynarmic());
-    }
-    if spec == "mbelib" {
-        return Ok(ambe::open_mbelib());
     }
     if let Some(path) = spec.strip_prefix("thumbdv:") {
         return Ok(ambe::open_thumbdv(path, None, None)?);

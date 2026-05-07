@@ -3,7 +3,6 @@
 //! Requires the `testing` feature (which exposes test_harness and
 //! test_vectors), plus the relevant backend feature:
 //!
-//!   cargo run -p ambe --features mbelib,testing --example gen_golden -- mbelib
 //!   cargo run -p ambe --features thumbdv,testing --example gen_golden -- thumbdv /dev/ttyUSB0
 //!   cargo run -p ambe --features testing --example gen_golden -- ambeserver 127.0.0.1:2460
 //!
@@ -26,7 +25,7 @@ use ambe::test_harness::decode_test_frames;
 use ambe::test_vectors::TEST_FRAMES;
 
 fn usage() -> ! {
-    eprintln!("usage: gen_golden <mbelib|thumbdv|ambeserver> [arg]");
+    eprintln!("usage: gen_golden <thumbdv|ambeserver> [arg]");
     std::process::exit(1);
 }
 
@@ -35,13 +34,6 @@ fn main() -> std::io::Result<()> {
     let backend = args.get(1).map(String::as_str).unwrap_or_else(|| usage());
 
     let mut vocoder: Box<dyn Vocoder> = match backend {
-        #[cfg(feature = "mbelib")]
-        "mbelib" => ambe::open_mbelib(),
-        #[cfg(not(feature = "mbelib"))]
-        "mbelib" => {
-            eprintln!("error: built without mbelib feature");
-            std::process::exit(1);
-        }
         #[cfg(feature = "thumbdv")]
         "thumbdv" => {
             let path = args.get(2).unwrap_or_else(|| {

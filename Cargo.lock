@@ -59,7 +59,6 @@ dependencies = [
  "clap",
  "dynarmic-sys",
  "hound",
- "mbelib-sys",
  "proptest",
  "serde",
  "serde_json",
@@ -1616,13 +1615,6 @@ checksum = "a06de3016e9fae57a36fd14dba131fccf49f74b40b7fbdb472f96e361ec71a08"
 dependencies = [
  "autocfg",
  "rawpointer",
-]
-
-[[package]]
-name = "mbelib-sys"
-version = "1.5.0"
-dependencies = [
- "cc",
 ]
 
 [[package]]

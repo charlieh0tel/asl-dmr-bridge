@@ -298,7 +298,6 @@ pub(crate) struct UsrpConfig {
 pub(crate) enum VocoderBackend {
     Thumbdv,
     Ambeserver,
-    Mbelib,
     Neural,
     Dynarmic,
 }
@@ -321,10 +320,10 @@ pub(crate) struct VocoderConfig {
     #[cfg(feature = "neural")]
     pub(crate) model_path: Option<std::path::PathBuf>,
     /// DV3000 chip input (encode) gain in dB, -90..=90.  Default 0.
-    /// Ignored by the mbelib and neural backends.
+    /// Ignored by software backends (dynarmic, neural).
     pub(crate) gain_in_db: Option<i8>,
     /// DV3000 chip output (decode) gain in dB, -90..=90.  Default 0.
-    /// Ignored by the mbelib and neural backends.
+    /// Ignored by software backends (dynarmic, neural).
     pub(crate) gain_out_db: Option<i8>,
 }
 
@@ -778,7 +777,7 @@ remote_host = "127.0.0.1"
 remote_port = 34002
 
 [vocoder]
-backend = "mbelib"
+backend = "dynarmic"
 
 [dmr]
 slot = 1
@@ -836,8 +835,8 @@ keepalive_missed_limit = 3
     #[test]
     fn gain_in_range_accepted() {
         let text = MINIMAL.replace(
-            "backend = \"mbelib\"",
-            "backend = \"mbelib\"\ngain_in_db = -3\ngain_out_db = 6",
+            "backend = \"dynarmic\"",
+            "backend = \"dynarmic\"\ngain_in_db = -3\ngain_out_db = 6",
         );
         let cfg = parse(&text).expect("in-range gain accepted");
         assert_eq!(cfg.vocoder.gain_in_db, Some(-3));
@@ -847,8 +846,8 @@ keepalive_missed_limit = 3
     #[test]
     fn gain_below_min_rejected() {
         let text = MINIMAL.replace(
-            "backend = \"mbelib\"",
-            "backend = \"mbelib\"\ngain_in_db = -100",
+            "backend = \"dynarmic\"",
+            "backend = \"dynarmic\"\ngain_in_db = -100",
         );
         let err = parse(&text).expect_err("below-min gain rejected");
         assert!(
@@ -867,8 +866,8 @@ keepalive_missed_limit = 3
     #[test]
     fn gain_above_max_rejected() {
         let text = MINIMAL.replace(
-            "backend = \"mbelib\"",
-            "backend = \"mbelib\"\ngain_out_db = 100",
+            "backend = \"dynarmic\"",
+            "backend = \"dynarmic\"\ngain_out_db = 100",
         );
         let err = parse(&text).expect_err("above-max gain rejected");
         assert!(
@@ -887,8 +886,8 @@ keepalive_missed_limit = 3
     #[test]
     fn gain_at_boundaries_accepted() {
         let text = MINIMAL.replace(
-            "backend = \"mbelib\"",
-            "backend = \"mbelib\"\ngain_in_db = -90\ngain_out_db = 90",
+            "backend = \"dynarmic\"",
+            "backend = \"dynarmic\"\ngain_in_db = -90\ngain_out_db = 90",
         );
         let cfg = parse(&text).expect("boundary values accepted");
         assert_eq!(cfg.vocoder.gain_in_db, Some(-90));
@@ -931,7 +930,7 @@ keepalive_missed_limit = 3
 
     #[test]
     fn unknown_vocoder_backend_is_parse_error() {
-        let text = MINIMAL.replace("backend = \"mbelib\"", "backend = \"bogus\"");
+        let text = MINIMAL.replace("backend = \"dynarmic\"", "backend = \"bogus\"");
         assert!(matches!(parse(&text), Err(ConfigError::Parse { .. })));
     }
 

@@ -31,7 +31,6 @@ pub enum Backend {
     #[default]
     Ambeserver,
     Thumbdv,
-    Mbelib,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -85,16 +84,6 @@ impl ChipBackendArgs {
                     "thumbdv backend not compiled (build with --features thumbdv)".into(),
                 ))
             }
-            Backend::Mbelib => {
-                #[cfg(feature = "mbelib")]
-                {
-                    Ok(crate::open_mbelib())
-                }
-                #[cfg(not(feature = "mbelib"))]
-                Err(VocoderError::Init(
-                    "mbelib backend not compiled (build with --features mbelib)".into(),
-                ))
-            }
         }
     }
 
@@ -119,9 +108,6 @@ impl ChipBackendArgs {
                     "thumbdv backend not compiled (build with --features thumbdv)".into(),
                 ))
             }
-            Backend::Mbelib => Err(VocoderError::Unsupported(
-                "mbelib has no chip client (decode-only)",
-            )),
         }
     }
 

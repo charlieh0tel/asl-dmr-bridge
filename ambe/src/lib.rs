@@ -1,16 +1,9 @@
 pub(crate) mod ambeserver;
 pub mod chip;
 pub mod cli;
-// codeword is only used by the mbelib backend (deinterleave + 49-bit
-// source extraction); gate it on the same feature so non-mbelib
-// builds don't generate dead-code warnings.
-#[cfg(feature = "mbelib")]
-pub(crate) mod codeword;
 pub(crate) mod dv3000;
 #[cfg(feature = "dynarmic")]
 pub(crate) mod dynarmic;
-#[cfg(feature = "mbelib")]
-pub(crate) mod mbelib;
 #[cfg(feature = "neural")]
 pub(crate) mod neural;
 pub mod rates;
@@ -81,20 +74,14 @@ pub trait Vocoder: Send {
     fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError>;
 
     /// Decode one AMBE frame to PCM.  `Some(&ambe)` is a real
-    /// received frame; `None` is a known-missing slot in the
-    /// stream (packet drop / erasure) and the decoder synthesizes
-    /// a compensation frame.  Backends differ on what that
-    /// compensation sounds like:
-    ///
-    /// - chip backends send a CMODE LOST_FRAME packet, so the chip
-    ///   emits its predictor's frame-repeat (the prior synthesized
-    ///   frame again); consecutive `None`s repeat that frame.
-    /// - mbelib resets its MbeParms and emits silence; consecutive
-    ///   `None`s emit silence and decoder state stays reset.
-    ///
-    /// Either way, per-stream decoder state advances so the next
-    /// real frame isn't decoded against stale history, but the two
-    /// erasure responses are not interchangeable.
+    /// received frame; `None` is a known-missing slot in the stream
+    /// (packet drop / erasure).  The current backends (chip + the
+    /// dynarmic-emulated MD380 firmware) handle erasure by feeding
+    /// the channel-coded frame-repeat sentinel into the codec, so
+    /// the predictor emits its prior synthesized frame again;
+    /// consecutive `None`s repeat that frame.  Per-stream decoder
+    /// state advances either way so the next real frame isn't
+    /// decoded against stale history.
     fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError>;
 
     /// Reset transient per-stream state -- decoder predictor /
@@ -137,12 +124,6 @@ pub fn open_thumbdv(
     Ok(Box::new(thumbdv::ThumbDv::open(port, baud, gain_db)?))
 }
 
-/// Construct an mbelib (software-only, decode-only) backend.
-#[cfg(feature = "mbelib")]
-pub fn open_mbelib() -> Box<dyn Vocoder> {
-    Box::new(mbelib::Mbelib::new())
-}
-
 /// Construct a dynarmic (software, JIT-emulated MD380 firmware)
 /// backend.
 #[cfg(feature = "dynarmic")]
@@ -151,7 +132,7 @@ pub fn open_dynarmic() -> Box<dyn Vocoder> {
 }
 
 /// Construct a neural-vocoder backend from an ONNX model file.
-/// Encode is neural; decode delegates to mbelib.
+/// Encode is neural; decode delegates to dynarmic.
 #[cfg(feature = "neural")]
 pub fn open_neural(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, VocoderError> {
     Ok(Box::new(neural::NeuralVocoder::open(model_path)?))

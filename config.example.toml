@@ -41,7 +41,7 @@ remote_host = "127.0.0.1"
 remote_port = 34002
 
 [vocoder]
-# "neural", "mbelib", "thumbdv", or "ambeserver".
+# "neural", "dynarmic", "thumbdv", or "ambeserver".
 backend = "neural"
 # Required when backend = "neural".  The .deb installs the shipped
 # model under /usr/share/asl-dmr-bridge/models/.
@@ -55,7 +55,7 @@ model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
 # host = "127.0.0.1"
 # port = 2460
 # DV3000 chip gain in dB, -90..=90 (each direction).  Applied to
-# thumbdv and ambeserver backends only; mbelib and neural ignore.
+# thumbdv and ambeserver backends only; dynarmic and neural ignore.
 # Omit to leave the chip at its default gain (0 dB).
 # gain_in_db = 0
 # gain_out_db = 0

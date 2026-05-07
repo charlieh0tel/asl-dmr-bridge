@@ -102,24 +102,6 @@ fn chip_encode_decode_self() {
     assert_voice_shaped(&out[WARMUP..], "chip->chip");
 }
 
-#[test]
-#[cfg(feature = "mbelib")]
-#[ignore = "requires AMBEserver daemon + mbelib; run with AMBE_SERVER_ADDR and --ignored"]
-fn chip_encode_mbelib_decode() {
-    let mut chip = open_ambeserver(server_addr(), None).expect("connect");
-    let mut mb = ambe::open_mbelib();
-    let pcm = tone(TONE_FREQ, TONE_PEAK, FRAMES);
-    let ambe: Vec<AmbeFrame> = pcm
-        .iter()
-        .map(|p| chip.encode(p).expect("encode"))
-        .collect();
-    let out: Vec<PcmFrame> = ambe
-        .iter()
-        .map(|a| mb.decode(Some(a)).expect("decode"))
-        .collect();
-    assert_voice_shaped(&out[WARMUP..], "chip->mbelib");
-}
-
 /// Verify that setting a negative output gain attenuates the chip's
 /// decoded PCM vs. setting a positive output gain for the same
 /// input signal.  Proves the GAIN control packet actually reaches
