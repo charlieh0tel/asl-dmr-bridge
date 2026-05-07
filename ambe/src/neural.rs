@@ -502,18 +502,15 @@ mod tests {
     /// Catches trim/warm-up off-by-ones independently of model
     /// correctness (which `neural_parity` covers).
     #[test]
-    fn streaming_matches_offline_for_dmr50() {
+    fn streaming_matches_offline_for_aug50() {
         // Covers the warm-up boundary plus a steady-state margin;
         // divergence shows on the first few frames anyway.
         const MAX_REFERENCE_FRAMES: usize = 50;
 
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let model_path = manifest.join("..").join("models").join("dmr50.onnx");
-        let wav_path = manifest
-            .join("tests")
-            .join("fixtures")
-            .join("dmr50")
-            .join("parity_input.wav");
+        let fixture = manifest.join("tests").join("fixtures").join("aug50");
+        let model_path = fixture.join("model.onnx");
+        let wav_path = fixture.join("parity_input.wav");
         if !model_path.exists() || !wav_path.exists() {
             eprintln!(
                 "streaming_offline_parity: fixtures missing ({} or {}); skipping",

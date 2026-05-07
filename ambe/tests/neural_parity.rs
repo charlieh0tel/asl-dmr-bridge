@@ -1,9 +1,7 @@
-//! Frame-by-frame bit-equality test for the dmr50 ONNX bundle.
-//! Reads the model from the workspace `models/dmr50.onnx` (the same
-//! file the .deb ships) and `parity_input.wav` /
-//! `parity_expected_49bit.bin` from `tests/fixtures/dmr50/`.
-//! `$NEURAL_FIXTURE_DIR` overrides both for ad-hoc bundles, in which
-//! case the model is read from `<dir>/model.onnx`.
+//! Frame-by-frame bit-equality test for the aug50 ONNX bundle.
+//! Reads `model.onnx`, `parity_input.wav`, and
+//! `parity_expected_49bit.bin` from `tests/fixtures/aug50/`.
+//! `$NEURAL_FIXTURE_DIR` overrides for ad-hoc bundles.
 //!
 //! Pass criterion: 100% of bits match the PT-canonical reference.
 //! If a future bundle drifts, lower the threshold deliberately and
@@ -39,9 +37,9 @@ fn fixture_paths() -> FixturePaths {
         };
     }
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fixture = manifest.join("tests").join("fixtures").join("dmr50");
+    let fixture = manifest.join("tests").join("fixtures").join("aug50");
     FixturePaths {
-        model: manifest.join("..").join("models").join("dmr50.onnx"),
+        model: fixture.join("model.onnx"),
         wav: fixture.join("parity_input.wav"),
         expected_bin: fixture.join("parity_expected_49bit.bin"),
     }
@@ -78,7 +76,7 @@ fn read_wav_pcm(path: &Path) -> Vec<i16> {
 }
 
 #[test]
-fn dmr50_bit_parity() {
+fn aug50_bit_parity() {
     let paths = fixture_paths();
     if !paths.model.exists() {
         eprintln!(
