@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "ambe"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -73,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "ambeserver"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "ambe",
  "anyhow",
@@ -109,7 +109,7 @@ checksum = "170433209e817da6aae2c51aa0dd443009a613425dd041ebfb2492d1c4c11a25"
 
 [[package]]
 name = "asl-dmr-bridge"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "ambe",
  "anyhow",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "bmcli"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "brandmeister-api",
@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "brandmeister-api"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dmr-types",
  "reqwest",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-events"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "dmr-types",
  "serde",
@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-subscriber"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "csv",
  "dmr-types",
@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-types"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "dmr-wire"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "ambe",
  "dmr-events",
@@ -700,7 +700,7 @@ checksum = "15401da73a9ed8c80e3b2d4dc05fe10e7b72d7243b9f614e516a44fa99986e88"
 
 [[package]]
 name = "dynarmic-sys"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "cc",
  "cmake",
@@ -1620,7 +1620,7 @@ dependencies = [
 
 [[package]]
 name = "mbelib-sys"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "cc",
 ]
@@ -1958,7 +1958,7 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "pcm-utils"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "tempfile",
  "tracing",
@@ -3517,7 +3517,7 @@ dependencies = [
 
 [[package]]
 name = "usrp-wire"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "thiserror 2.0.18",
 ]
