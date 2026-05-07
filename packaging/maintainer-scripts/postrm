@@ -1,9 +1,12 @@
 #!/bin/sh
 set -e
 
-if [ "$1" = "purge" ] && [ -d /run/systemd/system ]; then
-    deb-systemd-helper purge asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
-    deb-systemd-helper unmask asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+if [ "$1" = "purge" ]; then
+    if [ -d /run/systemd/system ]; then
+        deb-systemd-helper purge asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+        deb-systemd-helper unmask asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+    fi
+    rm -rf /etc/asl-dmr-bridge /var/lib/asl-dmr-bridge
 fi
 
 #DEBHELPER#
