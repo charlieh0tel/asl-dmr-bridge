@@ -19,3 +19,15 @@ jobs:
       run-tests: false
       submodules: recursive
     secrets: inherit
+
+  update-apt-repo:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-deb
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger APT repo rebuild
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.APT_REPO_TOKEN }}
+          repository: charlieh0tel/apt-repo
+          event-type: update-apt-repo
