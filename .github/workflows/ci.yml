@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libboost-dev cmake
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -27,9 +27,9 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --all-targets --features mbelib,testing -- -D warnings
+        run: cargo clippy --all-targets --features dynarmic,testing -- -D warnings
 
       # `testing` exposes test_harness + test_vectors so the golden
       # integration tests + gen_golden example are reachable.
       - name: Test
-        run: cargo test --features mbelib,testing
+        run: cargo test --features dynarmic,testing

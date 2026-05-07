@@ -15,6 +15,6 @@ jobs:
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@main
     with:
       package: asl-dmr-bridge
-      build-deps: "libasound2-dev libudev-dev"
+      build-deps: "libasound2-dev libudev-dev libboost-dev cmake"
       run-tests: false
     secrets: inherit
