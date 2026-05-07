@@ -218,9 +218,9 @@ color_code, height.
 ```
 b"DMRD"        [4]   magic
 seq            [1]   0-255 wrapping
-src_id         [3]   on-air talker subscriber ID (24-bit; from [repeater].src_id)
+src_id         [3]   on-air talker subscriber ID (24-bit; from [peer].src_id)
 dst_id         [3]   destination TG (group call) or addressee SID (private call)
-repeater_id    [4]   Homebrew peer identity (from [repeater].dmr_id; may exceed 24 bits)
+repeater_id    [4]   Homebrew peer identity (from [peer].dmr_id; may exceed 24 bits)
 flags          [1]   slot (bit 7), call type (bit 6), frame type, data type
 stream_id      [4]   unique per transmission
 dmr_data      [33]   assembled DMR voice frame (see DMR Frame Assembly)
@@ -393,7 +393,7 @@ TOML.  Authoritative reference is `config.example.toml`; the snippet
 below names every required field and the optional sections.
 
 ```toml
-[repeater]
+[peer]
 callsign = "N0CALL"
 dmr_id = 1234567              # Homebrew peer ID (may exceed 24 bits for 9-digit BM hotspots)
 src_id = 1234567              # 24-bit on-air subscriber ID (DMRD src_id, embedded LC)

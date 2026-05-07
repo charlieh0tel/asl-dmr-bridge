@@ -384,7 +384,7 @@ async fn connect_once(
     .await;
 
     // Best-effort RPTCL on any disconnect (clean or error).
-    send_rptcl(&socket, config.repeater.dmr_id).await;
+    send_rptcl(&socket, config.peer.dmr_id).await;
 
     result.map_err(|source| ConnectError {
         authed: true,
@@ -423,7 +423,7 @@ async fn authenticate_inner(
     profile: &dyn NetworkProfile,
 ) -> Result<(), NetworkError> {
     let mut buf = [0u8; MAX_RECV];
-    let dmr_id = config.repeater.dmr_id;
+    let dmr_id = config.peer.dmr_id;
 
     // Step 1: RPTL
     socket.send(&build_tagged(TAG_RPTL, dmr_id)).await?;
@@ -492,7 +492,7 @@ async fn keepalive_loop(
     cancel: CancellationToken,
 ) -> Result<(), NetworkError> {
     let mut buf = [0u8; MAX_RECV];
-    let ping = build_tagged(TAG_RPTPING, config.repeater.dmr_id);
+    let ping = build_tagged(TAG_RPTPING, config.peer.dmr_id);
     let mut ticker = interval(config.network.keepalive_interval);
     // If the select loop stalls (e.g. a slow socket.send), the default
     // MissedTickBehavior::Burst would fire catch-up pings back-to-back
@@ -833,7 +833,7 @@ mod tests {
     // ping send before recv classifies the master's reply.
 
     const KEEPALIVE_TEST_CONFIG: &str = r#"
-        [repeater]
+        [peer]
         callsign = "N0CALL"
         dmr_id = 1234567
         src_id = 1234567

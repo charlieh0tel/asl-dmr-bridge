@@ -1,5 +1,6 @@
 mod agc;
 mod brandmeister_provision;
+mod cli;
 mod config;
 mod homebrew_client;
 mod network;
@@ -29,33 +30,12 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 use crate::agc::Agc;
 use crate::agc::AgcParams;
+use crate::cli::Args;
 use crate::config::Network;
 use crate::config::VocoderBackend;
 use crate::network::brandmeister::Brandmeister;
 use dmr_events::CallsignLookup;
 use dmr_subscriber::Subscribers;
-
-#[derive(Parser)]
-#[command(about = "ASL3 to DMR bridge")]
-struct Args {
-    /// Path to config TOML file
-    config: PathBuf,
-
-    /// Read the BM hotspot password from this file (single line,
-    /// trailing whitespace stripped).  Alternatives, exactly one
-    /// must apply: `BRANDMEISTER_PASSWORD` env var,
-    /// `[network].password_file` in config, `[network].password`
-    /// inline.
-    #[arg(long, value_name = "FILE")]
-    password_file: Option<PathBuf>,
-
-    /// Read the Brandmeister Halligan API key from this file
-    /// (single line, trailing whitespace stripped).  Alternatives:
-    /// `BRANDMEISTER_API_KEY` env var, `[brandmeister_api].api_key_file`
-    /// in config, `[brandmeister_api].api_key` inline.
-    #[arg(long, value_name = "FILE")]
-    api_key_file: Option<PathBuf>,
-}
 
 const PASSWORD_ENV: &str = "BRANDMEISTER_PASSWORD";
 const API_KEY_ENV: &str = "BRANDMEISTER_API_KEY";
@@ -253,8 +233,8 @@ async fn async_main() -> anyhow::Result<()> {
     .await?;
 
     info!(
-        callsign = %config.repeater.callsign.as_str(),
-        dmr_id = config.repeater.dmr_id.as_u32(),
+        callsign = %config.peer.callsign.as_str(),
+        dmr_id = config.peer.dmr_id.as_u32(),
         tg = config.dmr.talkgroup.as_u32(),
         slot = ?config.dmr.slot,
         gateway = ?config.dmr.gateway,
@@ -305,7 +285,7 @@ async fn async_main() -> anyhow::Result<()> {
     // background reload task (spawned below, after `cancel` exists)
     // can swap the table atomically without disturbing live calls.
     let subscribers_state: Option<Arc<std::sync::RwLock<Arc<Subscribers>>>> = config
-        .repeater
+        .peer
         .subscriber_file
         .as_deref()
         .map(|path| {
@@ -413,10 +393,10 @@ async fn async_main() -> anyhow::Result<()> {
         stream_timeout: config.dmr.stream_timeout,
         tx_timeout: config.dmr.tx_timeout,
         min_tx_hang: config.dmr.min_tx_hang,
-        repeater_id: config.repeater.dmr_id,
-        src_id: config.repeater.src_id,
-        color_code: config.repeater.color_code,
-        callsign: config.repeater.callsign.as_str().to_string(),
+        repeater_id: config.peer.dmr_id,
+        src_id: config.peer.src_id,
+        color_code: config.peer.color_code,
+        callsign: config.peer.callsign.as_str().to_string(),
     };
     let voice_diagnostics = dmr_wire::voice::PttDiagnostics {
         pcm_record_dir: config.diagnostics.pcm_record_dir.clone(),
@@ -476,13 +456,13 @@ async fn async_main() -> anyhow::Result<()> {
     let subscriber_branch = async {
         if let (Some(state), Some(path)) = (
             subscribers_state.as_ref(),
-            config.repeater.subscriber_file.as_deref(),
-        ) && !config.repeater.subscriber_refresh_interval.is_zero()
+            config.peer.subscriber_file.as_deref(),
+        ) && !config.peer.subscriber_refresh_interval.is_zero()
         {
             subscriber_refresh(
                 state.clone(),
                 path.to_path_buf(),
-                config.repeater.subscriber_refresh_interval,
+                config.peer.subscriber_refresh_interval,
                 cancel.clone(),
             )
             .await;
@@ -497,7 +477,7 @@ async fn async_main() -> anyhow::Result<()> {
             && !api_config.reconcile_interval.is_zero()
         {
             brandmeister_provision::periodic_provision(
-                config.repeater.dmr_id,
+                config.peer.dmr_id,
                 api_config.clone(),
                 api_config.reconcile_interval,
                 cancel.clone(),

@@ -13,7 +13,7 @@
 //! call is one-shot; callers wanting periodic refresh wrap the
 //! `Subscribers` in their own atomically-swappable container and
 //! call `load()` again on a timer (the bridge does this when
-//! `[repeater].subscriber_refresh_interval` is set).
+//! `[peer].subscriber_refresh_interval` is set).
 
 use std::collections::HashMap;
 use std::fs::File;

@@ -101,7 +101,7 @@ impl NetworkProfile for Brandmeister {
     fn config_packet(&self, config: &RuntimeConfig) -> Vec<u8> {
         use std::fmt::Write as _;
 
-        let r = &config.repeater;
+        let r = &config.peer;
         let cc = r.color_code.value();
         let height = r.height.unwrap_or(0).min(999);
 
@@ -165,7 +165,7 @@ mod tests {
     fn test_config() -> RuntimeConfig {
         toml::from_str(
             r#"
-            [repeater]
+            [peer]
             callsign = "N0CALL"
             dmr_id = 1234567
             src_id = 1234567
@@ -263,7 +263,7 @@ mod tests {
     fn full_config() -> RuntimeConfig {
         toml::from_str(
             r#"
-            [repeater]
+            [peer]
             callsign = "N0CALL"
             dmr_id = 1234567
             src_id = 1234567

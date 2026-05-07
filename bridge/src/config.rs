@@ -94,7 +94,7 @@ pub(crate) enum ConfigError {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Config {
-    pub(crate) repeater: RepeaterConfig,
+    pub(crate) peer: PeerConfig,
     pub(crate) usrp: UsrpConfig,
     pub(crate) vocoder: VocoderConfig,
     pub(crate) dmr: DmrConfig,
@@ -221,7 +221,7 @@ fn default_bm_reconcile_interval() -> Duration {
 /// Repeater identity and metadata sent in the RPTC config packet.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RepeaterConfig {
+pub(crate) struct PeerConfig {
     pub(crate) callsign: Callsign,
     pub(crate) dmr_id: DmrId,
     /// On-air DMR subscriber ID (24-bit), used as the `src_id` in
@@ -425,7 +425,7 @@ const GAIN_MAX_DB: i8 = 90;
 /// no put-back-into-Option round-trip on `api_key`.
 #[derive(Debug)]
 pub(crate) struct RuntimeConfig {
-    pub(crate) repeater: RepeaterConfig,
+    pub(crate) peer: PeerConfig,
     pub(crate) usrp: UsrpConfig,
     pub(crate) vocoder: VocoderConfig,
     pub(crate) dmr: DmrConfig,
@@ -517,7 +517,7 @@ impl Config {
         api_key: Option<SecretString>,
     ) -> RuntimeConfig {
         let Config {
-            repeater,
+            peer,
             usrp,
             vocoder,
             dmr,
@@ -529,7 +529,7 @@ impl Config {
             encode_filter,
         } = self;
         RuntimeConfig {
-            repeater,
+            peer,
             usrp,
             vocoder,
             dmr,
@@ -763,7 +763,7 @@ mod tests {
 
     /// Minimal valid config text; tests tweak one field at a time.
     const MINIMAL: &str = r#"
-[repeater]
+[peer]
 callsign = "N0CALL"
 dmr_id = 1234567
 src_id = 1234567
@@ -802,8 +802,8 @@ keepalive_missed_limit = 3
     #[test]
     fn parse_minimal_valid() {
         let cfg = parse(MINIMAL).expect("minimal config parses");
-        assert_eq!(cfg.repeater.callsign.as_str(), "N0CALL");
-        assert_eq!(cfg.repeater.dmr_id.as_u32(), 1234567);
+        assert_eq!(cfg.peer.callsign.as_str(), "N0CALL");
+        assert_eq!(cfg.peer.dmr_id.as_u32(), 1234567);
         assert_eq!(cfg.dmr.slot, Slot::One);
         assert_eq!(cfg.dmr.talkgroup.as_u32(), 9);
         assert!(matches!(cfg.dmr.gateway, GatewayMode::Both));
@@ -812,7 +812,7 @@ keepalive_missed_limit = 3
 
     #[test]
     fn malformed_toml_returns_parse_error() {
-        let bad = "[repeater]\ncallsign = ";
+        let bad = "[peer]\ncallsign = ";
         assert!(matches!(parse(bad), Err(ConfigError::Parse { .. })));
     }
 

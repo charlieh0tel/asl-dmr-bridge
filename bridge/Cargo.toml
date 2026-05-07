@@ -41,9 +41,14 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 cpal.workspace = true
 proptest.workspace = true
+syn = { version = "2.0.117", features = ["full", "parsing"] }
 tempfile.workspace = true
 url.workspace = true
 wiremock.workspace = true
+
+[build-dependencies]
+clap.workspace = true
+clap_mangen = "0.3.0"
 
 [package.metadata.deb]
 maintainer = "Christopher Hoover (AI6KG) <ch@murgatroid.com>"

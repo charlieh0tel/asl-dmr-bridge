@@ -1,149 +1,159 @@
-[repeater]
-callsign = "W6XXX"
-# Homebrew repeater identity, your hotspot ID from radioid.net.
-# May exceed 24 bits (e.g. 9-digit BM hotspot IDs).
-dmr_id = 1234567
-# On-air DMR subscriber ID, 24-bit, used as src_id in DMRD packets
-# and embedded LC.  Typically your personal 7-digit DMR-MARC ID.
-# Must be distinct from dmr_id when dmr_id exceeds 24 bits.
+# BM peer identity and metadata (Homebrew RPTC config packet).
+[peer]
+# Amateur callsign.
+callsign = "N0CALL"
+# 32-bit Homebrew repeater identity (your RadioID hotspot ID).  May
+# exceed 24 bits for BM hotspots.
+dmr_id = 123456789
+# 24-bit on-air subscriber ID (DMRD src_id, embedded LC).  Must be
+# distinct from dmr_id when dmr_id exceeds 24 bits.
 src_id = 1234567
-# 9-digit Hz values. Required and must be non-zero. BrandMeister rejects
-# zero/default values. For a duplex hotspot use distinct TX/RX freqs.
+# Receive frequency, Hz, non-zero.
 rx_freq = 434000000
+# Transmit frequency, Hz, non-zero.  Distinct from rx_freq for duplex
+# hotspots.
 tx_freq = 439000000
+# Free-form power string sent in the peer profile.
+# tx_power = ""
+# DMR color code, 0..15.
 # color_code = 1
-# latitude = 37.7749        # decimal degrees, optional
-# longitude = -122.4194     # decimal degrees, optional
-# height = 50               # antenna height in meters, optional
+# Decimal degrees.
+# latitude = 0.0
+# longitude = 0.0
+# Antenna height, meters.
+# height = 0
+# Free-form location / description / URL.
 # location = ""
 # description = ""
 # url = ""
-# Optional RadioID-style subscriber CSV for callsign lookup.  When
-# set, the USRP TEXT call-metadata frames gain `call` and `name`
-# fields populated from this table.  The .deb installs an
-# asl-dmr-bridge-update-subscribers.timer that refreshes user.csv
-# daily from radioid.net.  A missing file at startup logs a warning
-# and the bridge runs without enrichment; an mtime over 30 days old
-# triggers a stale-file warn.  See docs/USRP-METADATA.md.
+# RadioID-style user.csv; populates `call` and `name` in USRP TEXT
+# call metadata.  See docs/USRP-METADATA.md.
 subscriber_file = "/var/lib/asl-dmr-bridge/subscribers/user.csv"
-# Optional periodic re-load of subscriber_file.  Default "0s" loads
-# once at startup only.  Set to a positive humantime duration (e.g.
-# "1h") to pick up edits without a bridge restart.
+# Re-load period for subscriber_file.  "0s" = startup only.
 subscriber_refresh_interval = "1d"
 
-[usrp]
-local_host = "127.0.0.1"
-local_port = 34001
-remote_host = "127.0.0.1"
-remote_port = 34002
 
+# ASL3 USRP endpoint.
+[usrp]
+# Bind address for the local USRP socket.
+local_host = "127.0.0.1"
+# Local receive port.
+local_port = 34001
+# ASL3 chan_usrp host.
+remote_host = "127.0.0.1"
+# ASL3 chan_usrp receive port.
+remote_port = 34002
+# Swap audio sample bytes for cross-endian USRP peers.
+# byte_swap = false
+
+
+# AMBE codec backend.
 [vocoder]
-# "neural", "dynarmic", "thumbdv", or "ambeserver".
-backend = "neural"
-# Required when backend = "neural".  The .deb installs the shipped
-# model under /usr/share/asl-dmr-bridge/models/.
-model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
-# For thumbdv:
-# backend = "thumbdv"
-# serial_port = "/dev/ttyUSB0"
+# Backend selection.
+backend = "thumbdv"           # thumbdv | dynarmic | neural | ambeserver
+# Serial port for ThumbDV.
+serial_port = "/dev/ttyUSB0"
+# Baud rate for ThumbDV.
 # serial_baud = 460800
-# For ambeserver:
-# backend = "ambeserver"
+# ONNX model path; required when backend = "neural".
+# model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
+# AMBEserver host; required when backend = "ambeserver".
 # host = "127.0.0.1"
+# AMBEserver port.
 # port = 2460
-# DV3000 chip gain in dB, -90..=90 (each direction).  Applied to
-# thumbdv and ambeserver backends only; dynarmic and neural ignore.
-# Omit to leave the chip at its default gain (0 dB).
+# DV3000 chip encode gain, -90..=90 dB.  Ignored by software backends
+# (dynarmic, neural).
 # gain_in_db = 0
+# DV3000 chip decode gain.
 # gain_out_db = 0
 
+
+# DMR call routing.
 [dmr]
-# gateway = "both"  # "both", "dmr_to_fm", or "fm_to_dmr"
+# Direction(s) the bridge forwards voice.
+# gateway = "both"            # both | dmr_to_fm | fm_to_dmr
+# DMR timeslot.
 slot = 1
+# Talkgroup to bridge.
 talkgroup = 2
-call_type = "group"
+# Group or unit-to-unit (private) call.
+call_type = "group"           # group | private
+# DMR-side hang after end of TX.
 hang_time = "500ms"
+# Max gap before a DMR stream is considered lost.
 stream_timeout = "5s"
+# Max single-call duration before forced terminator.
 # tx_timeout = "180s"
-# Minimum DMR-side hang after a USRP unkey: a re-key within this
-# window continues the same call (smooths over brief PTT taps).
-# Must be less than stream_timeout.  0 = immediate terminator.
-# min_tx_hang = "2.5s"
+# Min hang after USRP unkey: a re-key within this window stays in the
+# same call (absorbs PTT taps).  Must be < stream_timeout.
+# min_tx_hang = "0s"
 
-# Optional automatic gain control on the USRP-tx (digital -> analog)
-# path.  Brandmeister-aggregated DMR audio levels vary widely; AGC
-# tracks a peak envelope and steers gain toward `target_dbfs` so the
-# FM listener hears consistent loudness.  Off by default; existing
-# setups using `vocoder.gain_out_db` see no change.
-# [agc]
-# enabled = true
-# target_dbfs = -6.0      # peak target (negative dBFS, leaves headroom)
-# attack = "10ms"         # fast response to louder signal
-# release = "200ms"       # slower response to quieter signal
-# max_gain_db = 30.0      # cap on quiet-signal boost
 
+# Brandmeister master connection.
 [network]
+# DMR network profile.
 profile = "brandmeister"
+# Master host.
 host = "3102.master.brandmeister.network"
+# Master port (62031 for BM Homebrew).
 port = 62031
-# Password.  One of: BRANDMEISTER_PASSWORD env (recommended for the
-# packaged systemd unit -- works under DynamicUser sandbox),
-# password = "...", password_file = "<path>", --password-file CLI.
+# BM hotspot password.  Sources, exactly one: BRANDMEISTER_PASSWORD
+# env, password = "...", password_file = "<path>", --password-file CLI.
 # password = "your-hotspot-password"
-# password_file = "/path/to/single-line/password-file"
+# password_file = "/etc/asl-dmr-bridge/password"
+# Keepalive period; must be > 0.
 keepalive_interval = "5s"
+# Reconnect after this many missed keepalives.
 keepalive_missed_limit = 3
 
-# Optional Brandmeister Halligan API integration.  Section absent =
-# no API calls at all.  When present, the bridge logs the peer's
-# subscription state at startup (anonymous, no auth needed) and --
-# if an API key + at least one static_talkgroups_tsN list are
-# supplied -- reconciles BM-side static TGs with the declared list
-# on each startup.
-#
-# Reconciliation is pure-set: declared list = final state.  Missing
-# TGs are POSTed, extras are DELETEd.  Omit a slot to leave it
-# untouched; `[]` reduces it to empty.
-#
+
+# Halligan API: peer-profile log at startup + pure-set reconciliation
+# of BM-side static talkgroups.  Section absent = no API calls.
 # [brandmeister_api]
-# # JWT from selfcare.brandmeister.network -> API.  One of:
-# # BRANDMEISTER_API_KEY env, api_key = "...",
-# # api_key_file = "<path>", --api-key-file CLI.
+# Bearer JWT.  Sources, one: BRANDMEISTER_API_KEY env, api_key,
+# api_key_file, --api-key-file CLI.
 # api_key = "..."
-# # api_key_file = "/path/to/single-line/api-key-file"
-# static_talkgroups_ts1 = [91, 3100]
+# api_key_file = "/etc/asl-dmr-bridge/api-key"
+# TS1 / TS2 static-TG reconcile target.  [] empties the slot; omit =
+# leave it untouched.
+# static_talkgroups_ts1 = []
 # static_talkgroups_ts2 = []
-# # Optional periodic re-run of the provisioning logic so SelfCare
-# # edits made while the bridge is up get corrected.  Default "0s"
-# # = startup-only.  Suggested for long-running deployments: "1h".
+# Re-run period for the provisioning logic.  "0s" = startup only.
 # reconcile_interval = "0s"
 
-# Per-call summary log + cumulative-counter heartbeat.  Section
-# absent uses the defaults shown.  Per-call lines emit at every
-# call's end; the heartbeat is a periodic INFO with cumulative
-# counters per direction since process start.
+
+# Peak-tracking AGC on the USRP-tx (digital -> analog) path.
+# [agc]
+# Enable AGC.
+# enabled = false
+# Peak target, dBFS.
+# target_dbfs = -6.0
+# Attack period (response to louder signal).
+# attack = "10ms"
+# Release period (response to quieter signal).
+# release = "200ms"
+# Cap on quiet-signal boost.
+# max_gain_db = 30.0
+
+
+# Per-call summary lines + cumulative-counter heartbeat.
 # [stats]
-# heartbeat_interval = "60s"        # 0s disables the heartbeat
-# skip_idle_heartbeat = true        # suppress ticks with no traffic
-# min_call_log_duration = "250ms"   # below this, the per-call line is suppressed
+# Heartbeat period.  "0s" disables the heartbeat (per-call lines
+# still emit).
+# heartbeat_interval = "60s"
+# Suppress heartbeat ticks with no traffic since the previous tick.
+# skip_idle_heartbeat = true
+# Per-call lines below this duration are suppressed.
+# min_call_log_duration = "250ms"
 
-# FM->DMR pre-encode voice-band filter (HP4 @ 250 Hz + LP2 @ 3000 Hz,
-# Butterworth, 8 kHz).  Off by default.
+
+# FM->DMR pre-encode voice-band filter (HP4 @ 250 Hz + LP2 @ 3000 Hz).
 # [encode_filter]
-# enabled = true
+# enabled = false
 
-# Per-call diagnostic capture.  When `pcm_record_dir` is set, the
-# bridge writes per-call WAVs (8 kHz mono i16 LE) and an AMBE source-
-# bit sidecar to that directory, and emits a `call_levels` log line
-# per measurement point at end-of-call:
-#   fm_to_dmr_encode_in_<ms>_<sid>.wav    encoder input PCM
-#   fm_to_dmr_encoded_<ms>_<sid>.bin      encoded AMBE source bits
-#                                         (49 bits MSB-packed into
-#                                         7 bytes per frame, mbelib
-#                                         bit order, no header)
-#   dmr_to_fm_decode_out_<ms>_<sid>.wav   decoder output PCM, pre-AGC
-#   dmr_to_fm_agc_out_<ms>_<sid>.wav      what's sent on USRP, post-AGC
-# `<sid>` is the DMR stream_id.  Levels are reported as peak / rms /
-# voiced_rms (gate -40dBFS) in dBFS.  Section absent disables capture.
+
+# Per-call capture: 8 kHz mono i16 WAVs at encoder input and decoder
+# output (pre/post-AGC) + 7-byte mbelib-packed AMBE source-bit
+# sidecars; emits a `call_levels` log line per point.
 # [diagnostics]
 # pcm_record_dir = "/var/lib/asl-dmr-bridge/pcm"

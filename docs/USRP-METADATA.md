@@ -18,7 +18,7 @@ The JSON shape (no subscriber lookup configured):
 {"dmr_id":1234567,"tg":91,"slot":1,"cc":1}
 ```
 
-With `[repeater].subscriber_file` pointing at a RadioID-style
+With `[peer].subscriber_file` pointing at a RadioID-style
 `user.csv`, hits add `call` and `name` (operator's first name):
 
 ```json
@@ -30,7 +30,7 @@ fetches the CSV daily into `/var/lib/asl-dmr-bridge/subscribers/user.csv`,
 enabled at install time.  Point the config at it:
 
 ```toml
-[repeater]
+[peer]
 subscriber_file = "/var/lib/asl-dmr-bridge/subscribers/user.csv"
 subscriber_refresh_interval = "1d"
 ```

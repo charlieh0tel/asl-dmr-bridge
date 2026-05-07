@@ -34,7 +34,7 @@ use crate::config::RuntimeConfig;
 /// requested.  Errors are logged and swallowed -- the bridge does not
 /// gate on API success.
 pub(crate) async fn provision(config: &RuntimeConfig) {
-    let device_id = config.repeater.dmr_id;
+    let device_id = config.peer.dmr_id;
     let client = build_client(config.brandmeister_api.as_ref());
     run_once(&client, device_id, config.brandmeister_api.as_ref()).await;
 }
