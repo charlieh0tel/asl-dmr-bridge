@@ -76,6 +76,7 @@ Reference material, not runtime dependencies.
 | DSD (szechyjs) | https://github.com/szechyjs/dsd | Digital Speech Decoder (ISC license, same author as mbelib).  `dmr_const.h` has the rW/rX/rY/rZ deinterleave tables (36 entries each) that map 36 dibits from the DMR voice burst into the `ambe_fr[4][24]` structure.  `dmr_voice.c` shows the physical burst layout: Frame1(36 dibits) + Frame2a(18) + SYNC/EMB(24) + Frame2b(18) + Frame3(36) = 132 dibits = 264 bits = 33 bytes. |
 | ok-dmrlib | https://github.com/OK-DMR/ok-dmrlib | Python DMR library (AGPL-3.0) with complete ETSI FEC implementations (Golay, Hamming, BPTC, QR, RS, Trellis), PCAP tools, and 95% test coverage.  `test_burst.py` has hex-encoded DMRD test packets with voice bursts A-F -- useful as test vectors.  Code cannot be ported (AGPL), but test data (captured RF) and algorithm understanding are fine. |
 | MMDVM-Dissector | https://github.com/marrold/MMDVM-Dissector | Wireshark dissector for MMDVM protocol.  Includes `mmdvm_example.pcap` -- a captured packet trace that likely contains DMRD voice frames.  Useful for generating test vectors.  CC BY-NC-SA 4.0. |
+| USRP2DMR (MMDVM_CM) | https://github.com/juribeparada/MMDVM_CM/tree/master/USRP2DMR | Another USRP-to-DMR bridge from the MMDVM_CM cross-mode suite (juribeparada).  Different lineage; useful for cross-checking Homebrew protocol behavior and call-handling shape. |
 | kb9mwr AMBE notes | https://www.qsl.net/kb9mwr/projects/dv/codec/ambe.html | Background on AMBE+2 patent/licensing situation and links to open-source decoders. Not a bit-layout reference -- AMBE+2 internals are not publicly documented. |
 
 ---
@@ -123,10 +124,10 @@ that abstracts over four backends behind a `Vocoder` trait:
 - **ThumbDV** (serial): DVSI AMBE-3000 over USB-serial, DV3000 packet protocol.
 - **AMBEserver** (UDP): network client for an existing AMBEserver daemon,
   same DV3000 packet protocol but over UDP (default port 2460).
-- **mbelib** (software, feature-gated): decode-only software vocoder via FFI.
-  Encode not supported (mbelib encode quality is too poor for on-air use).
+- **dynarmic** (software, feature-gated): MD380 firmware vocoder JIT-emulated
+  by dynarmic; encode + decode.
 - **neural** (feature-gated): tract-loaded ONNX encoder; decode delegates
-  to mbelib.
+  to dynarmic.
 
 DV3000 packet format (shared by ThumbDV and AMBEserver):
 - Start byte 0x61, 2-byte big-endian payload length, 1-byte type.
@@ -263,24 +264,10 @@ per byte (dibit 0 in bits 7..6), matching the DVSI/dsdcc convention.
 This is what the AMBE-3000 chip expects: it deinterleaves and runs
 FEC internally.
 
-DMR deinterleave tables (rW/rX/rY/rZ) therefore live only in
-`ambe/src/codeword.rs` -- invoked inside `extract_source_bits` for
-the `mbelib` software backend, which operates on the 49 source bits
-rather than the raw on-air stream.
-
 Each 72-bit codeword = 49 source bits + 23 FEC bits:
 - Row 0 (24 bits): Golay(24,12) -- 12 source (u0) + 12 parity
 - Row 1 (23 bits): Golay(23,12) -- 12 source (u1) + 11 parity, PRNG whitened
 - Rows 2-3 (25 bits): u2-u7 (25 source bits, unprotected)
-
-`extract_source_bits` deinterleaves, dewhitens row 1 (PRNG seeded
-from row 0 data bits, matching mbelib's
-`mbe_demodulateAmbe3600x2450Data`), and reads source bits from HIGH
-columns DOWN (reversed) per mbelib's `mbe_eccAmbe3600x2450Data`:
-- ambe_d[0..12]  = ambe_fr[0][23..12] (u0)
-- ambe_d[12..24] = ambe_fr[1][22..11] (u1, post-dewhitening)
-- ambe_d[24..35] = ambe_fr[2][10..0]
-- ambe_d[35..49] = ambe_fr[3][13..0]
 
 No Golay error correction is performed in software.  Over UDP the
 codeword bits are intact, and both Golay codes are systematic.  The
@@ -294,14 +281,12 @@ deinterleaved codeword makes chip FEC fail and output silence.
 33-byte burst
   -> split around SYNC/EMB -> 3 x 36-dibit codewords
   -> pack raw dibits (pack_dibits) -> AmbeFrame [u8; 9]
-  -> Vocoder::decode() (ThumbDV, AMBEserver, or mbelib)
+  -> Vocoder::decode() (ThumbDV, AMBEserver, dynarmic, or neural)
      - hardware backends pass bytes through; chip deinterleaves + FEC
-     - mbelib deinterleaves via rW/rX/rY/rZ, dewhitens row 1,
-       extracts 49 source bits, hands to mbe_processAmbe2450Data
+     - dynarmic emulates the MD380 firmware vocoder over the same
+       on-air bits
+     - neural delegates decode to dynarmic
 ```
-
-Every backend gets the same AmbeFrame.  mbelib is decode-only and may
-be dropped once the hardware path is the only supported backend.
 
 #### Frame type cycle
 
@@ -387,112 +372,12 @@ continues.
 
 ---
 
-## Configuration Schema
+## Configuration
 
-TOML.  Authoritative reference is `config.example.toml`; the snippet
-below names every required field and the optional sections.
-
-```toml
-[peer]
-callsign = "N0CALL"
-dmr_id = 1234567              # Homebrew peer ID (may exceed 24 bits for 9-digit BM hotspots)
-src_id = 1234567              # 24-bit on-air subscriber ID (DMRD src_id, embedded LC)
-rx_freq = 434000000           # Hz, non-zero
-tx_freq = 439000000           # Hz, non-zero
-# Optional RPTC fields with sensible defaults:
-# tx_power, color_code, latitude, longitude, height, location, description, url
-# Optional callsign enrichment:
-# subscriber_file = "/var/lib/asl-dmr-bridge/user.csv"
-# subscriber_refresh_interval = "1d"   # 0s = load once at startup
-
-[usrp]
-local_host = "127.0.0.1"
-local_port = 34001
-remote_host = "127.0.0.1"
-remote_port = 34002
-# byte_swap = false           # enable for cross-endian USRP peer
-
-[vocoder]
-backend = "thumbdv"           # "thumbdv", "ambeserver", or "mbelib"
-serial_port = "/dev/ttyUSB0"
-# serial_baud = 460800
-# host = "127.0.0.1"          # for ambeserver backend
-# port = 2460
-# gain_in_db = 0              # DV3000 chip gain, -90..=90 (thumbdv/ambeserver only)
-# gain_out_db = 0
-
-[dmr]
-gateway = "both"              # "both", "dmr_to_fm", or "fm_to_dmr"
-slot = 1                      # TS1 or TS2
-talkgroup = 1
-call_type = "group"           # "group" or "private"
-hang_time = "500ms"           # RX hang timer after terminator
-stream_timeout = "5s"         # force RX unkey if voice stalls
-tx_timeout = "180s"           # force TX terminator after this
-# min_tx_hang = "0s"          # hold DMR call open this long after USRP unkey
-
-[network]
-profile = "brandmeister"
-host = "master.example.net"
-port = 62031
-password = "your-hotspot-password"   # or password_file / BRANDMEISTER_PASSWORD env / --password-file
-keepalive_interval = "5s"
-keepalive_missed_limit = 3
-
-# Optional FM-side AGC.  Off by default; enable when the USRP source
-# has uneven levels.
-# [agc]
-# enabled = true
-# target_dbfs = -6.0
-# attack = "10ms"
-# release = "200ms"
-# max_gain_db = 30.0
-
-# Optional Brandmeister Halligan API integration.  See docs/BRANDMEISTER-API.md.
-# [brandmeister_api]
-# api_key = "..."             # or api_key_file / BRANDMEISTER_API_KEY env / --api-key-file
-# static_talkgroups_ts1 = [91, 3100]
-# static_talkgroups_ts2 = []
-# reconcile_interval = "0s"   # >0 to also reconcile periodically while running
-
-# Per-call summary log + cumulative-counter heartbeat.  All defaults shown.
-# [stats]
-# heartbeat_interval = "60s"        # 0s disables the heartbeat
-# skip_idle_heartbeat = true        # suppress ticks with no traffic
-# min_call_log_duration = "250ms"   # below this, the per-call line is suppressed
-
-# Per-call PCM capture for diagnostics.  Section absent disables.
-# [diagnostics]
-# pcm_record_dir = "/var/lib/asl-dmr-bridge/pcm"
-
-# FM->DMR pre-encode voice-band filter.  Off by default.
-# [encode_filter]
-# enabled = true
-```
-
-### FM->DMR pre-encode filter
-
-Optional Butterworth voice-band filter applied to PCM in `PttMachine`
-right before each `vocoder.encode()` call: HP4 @ 250 Hz cascaded with
-LP2 @ 3000 Hz, sample rate 8 kHz, 3 biquad sections.  Backend-agnostic
-(any vocoder).  State is reset at TX call start.  Toggle via
-`[encode_filter] enabled`; off by default.
-
-### Diagnostics
-
-When `[diagnostics].pcm_record_dir` is set, the bridge writes one
-8 kHz mono i16 LE WAV per call at three measurement points and emits
-a `call_levels` INFO line per point at end-of-call:
-
-| Filename                                    | Direction | Point             |
-|---------------------------------------------|-----------|-------------------|
-| `fm_to_dmr_encode_in_<ms>_<sid>.wav`        | FM -> DMR | encoder input     |
-| `dmr_to_fm_decode_out_<ms>_<sid>.wav`       | DMR -> FM | decoder output (pre-AGC) |
-| `dmr_to_fm_agc_out_<ms>_<sid>.wav`          | DMR -> FM | post-AGC (USRP wire) |
-
-`<sid>` is the DMR stream_id; the two `dmr_to_fm_*` files for the
-same call share it.  Levels are reported as peak / rms / voiced_rms
-in dBFS (voiced_rms gates per-frame at -40 dBFS).
+`config.example.toml` is the canonical schema reference -- every
+field is documented inline.  A coverage test
+(`bridge/tests/config_example_coverage.rs`) parses `config.rs` with
+syn and asserts every Config struct field appears in the example.
 
 ---
 
@@ -517,7 +402,7 @@ the voice LC header must precede the first voice frame.
 not reuse an existing repeater or subscriber radio ID.
 
 **AMBE vocoder mode.** For ThumbDV/AMBEserver, AMBE+2 for DMR requires
-specific RATEP configuration (3600x2450). mbelib is decode-only.
+specific RATEP configuration (3600x2450).
 
 **Vocoder is half-duplex, head-of-line.** One DV3000 chip serves both
 directions.  `voice_task` takes the vocoder's `Arc<Mutex<...>>` lock
