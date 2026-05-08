@@ -9,6 +9,17 @@ worth picking up.
 Plausible but value-uncertain; defer until a real-world need
 appears.
 
+- **Software-vocoder mode for `ambeserver`.**  Currently a chip-only
+  UDP-to-serial proxy; the prior `softambeserver` capability got
+  retired when softambe-rs folded into `ambe::dynarmic`.  Bring it
+  back as an `ambeserver` mode (e.g. `--backend dynarmic`), speaking
+  the same DV3000 UDP protocol so existing clients don't know the
+  difference.  Needs in-process gain blocks (matching the bridge's
+  `[gain]` semantics) so callers don't have to handle the
+  software/chip distinction themselves.  Likely requires extracting
+  the bridge's gain + chip-routing logic into a small shared module
+  to avoid copy-paste between bridge and ambeserver.
+
 - **Investigate the v1.8.0 SIGSEGV.**  Crash hit on the first RX
   header on arm64 with `backend = "neural"` (decode delegated to
   dynarmic at the time).  Print line was dynarmic's signal handler
