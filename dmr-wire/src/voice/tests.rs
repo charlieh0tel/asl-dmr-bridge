@@ -50,7 +50,6 @@ fn test_voice_config() -> VoiceConfig {
         hang_time: Duration::from_millis(500),
         stream_timeout: Duration::from_secs(10),
         tx_timeout: Duration::from_secs(180),
-        min_tx_hang: Duration::ZERO,
         repeater_id: DmrId::try_from(12345).unwrap(),
         src_id: SubscriberId::try_from(12345).unwrap(),
         color_code: ColorCode::try_from(1).unwrap(),
@@ -516,153 +515,6 @@ async fn tx_unkey_sends_terminator() {
     assert_eq!(dmrd.dtype_vseq, DATA_TYPE_VOICE_TERMINATOR);
 }
 
-/// Helper: make_machine with a non-zero min_tx_hang so the unkey
-/// path defers the terminator instead of firing it immediately.
-fn make_machine_with_min_tx_hang(hang: Duration) -> TestMachine {
-    let mut cfg = test_voice_config();
-    cfg.min_tx_hang = hang;
-    let (audio_tx, audio_rx) = mpsc::channel(16);
-    let (dmrd_voice_out, dmrd_voice_rx) = mpsc::channel(16);
-    let (dmrd_control_out, dmrd_control_rx) = mpsc::unbounded_channel();
-    let (metadata_tx, metadata_rx) = mpsc::channel(16);
-    let m = PttMachine::new(
-        cfg,
-        PttDiagnostics::default(),
-        PttPolicy::default(),
-        Box::new(StubVocoder),
-        audio_tx,
-        dmrd_voice_out,
-        dmrd_control_out,
-        metadata_tx,
-        None,
-        None,
-        CancellationToken::new(),
-    );
-    (m, audio_rx, dmrd_voice_rx, dmrd_control_rx, metadata_rx)
-}
-
-#[tokio::test]
-async fn tx_unkey_with_hang_defers_terminator() {
-    // With min_tx_hang > 0, an unkey leaves us in Tx state with
-    // pending_terminate set and does NOT emit the terminator.
-    let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) =
-        make_machine_with_min_tx_hang(Duration::from_secs(2));
-    m.on_audio(&voice_audio()).await;
-    m.on_audio(&unkey_audio()).await;
-    assert!(matches!(m.state, PttState::Tx(_)));
-    // Drain emitted DMRD packets; none should be a terminator.
-    while let Ok(pkt) = dmrd_control_rx.try_recv() {
-        let dmrd = Dmrd::parse(&pkt).unwrap();
-        assert_ne!(
-            dmrd.dtype_vseq, DATA_TYPE_VOICE_TERMINATOR,
-            "terminator must not fire during hang"
-        );
-    }
-    let PttState::Tx(tx) = &m.state else {
-        unreachable!()
-    };
-    assert!(tx.pending_terminate.is_some());
-}
-
-#[tokio::test]
-async fn tx_double_unkey_during_hang_keeps_pending() {
-    // A second USRP unkey while already in hang must be a no-op:
-    // don't reset the deadline (would extend calls indefinitely
-    // on unkey bursts), don't fire the terminator (would defeat
-    // the hang).  Regression test for the case where a noisy
-    // peer emits back-to-back unkey frames.
-    let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) =
-        make_machine_with_min_tx_hang(Duration::from_secs(2));
-    m.on_audio(&voice_audio()).await;
-    m.on_audio(&unkey_audio()).await;
-    let PttState::Tx(tx) = &m.state else {
-        unreachable!()
-    };
-    let original_deadline = tx.pending_terminate;
-    assert!(original_deadline.is_some());
-
-    m.on_audio(&unkey_audio()).await;
-    let PttState::Tx(tx) = &m.state else {
-        panic!("second unkey ended the call prematurely")
-    };
-    assert_eq!(
-        tx.pending_terminate, original_deadline,
-        "deadline must not be reset on subsequent unkeys",
-    );
-    while let Ok(pkt) = dmrd_control_rx.try_recv() {
-        let dmrd = Dmrd::parse(&pkt).unwrap();
-        assert_ne!(
-            dmrd.dtype_vseq, DATA_TYPE_VOICE_TERMINATOR,
-            "terminator must not fire while still in hang",
-        );
-    }
-}
-
-#[tokio::test]
-async fn tx_rekey_during_hang_clears_pending_terminate() {
-    // Re-key (keyup-with-audio) inside the hang window cancels
-    // pending_terminate; the call continues without a new header.
-    let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) =
-        make_machine_with_min_tx_hang(Duration::from_secs(2));
-    m.on_audio(&voice_audio()).await;
-    m.on_audio(&unkey_audio()).await;
-    assert!(matches!(m.state, PttState::Tx(_)));
-    m.on_audio(&voice_audio()).await;
-    let PttState::Tx(tx) = &m.state else {
-        unreachable!()
-    };
-    assert!(tx.pending_terminate.is_none());
-    // No terminator emitted across the whole sequence.
-    while let Ok(pkt) = dmrd_control_rx.try_recv() {
-        let dmrd = Dmrd::parse(&pkt).unwrap();
-        assert_ne!(dmrd.dtype_vseq, DATA_TYPE_VOICE_TERMINATOR);
-    }
-}
-
-#[tokio::test]
-async fn tx_hang_expiry_fires_terminator() {
-    // pending_terminate elapsed -> on_timeout sends the terminator
-    // and returns to Idle.
-    let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) =
-        make_machine_with_min_tx_hang(Duration::from_millis(1));
-    m.on_audio(&voice_audio()).await;
-    m.on_audio(&unkey_audio()).await;
-    assert!(matches!(m.state, PttState::Tx(_)));
-    // Force the deadline to be in the past, then simulate the
-    // outer-loop's on_timeout.
-    if let PttState::Tx(tx) = &mut m.state {
-        tx.pending_terminate = Some(Instant::now() - Duration::from_millis(1));
-    }
-    m.on_timeout().await;
-    assert!(matches!(m.state, PttState::Idle));
-    let mut saw_term = false;
-    while let Ok(pkt) = dmrd_control_rx.try_recv() {
-        let dmrd = Dmrd::parse(&pkt).unwrap();
-        if dmrd.dtype_vseq == DATA_TYPE_VOICE_TERMINATOR {
-            saw_term = true;
-        }
-    }
-    assert!(saw_term, "expected terminator after hang expiry");
-}
-
-#[tokio::test]
-async fn tx_unkey_without_hang_fires_immediately() {
-    // Sanity: with min_tx_hang = 0 (default), behavior is
-    // unchanged -- unkey -> immediate terminator -> Idle.
-    let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
-    m.on_audio(&voice_audio()).await;
-    m.on_audio(&unkey_audio()).await;
-    assert!(matches!(m.state, PttState::Idle));
-    let mut saw_term = false;
-    while let Ok(pkt) = dmrd_control_rx.try_recv() {
-        let dmrd = Dmrd::parse(&pkt).unwrap();
-        if dmrd.dtype_vseq == DATA_TYPE_VOICE_TERMINATOR {
-            saw_term = true;
-        }
-    }
-    assert!(saw_term);
-}
-
 #[tokio::test]
 async fn tx_blocked_during_rx() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
@@ -718,11 +570,9 @@ async fn tx_timeout_emits_terminator() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_audio(&voice_audio()).await; // enter Tx, emits header
     let _ = dmrd_control_rx.try_recv(); // drain header
-    // Simulate a hang that's already expired so on_timeout fires the
-    // terminator (the actual tx_timeout default is 180s; faking it
-    // via pending_terminate exercises the same terminator path).
+    // Back-date started so tx_timeout has elapsed.
     if let PttState::Tx(ref mut tx) = m.state {
-        tx.pending_terminate = Some(Instant::now() - Duration::from_millis(1));
+        tx.started = Instant::now() - Duration::from_secs(181);
     }
     m.on_timeout().await;
     let mut saw_term = false;
@@ -733,100 +583,6 @@ async fn tx_timeout_emits_terminator() {
         }
     }
     assert!(saw_term, "expected terminator after TX timeout");
-}
-
-#[tokio::test]
-async fn hang_fill_emits_silence_burst_at_cadence() {
-    // PTT-down with min_tx_hang > 0 schedules a hang-fill tick.
-    // When the tick fires (simulated via pending_terminate +
-    // next_hang_fill in the past, but pending_terminate not yet
-    // expired), on_timeout emits a voice burst on the voice channel
-    // and stays in Tx.
-    let mut cfg = test_voice_config();
-    cfg.min_tx_hang = Duration::from_secs(5);
-    let (audio_tx, _audio_rx) = mpsc::channel(16);
-    let (dmrd_voice_out, mut dmrd_voice_rx) = mpsc::channel(16);
-    let (dmrd_control_out, mut dmrd_control_rx) = mpsc::unbounded_channel();
-    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
-    let mut m = PttMachine::new(
-        cfg,
-        PttDiagnostics::default(),
-        PttPolicy::default(),
-        Box::new(StubVocoder),
-        audio_tx,
-        dmrd_voice_out,
-        dmrd_control_out,
-        metadata_tx,
-        None,
-        None,
-        CancellationToken::new(),
-    );
-    m.on_audio(&voice_audio()).await; // enter Tx
-    let _ = dmrd_control_rx.try_recv(); // drain header
-    m.on_audio(&unkey_audio()).await; // PTT-down -> hang
-    // Drain any flush burst from the voice channel.
-    while dmrd_voice_rx.try_recv().is_ok() {}
-    // Force next_hang_fill into the past while pending_terminate
-    // remains in the future.
-    if let PttState::Tx(ref mut tx) = m.state {
-        assert!(tx.pending_terminate.is_some());
-        tx.next_hang_fill = Some(Instant::now() - Duration::from_millis(1));
-    } else {
-        panic!("expected Tx state after PTT-down with min_tx_hang > 0");
-    }
-    m.on_timeout().await;
-    let pkt = dmrd_voice_rx
-        .try_recv()
-        .expect("hang-fill should have emitted a voice burst");
-    let dmrd = Dmrd::parse(&pkt).unwrap();
-    assert!(matches!(
-        dmrd.frame_type,
-        FrameType::Voice | FrameType::VoiceSync
-    ));
-    assert!(matches!(m.state, PttState::Tx(_)));
-    if let PttState::Tx(ref tx) = m.state {
-        assert!(tx.next_hang_fill.is_some());
-    }
-}
-
-#[tokio::test]
-async fn rekey_clears_hang_fill() {
-    // A re-key during the hang window must clear next_hang_fill so
-    // the timer-driven cadence stops and PCM-driven cadence resumes.
-    let mut cfg = test_voice_config();
-    cfg.min_tx_hang = Duration::from_secs(5);
-    let (audio_tx, _audio_rx) = mpsc::channel(16);
-    let (dmrd_voice_out, _dmrd_voice_rx) = mpsc::channel(16);
-    let (dmrd_control_out, _dmrd_control_rx) = mpsc::unbounded_channel();
-    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
-    let mut m = PttMachine::new(
-        cfg,
-        PttDiagnostics::default(),
-        PttPolicy::default(),
-        Box::new(StubVocoder),
-        audio_tx,
-        dmrd_voice_out,
-        dmrd_control_out,
-        metadata_tx,
-        None,
-        None,
-        CancellationToken::new(),
-    );
-    m.on_audio(&voice_audio()).await;
-    m.on_audio(&unkey_audio()).await;
-    if let PttState::Tx(ref tx) = m.state {
-        assert!(tx.next_hang_fill.is_some(), "hang-fill should be scheduled");
-    }
-    m.on_audio(&voice_audio()).await; // re-key
-    if let PttState::Tx(ref tx) = m.state {
-        assert!(
-            tx.next_hang_fill.is_none(),
-            "re-key must clear next_hang_fill"
-        );
-        assert!(tx.pending_terminate.is_none(), "re-key must clear hang");
-    } else {
-        panic!("expected Tx state after re-key");
-    }
 }
 
 #[tokio::test]

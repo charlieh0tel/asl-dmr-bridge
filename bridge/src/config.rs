@@ -365,21 +365,10 @@ pub(crate) struct DmrConfig {
     pub(crate) stream_timeout: Duration,
     #[serde(with = "humantime_serde", default = "default_tx_timeout")]
     pub(crate) tx_timeout: Duration,
-    /// Minimum time to keep a DMR call open after a USRP unkey.  A
-    /// re-key within this window stays in the same call (smooths over
-    /// brief PTT taps and momentary unkeys).  Default `0` preserves
-    /// the immediate-terminator behavior; suggested value `2.5s` for
-    /// human voice traffic.  Must be less than `stream_timeout`.
-    #[serde(with = "humantime_serde", default = "default_min_tx_hang")]
-    pub(crate) min_tx_hang: Duration,
 }
 
 fn default_tx_timeout() -> Duration {
     Duration::from_secs(180)
-}
-
-fn default_min_tx_hang() -> Duration {
-    Duration::ZERO
 }
 
 /// DMR network selection.

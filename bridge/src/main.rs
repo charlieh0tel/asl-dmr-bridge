@@ -392,7 +392,6 @@ async fn async_main() -> anyhow::Result<()> {
         hang_time: config.dmr.hang_time,
         stream_timeout: config.dmr.stream_timeout,
         tx_timeout: config.dmr.tx_timeout,
-        min_tx_hang: config.dmr.min_tx_hang,
         repeater_id: config.peer.dmr_id,
         src_id: config.peer.src_id,
         color_code: config.peer.color_code,

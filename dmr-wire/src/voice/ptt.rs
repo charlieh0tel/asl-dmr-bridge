@@ -88,10 +88,6 @@ type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 /// instead of per-frame compensation).
 const GAP_BOUNDARY_PACKETS: u8 = 3;
 
-/// Cadence for hang-window fill bursts.  Matches DMR slot 1 burst
-/// rate so the wire never goes quiet during `min_tx_hang`.
-const HANG_FILL_INTERVAL: Duration = Duration::from_millis(60);
-
 pub(crate) struct RxCall {
     pub(crate) stream_id: u32,
     src_id: u32,
@@ -111,7 +107,7 @@ pub(crate) struct TxCall {
     dmrd_seq: u8,
     vseq: u8,
     pcm_buf: Vec<PcmFrame>,
-    started: Instant,
+    pub(crate) started: Instant,
     /// Pre-encoded embedded-LC fragment sets cycled across
     /// superframes.  At minimum one entry (the voice LC); when the
     /// configured callsign fits as a Talker Alias header, a second
@@ -124,17 +120,6 @@ pub(crate) struct TxCall {
     /// = 6 voice bursts).  Indexes `lc_rotation` so the consumed LC
     /// alternates round-robin; advances when vseq wraps from 5 to 0.
     pub(crate) superframe_idx: u32,
-    /// When `Some`, an unkey was received but the call is being held
-    /// open until this deadline so a quick re-key counts as the same
-    /// call (configured via `[dmr].min_tx_hang`).  Cleared when fresh
-    /// keyup-with-audio arrives; on expiry the terminator fires and
-    /// state goes Idle.  `None` when min_tx_hang = 0 or no unkey
-    /// pending.
-    pub(crate) pending_terminate: Option<Instant>,
-    /// While `pending_terminate` is set, the next fill-burst tick
-    /// (silence-sentinel AMBE × 3) so the wire stays at the DMR
-    /// burst cadence during the hang.  Cleared on re-key.
-    pub(crate) next_hang_fill: Option<Instant>,
 }
 
 pub(crate) enum PttState {
@@ -290,23 +275,12 @@ impl PttMachine {
     }
 
     /// Deadline for the outer select-loop's sleep_until.  Idle uses a
-    /// far-future sentinel since no timeout work is pending.  Tx with
-    /// a pending terminate (mid min_tx_hang) returns the earlier of
-    /// the hang expiry and the call's tx_timeout.
+    /// far-future sentinel since no timeout work is pending.
     pub(crate) fn deadline(&self) -> Instant {
         match &self.state {
             PttState::Rx(rx) => rx.last_voice + self.config.stream_timeout,
             PttState::RxHang(dl) => *dl,
-            PttState::Tx(tx) => {
-                let mut deadline = tx.started + self.config.tx_timeout;
-                if let Some(hang) = tx.pending_terminate {
-                    deadline = deadline.min(hang);
-                }
-                if let Some(fill) = tx.next_hang_fill {
-                    deadline = deadline.min(fill);
-                }
-                deadline
-            }
+            PttState::Tx(tx) => tx.started + self.config.tx_timeout,
             PttState::Idle => Instant::now() + Duration::from_secs(3600),
         }
     }
@@ -494,14 +468,6 @@ impl PttMachine {
         }
         tx.vseq = next_vseq;
         pkt.serialize().to_vec()
-    }
-
-    /// Hang-window fill burst: three silence-sentinel AMBE frames
-    /// wrapped in a normal voice-burst envelope so receivers see an
-    /// unbroken stream during `min_tx_hang`.
-    fn build_hang_fill_burst(&self, tx: &mut TxCall) -> Vec<u8> {
-        let ambe = [*ambe::SILENCE_FRAME; FRAMES_PER_BURST];
-        self.build_voice_burst(&ambe, tx)
     }
 
     /// try_send + warn-on-full for the bounded DMRD voice channel.
@@ -822,40 +788,22 @@ impl PttMachine {
         }
 
         if !frame.keyup {
-            // Unkey: if we were TX'ing, flush + terminator (or defer
-            // the terminator if min_tx_hang is set, so a quick re-key
-            // continues the same call).  Stray unkey while in
-            // Rx/RxHang/Idle is a no-op and must NOT clobber state.
+            // Unkey: if we were TX'ing, flush + terminator.  Stray
+            // unkey while in Rx/RxHang/Idle is a no-op and must NOT
+            // clobber state.
             if matches!(self.state, PttState::Tx(_)) {
                 let PttState::Tx(mut tx) = self.take_state() else {
                     unreachable!("just matched Tx");
                 };
-                if tx.pending_terminate.is_some() {
-                    // Already in hang from a previous unkey.  A
-                    // second unkey is a no-op: don't reset the
-                    // deadline (would extend calls indefinitely on
-                    // unkey bursts) and don't fire the terminator
-                    // (would defeat the hang).
-                    self.state = PttState::Tx(tx);
-                    return;
-                }
                 self.flush_tx(&mut tx).await;
-                if self.config.min_tx_hang.is_zero() {
-                    let term = self.build_tx_terminator(&mut tx);
-                    info!(stream_id = tx.stream_id, "TX terminator");
-                    self.send_control_dmrd(term, "tx_terminator");
-                    self.try_send_stats(StatsEvent::CallEnd {
-                        dir: CallDirection::FmToDmr,
-                        reason: TerminationReason::Normal,
-                    });
-                    self.on_tx_call_end(tx.stream_id);
-                } else {
-                    let now = Instant::now();
-                    tx.pending_terminate = Some(now + self.config.min_tx_hang);
-                    tx.next_hang_fill = Some(now + HANG_FILL_INTERVAL);
-                    debug!(stream_id = tx.stream_id, "TX hang start");
-                    self.state = PttState::Tx(tx);
-                }
+                let term = self.build_tx_terminator(&mut tx);
+                info!(stream_id = tx.stream_id, "TX terminator");
+                self.send_control_dmrd(term, "tx_terminator");
+                self.try_send_stats(StatsEvent::CallEnd {
+                    dir: CallDirection::FmToDmr,
+                    reason: TerminationReason::Normal,
+                });
+                self.on_tx_call_end(tx.stream_id);
             }
             return;
         }
@@ -902,8 +850,6 @@ impl PttMachine {
                 started: Instant::now(),
                 lc_rotation,
                 superframe_idx: 0,
-                pending_terminate: None,
-                next_hang_fill: None,
             };
             info!(stream_id = tx.stream_id, "TX header");
             self.on_ptt_up();
@@ -926,12 +872,6 @@ impl PttMachine {
         let PttState::Tx(mut tx) = self.take_state() else {
             unreachable!("state was checked above");
         };
-        // Re-key during the min_tx_hang window: cancel the pending
-        // terminator so this audio extends the same call.
-        if tx.pending_terminate.take().is_some() {
-            tx.next_hang_fill = None;
-            debug!(stream_id = tx.stream_id, "TX hang cancelled (re-key)");
-        }
         tx.pcm_buf.push(audio);
         if tx.pcm_buf.len() >= FRAMES_PER_BURST {
             let pcm: [PcmFrame; FRAMES_PER_BURST] = tx.pcm_buf[..FRAMES_PER_BURST]
@@ -974,41 +914,17 @@ impl PttMachine {
                 // state already Idle from mem::replace.
             }
             PttState::Tx(mut tx) => {
-                // Three timeout cases, checked in priority order:
-                //   1. tx_timeout (long stuck call) or min_tx_hang
-                //      expired -> terminator, normal/timeout end.
-                //   2. hang-fill tick due -> emit silence-sentinel
-                //      burst and reschedule, stay in Tx.
-                //   3. spurious wake (deadlines moved) -> restore Tx
-                //      state and let the select re-arm.
                 let now = Instant::now();
-                let tx_timeout_hit = now >= tx.started + self.config.tx_timeout;
-                let hang_expired = tx.pending_terminate.is_some_and(|deadline| now >= deadline);
-                if tx_timeout_hit || hang_expired {
-                    let reason = if hang_expired {
-                        info!(stream_id = tx.stream_id, "TX hang expired -> terminator");
-                        TerminationReason::Normal
-                    } else {
-                        warn!(stream_id = tx.stream_id, "TX timeout");
-                        TerminationReason::TxTimeout
-                    };
+                if now >= tx.started + self.config.tx_timeout {
+                    warn!(stream_id = tx.stream_id, "TX timeout");
                     self.flush_tx(&mut tx).await;
                     let term = self.build_tx_terminator(&mut tx);
                     self.send_control_dmrd(term, "tx_timeout_terminator");
                     self.try_send_stats(StatsEvent::CallEnd {
                         dir: CallDirection::FmToDmr,
-                        reason,
+                        reason: TerminationReason::TxTimeout,
                     });
                     self.on_tx_call_end(tx.stream_id);
-                } else if tx.next_hang_fill.is_some_and(|deadline| now >= deadline) {
-                    let pkt = self.build_hang_fill_burst(&mut tx);
-                    self.try_send_voice_dmrd(
-                        pkt,
-                        [Duration::ZERO; FRAMES_PER_BURST],
-                        "tx_hang_fill",
-                    );
-                    tx.next_hang_fill = Some(now + HANG_FILL_INTERVAL);
-                    self.state = PttState::Tx(tx);
                 } else {
                     self.state = PttState::Tx(tx);
                 }

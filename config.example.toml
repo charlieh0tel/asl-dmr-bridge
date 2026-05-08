@@ -88,9 +88,6 @@ hang_time = "500ms"
 stream_timeout = "5s"
 # Max single-call duration before forced terminator.
 # tx_timeout = "180s"           # default
-# Min hang after USRP unkey: a re-key within this window stays in the
-# same call (absorbs PTT taps).  Must be < stream_timeout.
-# min_tx_hang = "0s"
 
 
 # Brandmeister master connection.

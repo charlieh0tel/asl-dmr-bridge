@@ -215,13 +215,6 @@ pub struct VoiceConfig {
     pub talkgroup: Talkgroup,
     pub call_type: CallType,
     pub hang_time: Duration,
-    /// If `> 0`, after a USRP unkey the bridge holds the DMR call open
-    /// for this long instead of sending the terminator immediately.
-    /// A new keyup within the window stays in the same call.  No
-    /// silence-padding is inserted; the stream simply pauses, then
-    /// the terminator fires on expiry.  Default `0` preserves the
-    /// immediate-terminator behavior.
-    pub min_tx_hang: Duration,
     pub stream_timeout: Duration,
     pub tx_timeout: Duration,
     /// Homebrew-protocol repeater identity, used in the DMRD
