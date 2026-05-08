@@ -90,10 +90,7 @@ stream_timeout = "5s"
 # tx_timeout = "180s"           # default
 # Min hang after USRP unkey: a re-key within this window stays in the
 # same call (absorbs PTT taps).  Must be < stream_timeout.
-# min_tx_hang = "2.5s"          # default
-# Min hang after a DMR terminator: a same-src re-key within this
-# window continues the same USRP call.
-# min_rx_hang = "2.5s"          # default
+# min_tx_hang = "0s"
 
 
 # Brandmeister master connection.
