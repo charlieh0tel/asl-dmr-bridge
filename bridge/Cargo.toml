@@ -6,7 +6,11 @@ license.workspace = true
 description = "Bridge between AllStarLink (ASL3) FM repeaters and Brandmeister DMR networks via the Homebrew protocol."
 
 [features]
-default = ["dynarmic", "neural", "thumbdv"]
+# Pre-built debs ship without `dynarmic` -- operators wanting the
+# MD380-firmware backend (standalone or as neural_decoder) build
+# from source with `--features dynarmic`.  `neural` pulls
+# `ambe/dynarmic` transitively for callers who want that path.
+default = ["neural", "thumbdv"]
 dynarmic = ["ambe/dynarmic"]
 thumbdv = ["ambe/thumbdv"]
 neural = ["ambe/neural"]

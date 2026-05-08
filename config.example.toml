@@ -54,7 +54,9 @@ remote_port = 34002
 # AMBE codec backend.
 [vocoder]
 # Backend selection.
-backend = "thumbdv"             # thumbdv | dynarmic | neural | ambeserver
+# `dynarmic` requires `--features dynarmic` and is not in the
+# pre-built debs; the others are.
+backend = "thumbdv"             # thumbdv | neural | ambeserver | dynarmic
 # Serial port for ThumbDV.
 serial_port = "/dev/ttyUSB0"
 # Baud rate for ThumbDV.
@@ -62,13 +64,13 @@ serial_port = "/dev/ttyUSB0"
 # ONNX model path; required when backend = "neural".
 # model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
 # Decoder used when backend = "neural"; encode is always neural.
-# neural_decoder = "dynarmic"     # default; "dynarmic" | "thumbdv" | "ambeserver"
+# neural_decoder = "thumbdv"      # default; "thumbdv" | "dynarmic" | "ambeserver"
 # AMBEserver host; required when backend = "ambeserver".
 # host = "127.0.0.1"
 # AMBEserver port.
 # port = 2460                   # default
-# DV3000 chip encode gain, -90..=90 dB.  Ignored by software backends
-# (dynarmic, neural).
+# DV3000 chip encode gain, -90..=90 dB.  Ignored when the chip is
+# not in the path (e.g. neural backend with neural_decoder = dynarmic).
 # gain_in_db = 0                # default
 # DV3000 chip decode gain.
 # gain_out_db = 0               # default

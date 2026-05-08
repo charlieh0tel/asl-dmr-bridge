@@ -322,13 +322,13 @@ pub(crate) enum VocoderBackend {
 
 /// Decoder backend used when `vocoder.backend = "neural"`.  Encode is
 /// always neural; decode goes to one of the chip-or-software
-/// backends below.  Defaults to `dynarmic`.
+/// backends below.  Defaults to `thumbdv` (the licensed reference).
 #[derive(Debug, Deserialize, Default, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum NeuralDecoder {
     #[default]
-    Dynarmic,
     Thumbdv,
+    Dynarmic,
     Ambeserver,
 }
 

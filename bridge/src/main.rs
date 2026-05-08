@@ -58,16 +58,7 @@ async fn make_neural_decoder(
     config: &config::VocoderConfig,
 ) -> anyhow::Result<Box<dyn ambe::Vocoder>> {
     match config.neural_decoder {
-        config::NeuralDecoder::Dynarmic => {
-            #[cfg(feature = "dynarmic")]
-            {
-                Ok(ambe::open_dynarmic())
-            }
-            #[cfg(not(feature = "dynarmic"))]
-            {
-                anyhow::bail!("neural_decoder = dynarmic requires the 'dynarmic' feature")
-            }
-        }
+        config::NeuralDecoder::Dynarmic => Ok(ambe::open_dynarmic()),
         config::NeuralDecoder::Thumbdv => {
             #[cfg(feature = "thumbdv")]
             {

@@ -90,7 +90,7 @@ if [ -n "$rust_changed" ]; then
         printf 'Run `cargo fmt --all` and re-stage.\n' >&2
         exit 1
     fi
-    if ! cargo clippy --all-targets --features dynarmic,testing -- -D warnings >&2; then
+    if ! cargo clippy --all-targets --features testing -- -D warnings >&2; then
         printf '\npre-commit: cargo clippy failed (warnings treated as errors).\n' >&2
         printf 'Fix the lint or override with `git commit --no-verify`.\n' >&2
         exit 1

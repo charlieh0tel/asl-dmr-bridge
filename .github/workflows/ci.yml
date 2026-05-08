@@ -29,9 +29,9 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --all-targets --features dynarmic,testing -- -D warnings
+        run: cargo clippy --all-targets --features testing -- -D warnings
 
       # `testing` exposes test_harness + test_vectors so the golden
       # integration tests + gen_golden example are reachable.
       - name: Test
-        run: cargo test --features dynarmic,testing
+        run: cargo test --features testing

@@ -124,10 +124,11 @@ that abstracts over four backends behind a `Vocoder` trait:
 - **ThumbDV** (serial): DVSI AMBE-3000 over USB-serial, DV3000 packet protocol.
 - **AMBEserver** (UDP): network client for an existing AMBEserver daemon,
   same DV3000 packet protocol but over UDP (default port 2460).
-- **dynarmic** (software, feature-gated): MD380 firmware vocoder JIT-emulated
-  by dynarmic; encode + decode.
+- **dynarmic** (software, feature-gated, not in pre-built debs):
+  MD380 firmware vocoder JIT-emulated by dynarmic; encode + decode.
 - **neural** (feature-gated): tract-loaded ONNX encoder; decode delegates
-  to dynarmic.
+  to a configurable backend selected by `[vocoder].neural_decoder`
+  (default `thumbdv`).
 
 DV3000 packet format (shared by ThumbDV and AMBEserver):
 - Start byte 0x61, 2-byte big-endian payload length, 1-byte type.

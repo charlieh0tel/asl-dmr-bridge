@@ -27,11 +27,13 @@ cargo build --release
 Feature flags:
 - `--features thumbdv` -- ThumbDV serial backend (encode + decode)
 - `--features dynarmic` -- software AMBE codec via the MD380 firmware
-  JIT-emulated by dynarmic (encode + decode)
+  JIT-emulated by dynarmic (encode + decode).  **Not in pre-built
+  debs** -- source builds only.
 - `--features neural` -- neural-encoder backend via tract-loaded ONNX
-  (encode neural; decode delegated to dynarmic; implies `dynarmic`).
+  (encode neural; decode delegates to a configurable backend, default
+  thumbdv).
 
-Combinable: `--features thumbdv,dynarmic,neural`.
+Combinable: `--features thumbdv,neural,dynarmic`.
 
 ## Test tools
 
