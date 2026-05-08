@@ -156,6 +156,13 @@ keepalive_missed_limit = 3
 # enabled = false               # default
 
 
+# Static dB gain on each direction (backend-agnostic; applies to
+# neural and dynarmic, which ignore vocoder.gain_*_db).  Saturating.
+[gain]
+# fm_to_dmr_db = 0.0            # default; pre-encode (USRP-rx PCM)
+# dmr_to_fm_db = 0.0            # default; post-decode (vocoder out)
+
+
 # Per-call capture: 8 kHz mono i16 WAVs at encoder input and decoder
 # output (pre/post-AGC) + 7-byte mbelib-packed AMBE source-bit
 # sidecars; emits a `call_levels` log line per point.

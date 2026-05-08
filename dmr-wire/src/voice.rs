@@ -217,6 +217,12 @@ pub struct VoiceConfig {
     pub hang_time: Duration,
     pub stream_timeout: Duration,
     pub tx_timeout: Duration,
+    /// dB gain applied to USRP-rx PCM before vocoder encode.
+    /// `0.0` is unity (default).
+    pub fm_to_dmr_db: f32,
+    /// dB gain applied to vocoder-decoded PCM before AGC and the
+    /// USRP-tx send.  `0.0` is unity (default).
+    pub dmr_to_fm_db: f32,
     /// Homebrew-protocol repeater identity, used in the DMRD
     /// `repeater_id` field.
     pub repeater_id: DmrId,

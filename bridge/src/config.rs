@@ -124,6 +124,24 @@ pub(crate) struct Config {
     /// 3000 Hz).  Default on; set `enabled = false` to bypass.
     #[serde(default)]
     pub(crate) encode_filter: EncodeFilterConfig,
+    /// Static dB gain applied in each direction.  Backend-agnostic
+    /// (works with neural and dynarmic, which ignore the DV3000
+    /// chip-side `vocoder.gain_*_db`).
+    #[serde(default)]
+    pub(crate) gain: GainConfig,
+}
+
+/// Static dB gain knobs, applied per direction.  Defaults 0 dB
+/// (unity).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct GainConfig {
+    /// dB applied to USRP-rx PCM just before the vocoder encode
+    /// step.
+    pub(crate) fm_to_dmr_db: f32,
+    /// dB applied to vocoder-decoded PCM just after decode (before
+    /// AGC and the USRP-tx send).
+    pub(crate) dmr_to_fm_db: f32,
 }
 
 /// AGC parameters with sensible defaults; `enabled = false` skips
@@ -424,6 +442,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) stats: StatsConfig,
     pub(crate) diagnostics: DiagnosticsConfig,
     pub(crate) encode_filter: EncodeFilterConfig,
+    pub(crate) gain: GainConfig,
 }
 
 /// Diagnostic capture knobs.  All optional, off by default.
@@ -516,6 +535,7 @@ impl Config {
             stats,
             diagnostics,
             encode_filter,
+            gain,
         } = self;
         RuntimeConfig {
             peer,
@@ -540,6 +560,7 @@ impl Config {
             stats,
             diagnostics,
             encode_filter,
+            gain,
         }
     }
 }
