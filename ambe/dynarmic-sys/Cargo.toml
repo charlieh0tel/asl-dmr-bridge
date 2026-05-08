@@ -1,6 +1,6 @@
 [package]
 name = "dynarmic-sys"
-version = "1.8.0"
+version = "1.8.1"
 edition.workspace = true
 license.workspace = true
 description = "FFI bindings for the MD380 firmware vocoder via the dynarmic ARM JIT."
