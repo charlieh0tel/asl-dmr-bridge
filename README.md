@@ -5,6 +5,8 @@ Bridge AllStarLink / ASL3 to Brandmeister using Homebrew.
 ## Documentation
 
 - [DESIGN.md](DESIGN.md) -- architecture and protocol details.
+- [docs/CODEC.md](docs/CODEC.md) -- vocoder choices, licensing, and
+  quality posture.
 - [docs/INSTALL.md](docs/INSTALL.md) -- packaging notes.
 - [docs/BRANDMEISTER-API.md](docs/BRANDMEISTER-API.md) -- Halligan
   API integration (`bmcli` + bridge auto-provisioning).

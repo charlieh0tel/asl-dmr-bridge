@@ -73,9 +73,14 @@ depends = "$auto, libudev1, wget"
 maintainer-scripts = "../packaging/maintainer-scripts/"
 assets = [
     ["target/release/asl-dmr-bridge", "usr/bin/", "0755"],
+    ["target/release/ambeserver", "usr/bin/", "0755"],
     ["target/release/man/asl-dmr-bridge.1", "usr/share/man/man1/", "0644"],
+    ["target/release/man/ambeserver.1", "usr/share/man/man1/", "0644"],
     ["../config.example.toml", "usr/share/doc/asl-dmr-bridge/examples/config.example.toml", "0644"],
     ["../docs/INSTALL.md", "usr/share/doc/asl-dmr-bridge/INSTALL.md", "0644"],
+    ["../docs/CODEC.md", "usr/share/doc/asl-dmr-bridge/CODEC.md", "0644"],
+    ["../packaging/ambeserver.default", "etc/default/ambeserver", "0644"],
+    ["../packaging/ambeserver.service", "lib/systemd/system/", "0644"],
     ["../packaging/asl-dmr-bridge.default", "etc/default/asl-dmr-bridge", "0600"],
     ["../packaging/asl-dmr-bridge.service", "lib/systemd/system/", "0644"],
     ["../packaging/asl-dmr-bridge-update-subscribers.service", "lib/systemd/system/", "0644"],
@@ -88,4 +93,5 @@ assets = [
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",
+    "/etc/default/ambeserver",
 ]

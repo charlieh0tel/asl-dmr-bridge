@@ -1,0 +1,35 @@
+[Unit]
+Description=AMBEserver UDP-to-serial proxy for a DVSI AMBE-3000R
+After=local-fs.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/ambeserver
+ExecStart=/usr/bin/ambeserver --serial ${SERIAL} --baud ${BAUD} --listen ${LISTEN}
+Restart=on-failure
+RestartSec=5
+
+DynamicUser=yes
+SupplementaryGroups=dialout
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -36,8 +36,9 @@ use tracing::info;
 use tracing::warn;
 use tracing_subscriber::EnvFilter;
 
-const DEFAULT_LISTEN: &str = "0.0.0.0:2460";
-const DEFAULT_BAUD: u32 = 460_800;
+mod cli;
+use cli::Args;
+
 const SERIAL_TIMEOUT: Duration = Duration::from_secs(2);
 const RECV_BUF: usize = 4096;
 /// Minimum gap between a holder's last packet and another peer
@@ -68,20 +69,6 @@ fn describe_control(buf: &[u8]) -> Option<String> {
         }
         _ => None,
     }
-}
-
-#[derive(Parser)]
-#[command(about = "UDP <-> AMBE-3000R serial proxy with one-holder exclusivity")]
-struct Args {
-    /// Serial device path (e.g. /dev/ttyUSB0).
-    #[arg(long)]
-    serial: String,
-    /// Baud rate.
-    #[arg(long, default_value_t = DEFAULT_BAUD)]
-    baud: u32,
-    /// UDP listen address.
-    #[arg(long, default_value = DEFAULT_LISTEN)]
-    listen: String,
 }
 
 struct Chip {

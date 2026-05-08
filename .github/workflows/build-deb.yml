@@ -14,7 +14,10 @@ jobs:
   build-deb:
     uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@main
     with:
-      package: asl-dmr-bridge
+      # Build the whole workspace so the deb ships the bridge and
+      # ambeserver binaries.  cargo-deb without -p picks up
+      # asl-dmr-bridge as the only [package.metadata.deb] crate.
+      package: ""
       build-deps: "libasound2-dev libudev-dev libboost-dev cmake"
       run-tests: false
       submodules: recursive

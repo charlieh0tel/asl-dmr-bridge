@@ -1,0 +1,9 @@
+# Sourced by ambeserver.service.  Edit then `systemctl enable --now
+# ambeserver`.
+
+# Required.
+#SERIAL=/dev/ttyUSB0
+
+# Optional (defaults shown).
+#BAUD=460800
+#LISTEN=127.0.0.1:2460

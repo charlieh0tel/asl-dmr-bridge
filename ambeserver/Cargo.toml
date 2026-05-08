@@ -12,3 +12,7 @@ clap = { workspace = true, features = ["derive", "error-context", "help", "std",
 serialport.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[build-dependencies]
+clap = { workspace = true, features = ["derive", "std"] }
+clap_mangen = "0.3.0"
