@@ -9,18 +9,14 @@ worth picking up.
 Plausible but value-uncertain; defer until a real-world need
 appears.
 
-- **Bandpass filter on the USRP-rx (analog -> digital) input.**
-  DVSwitch's `tlvAudio = AUDIO_BPF` filters PCM before AMBE encode
-  to remove DC and out-of-band content.  ~80 LOC + freq-response
-  tests.  Trigger: noisy or DC-offset analog source degrading
-  encoded audio quality on the DMR side.
-
-- **DTMF macros / runtime control.**  DVSwitch's `[MACROS]` lets a
-  remote operator dial `*5678` to switch TGs, disconnect, etc.
-  Would need DTMF detection on USRP-rx, a macro table, and an
-  integration with the BM API for runtime TG changes.  Big feature,
-  rough estimate ~500 LOC + careful testing.  Trigger: a real user
-  asking for radio-side control of the bridge.
+- **Investigate the v1.8.0 SIGSEGV.**  Crash hit on the first RX
+  header on arm64 with `backend = "neural"` (decode delegated to
+  dynarmic at the time).  Print line was dynarmic's signal handler
+  `Unhandled SIGSEGV at pc 0x...`, suggesting a fault outside JIT
+  memory regions.  Coredump was not captured at the time.  Trigger:
+  reproduces on the v2.0.0 deb, or any other dynarmic-on-arm64
+  crash.  Capture core via systemd-coredump and follow the
+  backtrace.
 
 - **Talker alias TA Blocks (FLCO 5/6/7).**  Current scope is TA
   Header only (FLCO 4); covers callsigns up to 7 ASCII chars.
