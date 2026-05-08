@@ -320,10 +320,28 @@ pub(crate) enum VocoderBackend {
     Dynarmic,
 }
 
+/// Decoder backend used when `vocoder.backend = "neural"`.  Encode is
+/// always neural; decode goes to one of the chip-or-software
+/// backends below.  Defaults to `dynarmic`.
+#[derive(Debug, Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum NeuralDecoder {
+    #[default]
+    Dynarmic,
+    Thumbdv,
+    Ambeserver,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct VocoderConfig {
     pub(crate) backend: VocoderBackend,
+    /// When `backend = "neural"`, picks the decoder.  The chip-side
+    /// fields (`serial_port` / `host` / `port` / `gain_*_db`) supply
+    /// connection info for `thumbdv` / `ambeserver` decoders.
+    #[cfg(feature = "neural")]
+    #[serde(default)]
+    pub(crate) neural_decoder: NeuralDecoder,
     /// Serial port path for ThumbDV (e.g. "/dev/ttyUSB0").
     #[cfg(feature = "thumbdv")]
     pub(crate) serial_port: Option<String>,

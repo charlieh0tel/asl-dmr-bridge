@@ -61,6 +61,8 @@ serial_port = "/dev/ttyUSB0"
 # serial_baud = 460800          # default
 # ONNX model path; required when backend = "neural".
 # model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
+# Decoder used when backend = "neural"; encode is always neural.
+# neural_decoder = "dynarmic"     # default; "dynarmic" | "thumbdv" | "ambeserver"
 # AMBEserver host; required when backend = "ambeserver".
 # host = "127.0.0.1"
 # AMBEserver port.

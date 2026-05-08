@@ -121,11 +121,18 @@ pub(crate) struct NeuralVocoder {
     /// `pcm_input_samples` of `samples`.
     buffer_cap: usize,
     samples: VecDeque<i16>,
-    decoder: DynarmicVocoder,
+    decoder: Box<dyn crate::Vocoder>,
 }
 
 impl NeuralVocoder {
     pub(crate) fn open(model_path: &Path) -> Result<Self, VocoderError> {
+        Self::open_with_decoder(model_path, Box::new(DynarmicVocoder::new()))
+    }
+
+    pub(crate) fn open_with_decoder(
+        model_path: &Path,
+        decoder: Box<dyn crate::Vocoder>,
+    ) -> Result<Self, VocoderError> {
         let onnx = tract_onnx::onnx();
         let proto = onnx
             .proto_model_for_path(model_path)
@@ -163,7 +170,7 @@ impl NeuralVocoder {
             meta,
             buffer_cap,
             samples: VecDeque::with_capacity(buffer_cap),
-            decoder: DynarmicVocoder::new(),
+            decoder,
         })
     }
 

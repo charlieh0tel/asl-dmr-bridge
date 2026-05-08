@@ -53,6 +53,49 @@ fn config_gain(config: &config::VocoderConfig) -> Option<(i8, i8)> {
     }
 }
 
+#[cfg(feature = "neural")]
+async fn make_neural_decoder(
+    config: &config::VocoderConfig,
+) -> anyhow::Result<Box<dyn ambe::Vocoder>> {
+    match config.neural_decoder {
+        config::NeuralDecoder::Dynarmic => {
+            #[cfg(feature = "dynarmic")]
+            {
+                Ok(ambe::open_dynarmic())
+            }
+            #[cfg(not(feature = "dynarmic"))]
+            {
+                anyhow::bail!("neural_decoder = dynarmic requires the 'dynarmic' feature")
+            }
+        }
+        config::NeuralDecoder::Thumbdv => {
+            #[cfg(feature = "thumbdv")]
+            {
+                let path = config.serial_port.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("neural_decoder = thumbdv requires serial_port")
+                })?;
+                let baud = config.serial_baud;
+                let gain = config_gain(config);
+                Ok(ambe::open_thumbdv(path, baud, gain)?)
+            }
+            #[cfg(not(feature = "thumbdv"))]
+            {
+                anyhow::bail!("neural_decoder = thumbdv requires the 'thumbdv' feature")
+            }
+        }
+        config::NeuralDecoder::Ambeserver => {
+            let host = config
+                .host
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("neural_decoder = ambeserver requires host"))?;
+            let port = config.port.unwrap_or(2460);
+            let addr = resolve_socket_addr(host, port).await?;
+            let gain = config_gain(config);
+            Ok(ambe::open_ambeserver(addr, gain)?)
+        }
+    }
+}
+
 async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn ambe::Vocoder>> {
     match config.backend {
         #[cfg(feature = "thumbdv")]
@@ -85,7 +128,8 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .model_path
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("neural requires model_path"))?;
-            Ok(ambe::open_neural(path)?)
+            let decoder = make_neural_decoder(config).await?;
+            Ok(ambe::open_neural_with_decoder(path, decoder)?)
         }
         #[cfg(not(feature = "neural"))]
         VocoderBackend::Neural => {
