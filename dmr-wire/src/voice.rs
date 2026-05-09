@@ -39,6 +39,7 @@ use super::dmrd::CallType;
 use super::dmrd::DMR_DATA_SIZE;
 use super::dmrd::Dmrd;
 use super::dmrd::FrameType;
+use super::dmrd::PACKET_SIZE;
 
 mod diagnostics;
 mod ptt;
@@ -270,8 +271,8 @@ pub async fn voice_task(
     mut audio_rx: mpsc::Receiver<AudioFrame>,
     mut control_rx: mpsc::Receiver<ControlEvent>,
     audio_tx: mpsc::Sender<AudioFrame>,
-    dmrd_voice_out: mpsc::Sender<Vec<u8>>,
-    dmrd_control_out: mpsc::UnboundedSender<Vec<u8>>,
+    dmrd_voice_out: mpsc::Sender<[u8; PACKET_SIZE]>,
+    dmrd_control_out: mpsc::UnboundedSender<[u8; PACKET_SIZE]>,
     metadata_tx: mpsc::Sender<MetaEvent>,
     stats_tx: Option<mpsc::Sender<StatsEvent>>,
     callsign_lookup: Option<CallsignLookup>,

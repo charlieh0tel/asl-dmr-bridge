@@ -1,6 +1,7 @@
 use super::ptt::PttMachine;
 use super::ptt::PttState;
 use super::*;
+use crate::dmrd::PACKET_SIZE;
 use dmr_types::ColorCode;
 use dmr_types::DmrId;
 use dmr_types::SubscriberId;
@@ -45,8 +46,8 @@ impl Vocoder for PanickingVocoder {
 type TestMachine = (
     PttMachine,
     mpsc::Receiver<AudioFrame>,
-    mpsc::Receiver<Vec<u8>>,
-    mpsc::UnboundedReceiver<Vec<u8>>,
+    mpsc::Receiver<[u8; PACKET_SIZE]>,
+    mpsc::UnboundedReceiver<[u8; PACKET_SIZE]>,
     mpsc::Receiver<MetaEvent>,
 );
 
@@ -678,8 +679,8 @@ struct Rig {
     audio_in: mpsc::Sender<AudioFrame>,
     control_in: mpsc::Sender<ControlEvent>,
     audio_out: mpsc::Receiver<AudioFrame>,
-    dmrd_voice_out: mpsc::Receiver<Vec<u8>>,
-    dmrd_control_out: mpsc::UnboundedReceiver<Vec<u8>>,
+    dmrd_voice_out: mpsc::Receiver<[u8; PACKET_SIZE]>,
+    dmrd_control_out: mpsc::UnboundedReceiver<[u8; PACKET_SIZE]>,
     cancel: CancellationToken,
     handle: tokio::task::JoinHandle<()>,
 }
@@ -736,11 +737,11 @@ impl Rig {
         drain_with_idle_timeout(&mut self.audio_out).await
     }
 
-    async fn drain_voice_dmrd(&mut self) -> Vec<Vec<u8>> {
+    async fn drain_voice_dmrd(&mut self) -> Vec<[u8; PACKET_SIZE]> {
         drain_with_idle_timeout(&mut self.dmrd_voice_out).await
     }
 
-    async fn drain_control_dmrd(&mut self) -> Vec<Vec<u8>> {
+    async fn drain_control_dmrd(&mut self) -> Vec<[u8; PACKET_SIZE]> {
         drain_unbounded_with_idle_timeout(&mut self.dmrd_control_out).await
     }
 }

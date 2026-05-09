@@ -37,6 +37,7 @@ use crate::bptc::build_voice_lc;
 use crate::dmrd::CallType;
 use crate::dmrd::Dmrd;
 use crate::dmrd::FrameType;
+use crate::dmrd::PACKET_SIZE;
 use crate::embedded_lc::build_fragments;
 use crate::embedded_lc::lcss_for_fragment;
 use crate::frame::assemble_burst;
@@ -133,8 +134,8 @@ pub(crate) struct PttMachine {
     config: VoiceConfig,
     vocoder: SharedVocoder,
     audio_tx: mpsc::Sender<AudioFrame>,
-    dmrd_voice_out: mpsc::Sender<Vec<u8>>,
-    dmrd_control_out: mpsc::UnboundedSender<Vec<u8>>,
+    dmrd_voice_out: mpsc::Sender<[u8; PACKET_SIZE]>,
+    dmrd_control_out: mpsc::UnboundedSender<[u8; PACKET_SIZE]>,
     /// Out-of-band call metadata events destined for USRP TEXT
     /// frames (the bridge layer encodes to JSON).  try_send'd
     /// without backpressure: dropping a metadata frame is preferable
@@ -165,8 +166,8 @@ impl PttMachine {
         policy: PttPolicy,
         vocoder: Box<dyn Vocoder>,
         audio_tx: mpsc::Sender<AudioFrame>,
-        dmrd_voice_out: mpsc::Sender<Vec<u8>>,
-        dmrd_control_out: mpsc::UnboundedSender<Vec<u8>>,
+        dmrd_voice_out: mpsc::Sender<[u8; PACKET_SIZE]>,
+        dmrd_control_out: mpsc::UnboundedSender<[u8; PACKET_SIZE]>,
         metadata_tx: mpsc::Sender<MetaEvent>,
         stats_tx: Option<mpsc::Sender<StatsEvent>>,
         callsign_lookup: Option<CallsignLookup>,
@@ -352,7 +353,7 @@ impl PttMachine {
 
     // --- TX burst builders ---
 
-    fn build_tx_header(&self, tx: &mut TxCall) -> Vec<u8> {
+    fn build_tx_header(&self, tx: &mut TxCall) -> [u8; PACKET_SIZE] {
         let group = self.is_group_call();
         let lc = build_voice_lc(
             group,
@@ -375,10 +376,10 @@ impl PttMachine {
             burst,
         );
         tx.dmrd_seq = tx.dmrd_seq.wrapping_add(1);
-        pkt.serialize().to_vec()
+        pkt.serialize()
     }
 
-    fn build_tx_terminator(&self, tx: &mut TxCall) -> Vec<u8> {
+    fn build_tx_terminator(&self, tx: &mut TxCall) -> [u8; PACKET_SIZE] {
         let group = self.is_group_call();
         let lc = build_voice_lc(
             group,
@@ -401,14 +402,14 @@ impl PttMachine {
             burst,
         );
         tx.dmrd_seq = tx.dmrd_seq.wrapping_add(1);
-        pkt.serialize().to_vec()
+        pkt.serialize()
     }
 
     async fn build_tx_voice(
         &mut self,
         pcm: &[PcmFrame; FRAMES_PER_BURST],
         tx: &mut TxCall,
-    ) -> Option<(Vec<u8>, [Duration; FRAMES_PER_BURST])> {
+    ) -> Option<([u8; PACKET_SIZE], [Duration; FRAMES_PER_BURST])> {
         let mut ambe = [AmbeFrame::default(); FRAMES_PER_BURST];
         let mut transcode_times = [Duration::ZERO; FRAMES_PER_BURST];
         for (i, frame) in pcm.iter().enumerate() {
@@ -434,7 +435,11 @@ impl PttMachine {
     /// (vseq=0) carries `BS_VOICE_SYNC`; bursts B-E (vseq 1..=4) carry
     /// embedded-LC fragments 0..3 with LCSS 1/3/3/2 per ETSI
     /// TS 102 361-1; burst F (vseq=5) carries null EMB.
-    fn build_voice_burst(&self, ambe: &[AmbeFrame; FRAMES_PER_BURST], tx: &mut TxCall) -> Vec<u8> {
+    fn build_voice_burst(
+        &self,
+        ambe: &[AmbeFrame; FRAMES_PER_BURST],
+        tx: &mut TxCall,
+    ) -> [u8; PACKET_SIZE] {
         let sync = match tx.vseq {
             0 => BS_VOICE_SYNC,
             n @ 1..=4 => {
@@ -461,7 +466,7 @@ impl PttMachine {
             tx.superframe_idx = tx.superframe_idx.wrapping_add(1);
         }
         tx.vseq = next_vseq;
-        pkt.serialize().to_vec()
+        pkt.serialize()
     }
 
     /// try_send + warn-on-full for the bounded DMRD voice channel.
@@ -476,7 +481,7 @@ impl PttMachine {
     /// what reaches the wire: VoiceFrame on success, Drop on full.
     fn try_send_voice_dmrd(
         &self,
-        pkt: Vec<u8>,
+        pkt: [u8; PACKET_SIZE],
         transcode_times: [Duration; FRAMES_PER_BURST],
         kind: &'static str,
     ) {
@@ -511,7 +516,7 @@ impl PttMachine {
     /// Headers and terminators define call boundaries.  Queue them on
     /// a dedicated unbounded control path so they are never dropped by
     /// bursty voice traffic filling the bounded voice queue.
-    fn send_control_dmrd(&self, pkt: Vec<u8>, kind: &'static str) {
+    fn send_control_dmrd(&self, pkt: [u8; PACKET_SIZE], kind: &'static str) {
         if self.dmrd_control_out.send(pkt).is_err() {
             warn!(kind, "DMRD control channel closed");
         }

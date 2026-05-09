@@ -31,6 +31,7 @@ use crate::network::NetworkProfile;
 use dmr_types::DmrId;
 use dmr_types::REPEATER_ID_WIRE_LEN;
 use dmr_wire::dmrd::Dmrd;
+use dmr_wire::dmrd::PACKET_SIZE as DMRD_PACKET_SIZE;
 use dmr_wire::voice::ControlEvent;
 
 #[derive(Debug, thiserror::Error)]
@@ -253,8 +254,8 @@ pub(crate) async fn run(
     password: &SecretString,
     profile: &dyn NetworkProfile,
     dmrd_tx: mpsc::Sender<Dmrd>,
-    mut dmrd_voice_out_rx: mpsc::Receiver<Vec<u8>>,
-    mut dmrd_ctl_out_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut dmrd_voice_out_rx: mpsc::Receiver<[u8; DMRD_PACKET_SIZE]>,
+    mut dmrd_ctl_out_rx: mpsc::UnboundedReceiver<[u8; DMRD_PACKET_SIZE]>,
     control_tx: mpsc::Sender<ControlEvent>,
     cancel: CancellationToken,
 ) -> Result<(), NetworkError> {
@@ -322,8 +323,8 @@ async fn connect_once(
     password: &SecretString,
     profile: &dyn NetworkProfile,
     dmrd_tx: mpsc::Sender<Dmrd>,
-    dmrd_voice_out_rx: &mut mpsc::Receiver<Vec<u8>>,
-    dmrd_ctl_out_rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
+    dmrd_voice_out_rx: &mut mpsc::Receiver<[u8; DMRD_PACKET_SIZE]>,
+    dmrd_ctl_out_rx: &mut mpsc::UnboundedReceiver<[u8; DMRD_PACKET_SIZE]>,
     control_tx: &mpsc::Sender<ControlEvent>,
     cancel: CancellationToken,
 ) -> Result<(), ConnectError> {
@@ -487,8 +488,8 @@ async fn keepalive_loop(
     socket: &UdpSocket,
     config: &RuntimeConfig,
     dmrd_tx: &mpsc::Sender<Dmrd>,
-    dmrd_voice_out_rx: &mut mpsc::Receiver<Vec<u8>>,
-    dmrd_ctl_out_rx: &mut mpsc::UnboundedReceiver<Vec<u8>>,
+    dmrd_voice_out_rx: &mut mpsc::Receiver<[u8; DMRD_PACKET_SIZE]>,
+    dmrd_ctl_out_rx: &mut mpsc::UnboundedReceiver<[u8; DMRD_PACKET_SIZE]>,
     cancel: CancellationToken,
 ) -> Result<(), NetworkError> {
     let mut buf = [0u8; MAX_RECV];
