@@ -31,7 +31,7 @@ const FULL_SCALE: f32 = 32768.0;
 
 /// Static configuration for one AGC instance.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct AgcParams {
+pub struct AgcParams {
     /// Target peak in dBFS (negative; e.g. -6 leaves 6 dB headroom).
     pub target_dbfs: f32,
     /// One-pole time constant for the envelope's rise on louder
@@ -62,7 +62,7 @@ impl AgcParams {
     }
 }
 
-pub(crate) struct Agc {
+pub struct Agc {
     target: f32,
     max_gain: f32,
     attack_alpha: f32,
@@ -72,7 +72,7 @@ pub(crate) struct Agc {
 }
 
 impl Agc {
-    pub(crate) fn new(params: AgcParams) -> Self {
+    pub fn new(params: AgcParams) -> Self {
         Self {
             target: db_to_linear(params.target_dbfs),
             max_gain: db_to_linear(params.max_gain_db),
@@ -85,7 +85,7 @@ impl Agc {
 
     /// Clear envelope + gain.  Call at call boundaries so the next
     /// talker starts from a neutral state.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.envelope = 0.0;
         self.gain = 1.0;
     }
@@ -94,7 +94,7 @@ impl Agc {
     /// rescaled to `[-1, 1]`, fed through the envelope follower and
     /// gain smoother, multiplied by the smoothed gain, hard-limited
     /// to `[-1, 1]`, and re-quantized to i16.
-    pub(crate) fn process(&mut self, samples: &mut [i16]) {
+    pub fn process(&mut self, samples: &mut [i16]) {
         for s in samples.iter_mut() {
             let x = f32::from(*s) / FULL_SCALE;
             let abs_x = x.abs();

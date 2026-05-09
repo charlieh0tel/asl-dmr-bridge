@@ -24,7 +24,7 @@ use usrp_wire::PACKET_SIZE;
 use usrp_wire::RECV_SLACK;
 use usrp_wire::VOICE_FRAME_INTERVAL;
 
-use crate::agc::Agc;
+use dsp::agc::Agc;
 use dsp::levels::LevelAccumulator;
 use dsp::levels::fmt_dbfs;
 use pcm_utils::wav::WavRecorder;

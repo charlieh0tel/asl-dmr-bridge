@@ -1,4 +1,3 @@
-mod agc;
 mod brandmeister_provision;
 mod cli;
 mod config;
@@ -28,14 +27,14 @@ use tracing_subscriber::EnvFilter;
 /// small slack.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
-use crate::agc::Agc;
-use crate::agc::AgcParams;
 use crate::cli::Args;
 use crate::config::Network;
 use crate::config::VocoderBackend;
 use crate::network::brandmeister::Brandmeister;
 use dmr_events::CallsignLookup;
 use dmr_subscriber::Subscribers;
+use dsp::agc::Agc;
+use dsp::agc::AgcParams;
 
 const PASSWORD_ENV: &str = "BRANDMEISTER_PASSWORD";
 const API_KEY_ENV: &str = "BRANDMEISTER_API_KEY";
