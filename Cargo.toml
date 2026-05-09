@@ -8,16 +8,16 @@ license = "GPL-2.0-or-later"
 
 [workspace.dependencies]
 # Local crates -- relative paths so the workspace publishes coherently.
-ambe = { version = "2.0.0", path = "ambe" }
-brandmeister-api = { version = "2.0.0", path = "brandmeister-api" }
-dmr-subscriber = { version = "2.0.0", path = "dmr-subscriber" }
-dmr-types = { version = "2.0.0", path = "dmr-types" }
-dmr-events = { version = "2.0.0", path = "dmr-events" }
-dmr-wire = { version = "2.0.0", path = "dmr-wire" }
-dsp = { version = "2.0.0", path = "dsp" }
-dynarmic-sys = { version = "2.0.0", path = "ambe/dynarmic-sys" }
-pcm-utils = { version = "2.0.0", path = "pcm-utils" }
-usrp-wire = { version = "2.0.0", path = "usrp-wire" }
+ambe = { version = "2.1.0", path = "ambe" }
+brandmeister-api = { version = "2.1.0", path = "brandmeister-api" }
+dmr-subscriber = { version = "2.1.0", path = "dmr-subscriber" }
+dmr-types = { version = "2.1.0", path = "dmr-types" }
+dmr-events = { version = "2.1.0", path = "dmr-events" }
+dmr-wire = { version = "2.1.0", path = "dmr-wire" }
+dsp = { version = "2.1.0", path = "dsp" }
+dynarmic-sys = { version = "2.1.0", path = "ambe/dynarmic-sys" }
+pcm-utils = { version = "2.1.0", path = "pcm-utils" }
+usrp-wire = { version = "2.1.0", path = "usrp-wire" }
 
 # External deps.  Features that are "always wanted" live here; features
 # specific to one consumer (tokio runtimes, signal handlers, etc.) stay
