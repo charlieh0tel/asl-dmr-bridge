@@ -387,6 +387,7 @@ pub(crate) struct DmrConfig {
     pub(crate) tx_timeout: Duration,
 }
 
+/// Stuck-key safeguard for FM-side PTT that never releases.
 fn default_tx_timeout() -> Duration {
     Duration::from_secs(180)
 }
