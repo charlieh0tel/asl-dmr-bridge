@@ -537,7 +537,7 @@ async fn keepalive_loop(
                     InboundEvent::Dmrd(pkt) => {
                         debug!(
                             seq = pkt.seq,
-                            src_id = pkt.src_id,
+                            src_id = pkt.src_id.as_u32(),
                             dst_id = pkt.dst_id,
                             stream_id = pkt.stream_id,
                             slot = ?pkt.slot,

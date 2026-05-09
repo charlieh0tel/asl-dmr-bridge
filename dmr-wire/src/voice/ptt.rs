@@ -90,7 +90,7 @@ const GAP_BOUNDARY_PACKETS: u8 = 3;
 
 pub(crate) struct RxCall {
     pub(crate) stream_id: u32,
-    src_id: u32,
+    src_id: dmr_types::SubscriberId,
     dst_id: u32,
     slot: dmr_types::Slot,
     started: Instant,
@@ -227,17 +227,19 @@ impl PttMachine {
     /// DMRD packet.  Drops on full channel; metadata is best-effort
     /// and must never backpressure voice.
     fn emit_call_metadata(&self, pkt: &Dmrd) {
-        // pkt fields come off the wire; if either ID fails range
-        // validation just skip emission (metadata is best-effort).
-        let Ok(dmr_id) = dmr_types::SubscriberId::try_from(pkt.src_id) else {
-            debug!(src_id = pkt.src_id, "skipping metadata: invalid src_id");
-            return;
-        };
+        // src_id is already a SubscriberId (validated at parse).  dst_id
+        // is the wire u32; convert to Talkgroup for the metadata event,
+        // skip emission if it's outside Talkgroup range (best-effort).
+        let dmr_id = pkt.src_id;
         let Ok(tg) = dmr_types::Talkgroup::try_from(pkt.dst_id) else {
             debug!(dst_id = pkt.dst_id, "skipping metadata: invalid dst_id");
             return;
         };
-        let (call, name) = match self.callsign_lookup.as_ref().and_then(|f| f(pkt.src_id)) {
+        let (call, name) = match self
+            .callsign_lookup
+            .as_ref()
+            .and_then(|f| f(pkt.src_id.as_u32()))
+        {
             Some((c, n)) => {
                 let call = if c.is_empty() { None } else { Some(c) };
                 let name = if n.is_empty() { None } else { Some(n) };
@@ -582,7 +584,7 @@ impl PttMachine {
                 }
                 info!(
                     stream_id = pkt.stream_id,
-                    src_id = pkt.src_id,
+                    src_id = pkt.src_id.as_u32(),
                     dst_id = pkt.dst_id,
                     "RX header"
                 );
@@ -591,7 +593,7 @@ impl PttMachine {
                 let now = Instant::now();
                 self.try_send_stats(StatsEvent::CallStart {
                     dir: CallDirection::DmrToFm,
-                    src_id: pkt.src_id,
+                    src_id: pkt.src_id.as_u32(),
                     dst_id: pkt.dst_id,
                     slot: pkt.slot,
                 });
@@ -689,7 +691,7 @@ impl PttMachine {
                     self.on_rx_call_start(pkt.stream_id);
                     self.try_send_stats(StatsEvent::CallStart {
                         dir: CallDirection::DmrToFm,
-                        src_id: pkt.src_id,
+                        src_id: pkt.src_id.as_u32(),
                         dst_id: pkt.dst_id,
                         slot: pkt.slot,
                     });

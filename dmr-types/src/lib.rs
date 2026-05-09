@@ -129,6 +129,12 @@ impl SubscriberId {
     pub fn as_u32(self) -> u32 {
         self.0
     }
+
+    pub fn to_be_bytes_3(self) -> [u8; 3] {
+        // Range enforced at construction, so direct slice is safe.
+        let b = self.0.to_be_bytes();
+        [b[1], b[2], b[3]]
+    }
 }
 
 impl TryFrom<u32> for SubscriberId {

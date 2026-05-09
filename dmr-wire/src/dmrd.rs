@@ -15,7 +15,10 @@
 //! The `dmr_data` payload is a Layer 2 burst; disassembly into AMBE
 //! codewords and embedded signaling happens in sibling modules.
 
+use dmr_types::DmrId;
+use dmr_types::InvalidValue;
 use dmr_types::Slot;
+use dmr_types::SubscriberId;
 
 const MAGIC: &[u8; 4] = b"DMRD";
 const HEADER_SIZE: usize = 20;
@@ -58,18 +61,28 @@ pub enum DmrdError {
     BadMagic([u8; 4]),
     #[error("reserved frame_type bits (0b11)")]
     ReservedFrameType,
+    #[error("invalid src_id: {0}")]
+    InvalidSrcId(#[source] InvalidValue),
+    #[error("invalid repeater_id: {0}")]
+    InvalidRepeaterId(#[source] InvalidValue),
 }
 
 /// Parsed DMRD packet.  `dtype_vseq` carries voice-sequence 0..5 (A..F)
 /// when `frame_type == Voice`, or a DMR data-type code when
-/// `frame_type == DataSync`.  `src_id` and `dst_id` are 24-bit values
-/// zero-extended into u32.
+/// `frame_type == DataSync`.
+///
+/// `src_id` and `repeater_id` are validated at parse time to range +
+/// non-zero (see `dmr_types`).  `dst_id` is left as `u32` because its
+/// semantic varies with `call_type` (talkgroup for group calls, target
+/// subscriber for unit calls); callers convert via `Talkgroup::try_from`
+/// or `SubscriberId::try_from` per-context.  `stream_id` is opaque
+/// per-call random.
 #[derive(Debug, Clone)]
 pub struct Dmrd {
     pub seq: u8,
-    pub src_id: u32,
+    pub src_id: SubscriberId,
     pub dst_id: u32,
-    pub repeater_id: u32,
+    pub repeater_id: DmrId,
     pub slot: Slot,
     pub call_type: CallType,
     pub frame_type: FrameType,
@@ -81,14 +94,15 @@ pub struct Dmrd {
 impl Dmrd {
     /// Serialize to a 53-byte DMRD packet.
     ///
-    /// Panics if `src_id` or `dst_id` exceeds 2^24.  See `types::DmrId`
-    /// type-level doc: these are 24-bit on-air subscriber IDs, and
-    /// silent truncation would impersonate an unrelated user.
+    /// Panics if `dst_id` exceeds 2^24.  `src_id` is a `SubscriberId`
+    /// (already 24-bit-validated); `dst_id` stays a wire `u32` whose
+    /// semantic depends on `call_type`, so it carries the bounds
+    /// check itself via `id_to_24_be`.
     pub fn serialize(&self) -> [u8; PACKET_SIZE] {
         let mut buf = [0u8; PACKET_SIZE];
         buf[0..4].copy_from_slice(MAGIC);
         buf[4] = self.seq;
-        buf[5..8].copy_from_slice(&super::id_to_24_be(self.src_id));
+        buf[5..8].copy_from_slice(&self.src_id.to_be_bytes_3());
         buf[8..11].copy_from_slice(&super::id_to_24_be(self.dst_id));
         buf[11..15].copy_from_slice(&self.repeater_id.to_be_bytes());
 
@@ -126,13 +140,15 @@ impl Dmrd {
         // checked at the top of the function; the try_into().expect()
         // calls cannot fail.
         let seq = buf[4];
-        let src_id = u32::from_be_bytes([0, buf[5], buf[6], buf[7]]);
+        let src_id = SubscriberId::try_from(u32::from_be_bytes([0, buf[5], buf[6], buf[7]]))
+            .map_err(DmrdError::InvalidSrcId)?;
         let dst_id = u32::from_be_bytes([0, buf[8], buf[9], buf[10]]);
-        let repeater_id = u32::from_be_bytes(
+        let repeater_id = DmrId::try_from(u32::from_be_bytes(
             buf[11..15]
                 .try_into()
                 .expect("buf len >= PACKET_SIZE checked above"),
-        );
+        ))
+        .map_err(DmrdError::InvalidRepeaterId)?;
         let flags = buf[15];
         let stream_id = u32::from_be_bytes(
             buf[16..20]
@@ -199,9 +215,9 @@ mod tests {
         let buf = sample_packet(0b0000_0011);
         let d = Dmrd::parse(&buf).unwrap();
         assert_eq!(d.seq, 0x2A);
-        assert_eq!(d.src_id, 0x0001_2345);
+        assert_eq!(d.src_id.as_u32(), 0x0001_2345);
         assert_eq!(d.dst_id, 9);
-        assert_eq!(d.repeater_id, 1234567);
+        assert_eq!(d.repeater_id.as_u32(), 1234567);
         assert_eq!(d.slot, Slot::One);
         assert_eq!(d.call_type, CallType::Group);
         assert_eq!(d.frame_type, FrameType::Voice);
@@ -267,9 +283,9 @@ mod tests {
     fn serialize_round_trip() {
         let orig = Dmrd {
             seq: 0x2A,
-            src_id: 0x0001_2345,
+            src_id: SubscriberId::try_from(0x0001_2345).unwrap(),
             dst_id: 9,
-            repeater_id: 1234567,
+            repeater_id: DmrId::try_from(1234567).unwrap(),
             slot: Slot::Two,
             call_type: CallType::Unit,
             frame_type: FrameType::DataSync,
@@ -305,15 +321,15 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "exceeds 24-bit max")]
-    fn serialize_panics_on_src_id_over_24_bit() {
-        // A 9-digit hotspot repeater_id fits in 32 bits but NOT 24.
-        // Must panic rather than silently truncate onto an impostor
-        // subscriber ID.
+    fn serialize_panics_on_dst_id_over_24_bit() {
+        // dst_id is the only id field still typed as u32 (its semantic
+        // varies with call_type).  Must panic rather than silently
+        // truncate onto an impostor address.
         let d = Dmrd {
             seq: 0,
-            src_id: 100_000_001,
-            dst_id: 91,
-            repeater_id: 100_000_001,
+            src_id: SubscriberId::try_from(91).unwrap(),
+            dst_id: 100_000_001,
+            repeater_id: DmrId::try_from(100_000_001).unwrap(),
             slot: Slot::One,
             call_type: CallType::Group,
             frame_type: FrameType::Voice,
@@ -322,5 +338,22 @@ mod tests {
             dmr_data: [0; DMR_DATA_SIZE],
         };
         let _ = d.serialize();
+    }
+
+    #[test]
+    fn parse_rejects_zero_src_id() {
+        let mut buf = sample_packet(0);
+        buf[5..8].copy_from_slice(&[0, 0, 0]);
+        assert!(matches!(Dmrd::parse(&buf), Err(DmrdError::InvalidSrcId(_))));
+    }
+
+    #[test]
+    fn parse_rejects_zero_repeater_id() {
+        let mut buf = sample_packet(0);
+        buf[11..15].copy_from_slice(&[0; 4]);
+        assert!(matches!(
+            Dmrd::parse(&buf),
+            Err(DmrdError::InvalidRepeaterId(_))
+        ));
     }
 }

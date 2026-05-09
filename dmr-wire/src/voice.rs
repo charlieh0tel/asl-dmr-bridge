@@ -106,12 +106,12 @@ fn check_voice_lc(pkt: &Dmrd) {
             );
         }
     }
-    if lc.src_id != pkt.src_id || lc.dst_id != pkt.dst_id {
+    if lc.src_id != pkt.src_id.as_u32() || lc.dst_id != pkt.dst_id {
         warn!(
             stream_id = pkt.stream_id,
             lc_src = lc.src_id,
             lc_dst = lc.dst_id,
-            hdr_src = pkt.src_id,
+            hdr_src = pkt.src_id.as_u32(),
             hdr_dst = pkt.dst_id,
             "LC vs DMRD header mismatch"
         );
@@ -177,9 +177,9 @@ fn build_dmrd(
 ) -> Dmrd {
     Dmrd {
         seq,
-        src_id: config.src_id.as_u32(),
+        src_id: config.src_id,
         dst_id: config.talkgroup.as_u32(),
-        repeater_id: config.repeater_id.as_u32(),
+        repeater_id: config.repeater_id,
         slot: config.slot,
         call_type: config.call_type,
         frame_type,

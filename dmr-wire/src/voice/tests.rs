@@ -98,9 +98,9 @@ fn make_machine_with_lookup(callsign_lookup: Option<CallsignLookup>) -> TestMach
 fn voice_dmrd(stream_id: u32) -> Dmrd {
     Dmrd {
         seq: 0,
-        src_id: 12345,
+        src_id: dmr_types::SubscriberId::try_from(12345).unwrap(),
         dst_id: 91,
-        repeater_id: 12345,
+        repeater_id: dmr_types::DmrId::try_from(12345).unwrap(),
         slot: Slot::One,
         call_type: CallType::Group,
         frame_type: FrameType::Voice,
@@ -113,9 +113,9 @@ fn voice_dmrd(stream_id: u32) -> Dmrd {
 fn header_dmrd(stream_id: u32) -> Dmrd {
     Dmrd {
         seq: 0,
-        src_id: 12345,
+        src_id: dmr_types::SubscriberId::try_from(12345).unwrap(),
         dst_id: 91,
-        repeater_id: 12345,
+        repeater_id: dmr_types::DmrId::try_from(12345).unwrap(),
         slot: Slot::One,
         call_type: CallType::Group,
         frame_type: FrameType::DataSync,
@@ -128,9 +128,9 @@ fn header_dmrd(stream_id: u32) -> Dmrd {
 fn terminator_dmrd(stream_id: u32) -> Dmrd {
     Dmrd {
         seq: 0,
-        src_id: 12345,
+        src_id: dmr_types::SubscriberId::try_from(12345).unwrap(),
         dst_id: 91,
-        repeater_id: 12345,
+        repeater_id: dmr_types::DmrId::try_from(12345).unwrap(),
         slot: Slot::One,
         call_type: CallType::Group,
         frame_type: FrameType::DataSync,
@@ -181,7 +181,7 @@ fn matches_config_private_dst_eq_our_src_id() {
     let mut pkt = voice_dmrd(1);
     pkt.call_type = CallType::Unit;
     pkt.dst_id = 1234567;
-    pkt.src_id = 9990;
+    pkt.src_id = SubscriberId::try_from(9990).unwrap();
     assert!(matches_config(&pkt, &cfg));
 }
 
@@ -337,7 +337,7 @@ async fn rx_stream_change_emits_new_metadata() {
     m.on_dmrd(&header_dmrd(0x111)).await;
     let _first = expect_call(&mut metadata_rx);
     let mut second = voice_dmrd(0x222);
-    second.src_id = 67890;
+    second.src_id = SubscriberId::try_from(67890).unwrap();
     m.on_dmrd(&second).await;
     let meta = expect_call(&mut metadata_rx);
     assert_eq!(meta.dmr_id.as_u32(), 67890);
