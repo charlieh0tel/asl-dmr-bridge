@@ -152,13 +152,10 @@ impl Subscribers {
         Ok(Self { by_id })
     }
 
-    /// Look up a subscriber by on-air DMR ID.  Raw `u32` accepted for
-    /// ergonomics; out-of-range values miss without erroring.
+    /// Look up a subscriber by on-air DMR ID.
     #[must_use]
-    pub fn get(&self, dmr_id: u32) -> Option<&Subscriber> {
-        SubscriberId::try_from(dmr_id)
-            .ok()
-            .and_then(|id| self.by_id.get(&id))
+    pub fn get(&self, dmr_id: SubscriberId) -> Option<&Subscriber> {
+        self.by_id.get(&dmr_id)
     }
 
     #[must_use]
@@ -267,7 +264,9 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
         let subs = Subscribers::from_reader(SAMPLE.as_bytes()).unwrap();
         assert_eq!(subs.len(), 3);
 
-        let s = subs.get(1234567).expect("N0CALL present");
+        let s = subs
+            .get(SubscriberId::try_from(1234567).unwrap())
+            .expect("N0CALL present");
         assert_eq!(s.callsign, "N0CALL");
         assert_eq!(s.first_name, "Test");
         assert_eq!(s.country, "United States");
@@ -276,7 +275,9 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
     #[test]
     fn load_tolerates_blank_optional_fields() {
         let subs = Subscribers::from_reader(SAMPLE.as_bytes()).unwrap();
-        let s = subs.get(5201886).expect("GB7TST present");
+        let s = subs
+            .get(SubscriberId::try_from(5201886).unwrap())
+            .expect("GB7TST present");
         assert_eq!(s.callsign, "GB7TST");
         assert!(s.first_name.is_empty());
         assert!(s.last_name.is_empty());
@@ -286,7 +287,7 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
     #[test]
     fn lookup_miss_returns_none() {
         let subs = Subscribers::from_reader(SAMPLE.as_bytes()).unwrap();
-        assert!(subs.get(9999999).is_none());
+        assert!(subs.get(SubscriberId::try_from(9999999).unwrap()).is_none());
     }
 
     #[test]
@@ -300,7 +301,9 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
              7654321,{huge},Test,User,City,ST,USA\n"
         );
         let subs = Subscribers::from_reader(csv.as_bytes()).unwrap();
-        let s = subs.get(7654321).expect("present");
+        let s = subs
+            .get(SubscriberId::try_from(7654321).unwrap())
+            .expect("present");
         assert_eq!(s.callsign.len(), MAX_FIELD_LEN);
         assert!(s.callsign.chars().all(|c| c == 'X'));
     }
@@ -314,7 +317,7 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY
              7654321,N0CALL,{big},User,City,ST,USA\n"
         );
         let subs = Subscribers::from_reader(csv.as_bytes()).unwrap();
-        let s = subs.get(7654321).unwrap();
+        let s = subs.get(SubscriberId::try_from(7654321).unwrap()).unwrap();
         assert!(s.first_name.len() <= MAX_FIELD_LEN);
         assert!(s.first_name.is_char_boundary(s.first_name.len()));
     }
@@ -336,6 +339,11 @@ RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY,REMARKS,EXTRA
 ";
         let subs = Subscribers::from_reader(csv.as_bytes()).unwrap();
         assert_eq!(subs.len(), 1);
-        assert_eq!(subs.get(1).unwrap().callsign, "N0CALL");
+        assert_eq!(
+            subs.get(SubscriberId::try_from(1).unwrap())
+                .unwrap()
+                .callsign,
+            "N0CALL"
+        );
     }
 }

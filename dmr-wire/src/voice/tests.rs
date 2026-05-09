@@ -258,7 +258,7 @@ fn expect_call(rx: &mut mpsc::Receiver<MetaEvent>) -> dmr_events::CallMetadata {
 #[tokio::test]
 async fn rx_header_uses_callsign_lookup_when_provided() {
     let lookup: CallsignLookup = std::sync::Arc::new(|id| {
-        if id == 12345 {
+        if id.as_u32() == 12345 {
             Some(("N0CALL".to_string(), "Test".to_string()))
         } else {
             None

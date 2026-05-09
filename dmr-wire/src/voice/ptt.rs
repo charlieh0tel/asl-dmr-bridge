@@ -235,11 +235,7 @@ impl PttMachine {
             debug!(dst_id = pkt.dst_id, "skipping metadata: invalid dst_id");
             return;
         };
-        let (call, name) = match self
-            .callsign_lookup
-            .as_ref()
-            .and_then(|f| f(pkt.src_id.as_u32()))
-        {
+        let (call, name) = match self.callsign_lookup.as_ref().and_then(|f| f(pkt.src_id)) {
             Some((c, n)) => {
                 let call = if c.is_empty() { None } else { Some(c) };
                 let name = if n.is_empty() { None } else { Some(n) };

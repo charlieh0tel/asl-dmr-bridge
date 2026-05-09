@@ -30,7 +30,7 @@ pub struct CallMetadata {
 /// `dmr-wire`'s voice task takes one of these to enrich `CallMetadata`
 /// without a direct dependency on `dmr-subscriber` or any specific
 /// CSV format.
-pub type CallsignLookup = Arc<dyn Fn(u32) -> Option<(String, String)> + Send + Sync>;
+pub type CallsignLookup = Arc<dyn Fn(SubscriberId) -> Option<(String, String)> + Send + Sync>;
 
 /// Channel event emitted by the voice task at call boundaries.
 /// `Call` carries fully-built metadata for a new (or refreshed) call;
