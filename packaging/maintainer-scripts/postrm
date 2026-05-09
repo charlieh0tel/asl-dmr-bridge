@@ -1,11 +1,25 @@
 #!/bin/sh
 set -e
 
-if [ "$1" = "purge" ]; then
-    if [ -d /run/systemd/system ]; then
+if [ -d /run/systemd/system ]; then
+    case "$1" in
+        remove|purge)
+            deb-systemd-helper remove asl-dmr-bridge.service >/dev/null 2>&1 || true
+            deb-systemd-helper remove ambeserver.service >/dev/null 2>&1 || true
+            deb-systemd-helper remove asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+            ;;
+    esac
+    if [ "$1" = "purge" ]; then
+        deb-systemd-helper purge asl-dmr-bridge.service >/dev/null 2>&1 || true
+        deb-systemd-helper purge ambeserver.service >/dev/null 2>&1 || true
         deb-systemd-helper purge asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+        deb-systemd-helper unmask asl-dmr-bridge.service >/dev/null 2>&1 || true
+        deb-systemd-helper unmask ambeserver.service >/dev/null 2>&1 || true
         deb-systemd-helper unmask asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
     fi
+fi
+
+if [ "$1" = "purge" ]; then
     rm -rf /etc/asl-dmr-bridge /var/lib/asl-dmr-bridge
 fi
 

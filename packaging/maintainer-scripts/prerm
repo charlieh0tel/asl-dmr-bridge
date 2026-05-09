@@ -2,6 +2,8 @@
 set -e
 
 if [ -d /run/systemd/system ] && [ "$1" = "remove" ]; then
+    deb-systemd-invoke stop asl-dmr-bridge.service >/dev/null 2>&1 || true
+    deb-systemd-invoke stop ambeserver.service >/dev/null 2>&1 || true
     deb-systemd-invoke stop asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
 fi
 

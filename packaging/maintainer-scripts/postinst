@@ -8,8 +8,22 @@ case "$1" in
             systemd-tmpfiles --create /usr/lib/tmpfiles.d/asl-dmr-bridge.conf >/dev/null 2>&1 || true
         fi
         if [ -d /run/systemd/system ]; then
+            # Enable for boot.  No auto-start: both services need
+            # operator config (config.toml; SERIAL).
+            deb-systemd-helper enable asl-dmr-bridge.service >/dev/null 2>&1 || true
+            deb-systemd-helper enable ambeserver.service >/dev/null 2>&1 || true
             deb-systemd-helper enable asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
             deb-systemd-invoke start asl-dmr-bridge-update-subscribers.timer >/dev/null 2>&1 || true
+
+            if [ -n "$2" ]; then
+                # Upgrade: restart ambeserver automatically; ask for the
+                # bridge so a mid-call drop happens at a quiet moment.
+                deb-systemd-invoke try-restart ambeserver.service >/dev/null 2>&1 || true
+                if systemctl is-active --quiet asl-dmr-bridge.service 2>/dev/null; then
+                    echo "asl-dmr-bridge: restart at a quiet moment with"
+                    echo "                  systemctl restart asl-dmr-bridge"
+                fi
+            fi
         fi
         if [ -d /run/udev ]; then
             udevadm control --reload-rules >/dev/null 2>&1 || true
