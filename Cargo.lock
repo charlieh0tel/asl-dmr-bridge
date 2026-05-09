@@ -57,6 +57,7 @@ version = "2.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dsp",
  "dynarmic-sys",
  "hound",
  "proptest",

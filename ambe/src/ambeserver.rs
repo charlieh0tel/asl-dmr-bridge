@@ -14,6 +14,7 @@ use crate::PcmFrame;
 use crate::Vocoder;
 use crate::VocoderError;
 use crate::dv3000;
+use crate::wire;
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -128,4 +129,22 @@ impl Vocoder for AmbeServer {
     // [TODO] @charlieh0tel: send chip RESET if field testing shows
     // audible inter-stream artifacts; replay RATEP+gain after.
     fn reset(&mut self) {}
+
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        let in_byte = in_db.to_chip_byte();
+        let out_byte = out_db.to_chip_byte();
+        match self.send_recv(&dv3000::build_gain(in_byte, out_byte))? {
+            dv3000::Packet::Control { field_id, .. } if field_id == wire::CONTROL_GAIN => {
+                tracing::info!(
+                    "AMBEserver gain set: in={} dB, out={} dB",
+                    in_byte,
+                    out_byte
+                );
+                Ok(())
+            }
+            other => Err(VocoderError::Init(format!(
+                "expected GAIN ack, got {other:?}"
+            ))),
+        }
+    }
 }

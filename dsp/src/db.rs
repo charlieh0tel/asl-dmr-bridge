@@ -22,6 +22,19 @@ impl dB {
     pub fn to_chip_byte(self) -> i8 {
         self.0.round().clamp(-90.0, 90.0) as i8
     }
+
+    /// Scale a slice of i16 PCM samples by this gain, in-place.
+    /// Saturating; unity is a no-op.
+    pub fn apply(self, samples: &mut [i16]) {
+        let g = self.linear();
+        if g == 1.0 {
+            return;
+        }
+        for s in samples.iter_mut() {
+            let v = (*s as f32) * g;
+            *s = v.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+        }
+    }
 }
 
 impl From<f32> for dB {

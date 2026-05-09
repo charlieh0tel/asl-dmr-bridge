@@ -95,6 +95,10 @@ pub trait Vocoder: Send {
     /// to a freshly-constructed instance.  A no-op is valid when
     /// the backend exposes no per-stream state.
     fn reset(&mut self);
+
+    /// Set static input/output gain.  Last call wins; `dB::UNITY`
+    /// is a no-op.
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError>;
 }
 
 // Factory functions are the only way to construct a backend.  The

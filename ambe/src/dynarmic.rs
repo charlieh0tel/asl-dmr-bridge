@@ -38,19 +38,27 @@ fn lock() -> MutexGuard<'static, ()> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub(crate) struct DynarmicVocoder;
+pub(crate) struct DynarmicVocoder {
+    in_db: dsp::dB,
+    out_db: dsp::dB,
+}
 
 impl DynarmicVocoder {
     pub(crate) fn new() -> Self {
-        Self
+        Self {
+            in_db: dsp::dB::UNITY,
+            out_db: dsp::dB::UNITY,
+        }
     }
 }
 
 impl Vocoder for DynarmicVocoder {
     fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
+        let mut scaled = *pcm;
+        self.in_db.apply(&mut scaled);
         let _g = lock();
         let mut ambe = [0u8; AMBE_FRAME_SIZE];
-        unsafe { dynarmic_sys::md380_encode_fec(ambe.as_mut_ptr(), pcm.as_ptr()) };
+        unsafe { dynarmic_sys::md380_encode_fec(ambe.as_mut_ptr(), scaled.as_ptr()) };
         Ok(ambe)
     }
 
@@ -63,6 +71,7 @@ impl Vocoder for DynarmicVocoder {
         let _g = lock();
         let mut pcm = [0i16; PCM_SAMPLES];
         unsafe { dynarmic_sys::md380_decode_fec(coded.as_ptr(), pcm.as_mut_ptr()) };
+        self.out_db.apply(&mut pcm);
         Ok(pcm)
     }
 
@@ -70,5 +79,11 @@ impl Vocoder for DynarmicVocoder {
         let _g = lock();
         let rc = unsafe { dynarmic_sys::md380_init() };
         assert_eq!(rc, 0, "md380_init failed on reset");
+    }
+
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        self.in_db = in_db;
+        self.out_db = out_db;
+        Ok(())
     }
 }

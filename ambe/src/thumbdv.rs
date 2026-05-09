@@ -198,4 +198,18 @@ impl Vocoder for ThumbDv {
     // [TODO] @charlieh0tel: send chip RESET if field testing shows
     // audible inter-stream artifacts; replay RATEP+gain after.
     fn reset(&mut self) {}
+
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        let in_byte = in_db.to_chip_byte();
+        let out_byte = out_db.to_chip_byte();
+        self.send_raw(&dv3000::build_gain(in_byte, out_byte))?;
+        let response = self.recv()?;
+        if !dv3000::is_gain_ack(&response) {
+            return Err(VocoderError::Init(format!(
+                "expected GAIN ack, got {response:?}"
+            )));
+        }
+        info!("ThumbDV gain set: in={} dB, out={} dB", in_byte, out_byte);
+        Ok(())
+    }
 }

@@ -17,6 +17,7 @@ testing = []
 
 [dependencies]
 clap.workspace = true
+dsp.workspace = true
 dynarmic-sys = { workspace = true, optional = true }
 serialport = { workspace = true, optional = true }
 thiserror.workspace = true

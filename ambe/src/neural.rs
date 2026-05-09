@@ -122,6 +122,9 @@ pub(crate) struct NeuralVocoder {
     buffer_cap: usize,
     samples: VecDeque<i16>,
     decoder: Box<dyn crate::Vocoder>,
+    /// Pre-encode gain applied to PCM before it lands in `samples`.
+    /// Output gain is the inner decoder's responsibility.
+    in_db: dsp::dB,
 }
 
 impl NeuralVocoder {
@@ -171,6 +174,7 @@ impl NeuralVocoder {
             buffer_cap,
             samples: VecDeque::with_capacity(buffer_cap),
             decoder,
+            in_db: dsp::dB::UNITY,
         })
     }
 
@@ -270,7 +274,9 @@ impl NeuralVocoder {
 
 impl Vocoder for NeuralVocoder {
     fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
-        self.samples.extend(pcm.iter().copied());
+        let mut scaled = *pcm;
+        self.in_db.apply(&mut scaled);
+        self.samples.extend(scaled.iter().copied());
         while self.samples.len() > self.buffer_cap {
             self.samples.pop_front();
         }
@@ -287,6 +293,11 @@ impl Vocoder for NeuralVocoder {
     fn reset(&mut self) {
         self.decoder.reset();
         self.samples.clear();
+    }
+
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        self.in_db = in_db;
+        self.decoder.set_gain(dsp::dB::UNITY, out_db)
     }
 }
 

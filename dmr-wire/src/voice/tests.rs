@@ -17,6 +17,9 @@ impl Vocoder for StubVocoder {
         Ok([1000i16; VOICE_SAMPLES])
     }
     fn reset(&mut self) {}
+    fn set_gain(&mut self, _in_db: dsp::dB, _out_db: dsp::dB) -> Result<(), ambe::VocoderError> {
+        Ok(())
+    }
 }
 
 /// Encodes by panicking, simulating an FFI-side panic in a real
@@ -31,6 +34,9 @@ impl Vocoder for PanickingVocoder {
         Ok([0i16; VOICE_SAMPLES])
     }
     fn reset(&mut self) {}
+    fn set_gain(&mut self, _in_db: dsp::dB, _out_db: dsp::dB) -> Result<(), ambe::VocoderError> {
+        Ok(())
+    }
 }
 
 type TestMachine = (
