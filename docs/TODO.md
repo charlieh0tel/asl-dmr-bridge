@@ -23,14 +23,3 @@ appears.
   but takes ~4 superframes to deliver, so calls under ~1.4s see
   only partial TA.  ~100 LOC.  Trigger: a callsign over 7 chars or
   a desire to send name as well as call.
-
-## Intentionally not doing
-
-These have been considered and rejected for stated reasons -- listed
-so they don't get re-proposed.
-
-- **AGC on USRP-rx (analog -> digital).**  ASL3's chan_usrp
-  pre-applies operator-tuned gain; AGC there would compete with the
-  static `[gain].fm_to_dmr_db` knob and offers little benefit for
-  our typical single-repeater deployment.
-
