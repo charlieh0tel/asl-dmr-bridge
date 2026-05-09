@@ -56,8 +56,6 @@ fn test_voice_config() -> VoiceConfig {
         hang_time: Duration::from_millis(500),
         stream_timeout: Duration::from_secs(10),
         tx_timeout: Duration::from_secs(180),
-        fm_to_dmr_db: 0.0,
-        dmr_to_fm_db: 0.0,
         repeater_id: DmrId::try_from(12345).unwrap(),
         src_id: SubscriberId::try_from(12345).unwrap(),
         color_code: ColorCode::try_from(1).unwrap(),

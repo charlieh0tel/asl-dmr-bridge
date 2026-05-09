@@ -25,6 +25,7 @@ dmr-subscriber.workspace = true
 dmr-types.workspace = true
 dmr-events.workspace = true
 dmr-wire.workspace = true
+dsp.workspace = true
 pcm-utils.workspace = true
 usrp-wire.workspace = true
 anyhow.workspace = true

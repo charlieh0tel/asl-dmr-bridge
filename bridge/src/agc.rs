@@ -3,9 +3,8 @@
 //!
 //! Inbound DMR audio levels vary widely -- Brandmeister aggregates
 //! many radios with different mic gains, codec versions, and on-air
-//! signal strength.  A static `vocoder.gain_out_db` setting can't
-//! compensate; AGC tracks a peak envelope and steers gain toward a
-//! target dBFS so the FM listener hears consistent loudness.
+//! signal strength.  AGC tracks a peak envelope and steers gain toward
+//! a target dBFS so the FM listener hears consistent loudness.
 //!
 //! Standard one-pole envelope follower with asymmetric time
 //! constants:
@@ -16,8 +15,7 @@
 //!
 //! `reset()` zeros state at call boundaries so each new talker starts
 //! from a clean baseline rather than inheriting the previous call's
-//! gain.  Off by default; existing deployments using `gain_out_db`
-//! see no behavior change unless `[agc].enabled = true`.
+//! gain.  Off by default.
 
 use std::time::Duration;
 

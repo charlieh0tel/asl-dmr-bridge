@@ -69,11 +69,6 @@ serial_port = "/dev/ttyUSB0"
 # host = "127.0.0.1"
 # AMBEserver port.
 # port = 2460                   # default
-# DV3000 chip encode gain, -90..=90 dB.  Ignored when the chip is
-# not in the path (e.g. neural backend with neural_decoder = dynarmic).
-# gain_in_db = 0                # default
-# DV3000 chip decode gain.
-# gain_out_db = 0               # default
 
 
 # DMR call routing.
@@ -160,8 +155,9 @@ keepalive_missed_limit = 3
 # enabled = false               # default
 
 
-# Static dB gain on each direction (backend-agnostic; applies to
-# neural and dynarmic, which ignore vocoder.gain_*_db).  Saturating.
+# Static dB gain on each direction.  Routed to the chip when the
+# vocoder direction is on hardware (rounded, clamped +-90 dB);
+# applied as a software multiplier otherwise.
 [gain]
 # fm_to_dmr_db = 0.0            # default; pre-encode (USRP-rx PCM)
 # dmr_to_fm_db = 0.0            # default; post-decode (vocoder out)

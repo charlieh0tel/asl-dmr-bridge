@@ -46,13 +46,6 @@ fn make_profile(profile: &Network) -> Box<dyn network::NetworkProfile> {
     }
 }
 
-fn config_gain(config: &config::VocoderConfig) -> Option<(i8, i8)> {
-    match (config.gain_in_db, config.gain_out_db) {
-        (None, None) => None,
-        (a, b) => Some((a.unwrap_or(0), b.unwrap_or(0))),
-    }
-}
-
 #[cfg(feature = "neural")]
 async fn make_neural_decoder(
     config: &config::VocoderConfig,
@@ -66,8 +59,7 @@ async fn make_neural_decoder(
                     anyhow::anyhow!("neural_decoder = thumbdv requires serial_port")
                 })?;
                 let baud = config.serial_baud;
-                let gain = config_gain(config);
-                Ok(ambe::open_thumbdv(path, baud, gain)?)
+                Ok(ambe::open_thumbdv(path, baud, None)?)
             }
             #[cfg(not(feature = "thumbdv"))]
             {
@@ -81,8 +73,7 @@ async fn make_neural_decoder(
                 .ok_or_else(|| anyhow::anyhow!("neural_decoder = ambeserver requires host"))?;
             let port = config.port.unwrap_or(2460);
             let addr = resolve_socket_addr(host, port).await?;
-            let gain = config_gain(config);
-            Ok(ambe::open_ambeserver(addr, gain)?)
+            Ok(ambe::open_ambeserver(addr, None)?)
         }
     }
 }
@@ -96,8 +87,7 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("thumbdv requires serial_port"))?;
             let baud = config.serial_baud;
-            let gain = config_gain(config);
-            Ok(ambe::open_thumbdv(path, baud, gain)?)
+            Ok(ambe::open_thumbdv(path, baud, None)?)
         }
         #[cfg(not(feature = "thumbdv"))]
         VocoderBackend::Thumbdv => {
@@ -110,8 +100,7 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .ok_or_else(|| anyhow::anyhow!("ambeserver requires host"))?;
             let port = config.port.unwrap_or(2460);
             let addr = resolve_socket_addr(host, port).await?;
-            let gain = config_gain(config);
-            Ok(ambe::open_ambeserver(addr, gain)?)
+            Ok(ambe::open_ambeserver(addr, None)?)
         }
         #[cfg(feature = "neural")]
         VocoderBackend::Neural => {
@@ -410,7 +399,11 @@ async fn async_main() -> anyhow::Result<()> {
     let stats_state = Arc::new(stats::Stats::new());
 
     let profile = make_profile(&config.network.profile);
-    let vocoder = make_vocoder(&config.vocoder).await?;
+    let mut vocoder = make_vocoder(&config.vocoder).await?;
+    vocoder.set_gain(
+        dsp::dB(config.gain.fm_to_dmr_db),
+        dsp::dB(config.gain.dmr_to_fm_db),
+    )?;
 
     let voice_config = dmr_wire::voice::VoiceConfig {
         gateway: match config.dmr.gateway {
@@ -427,8 +420,6 @@ async fn async_main() -> anyhow::Result<()> {
         hang_time: config.dmr.hang_time,
         stream_timeout: config.dmr.stream_timeout,
         tx_timeout: config.dmr.tx_timeout,
-        fm_to_dmr_db: config.gain.fm_to_dmr_db,
-        dmr_to_fm_db: config.gain.dmr_to_fm_db,
         repeater_id: config.peer.dmr_id,
         src_id: config.peer.src_id,
         color_code: config.peer.color_code,
@@ -438,7 +429,7 @@ async fn async_main() -> anyhow::Result<()> {
         info!(
             fm_to_dmr_db = config.gain.fm_to_dmr_db,
             dmr_to_fm_db = config.gain.dmr_to_fm_db,
-            "static gain configured"
+            "static gain applied via vocoder"
         );
     }
     let voice_diagnostics = dmr_wire::voice::PttDiagnostics {

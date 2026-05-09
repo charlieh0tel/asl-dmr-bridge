@@ -88,19 +88,6 @@ type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 /// instead of per-frame compensation).
 const GAP_BOUNDARY_PACKETS: u8 = 3;
 
-/// Scale each i16 sample by `db`; `0.0` is a no-op.  Saturates on
-/// overflow so a hot input doesn't wrap to negative.
-fn apply_gain(pcm: &mut PcmFrame, db: f32) {
-    if db == 0.0 {
-        return;
-    }
-    let scale = 10.0_f32.powf(db / 20.0);
-    for s in pcm.iter_mut() {
-        let v = (*s as f32) * scale;
-        *s = v.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-    }
-}
-
 pub(crate) struct RxCall {
     pub(crate) stream_id: u32,
     src_id: u32,
@@ -427,10 +414,8 @@ impl PttMachine {
         let mut ambe = [ambe::AmbeFrame::default(); FRAMES_PER_BURST];
         let mut transcode_times = [Duration::ZERO; FRAMES_PER_BURST];
         for (i, frame) in pcm.iter().enumerate() {
-            let mut scaled = *frame;
-            apply_gain(&mut scaled, self.config.fm_to_dmr_db);
             let t0 = Instant::now();
-            match self.encode(scaled).await {
+            match self.encode(*frame).await {
                 Ok(encoded) => {
                     ambe[i] = encoded;
                     transcode_times[i] = t0.elapsed();
@@ -759,8 +744,7 @@ impl PttMachine {
                 for _ in 0..gap_frames {
                     let permit = permits.next().expect("reserved gap-fill permit");
                     match self.decode(None).await {
-                        Ok(mut pcm) => {
-                            apply_gain(&mut pcm, self.config.dmr_to_fm_db);
+                        Ok(pcm) => {
                             super::diagnostics::record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
                             permit.send(make_voice_frame(pcm, pkt.stream_id));
                         }
@@ -774,8 +758,7 @@ impl PttMachine {
                     let permit = permits.next().expect("reserved voice-burst permit");
                     let t0 = Instant::now();
                     match self.decode(Some(*ambe)).await {
-                        Ok(mut pcm) => {
-                            apply_gain(&mut pcm, self.config.dmr_to_fm_db);
+                        Ok(pcm) => {
                             self.try_send_stats(StatsEvent::VoiceFrame {
                                 dir: CallDirection::DmrToFm,
                                 transcode: t0.elapsed(),

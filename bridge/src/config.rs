@@ -31,17 +31,6 @@ pub(crate) enum ConfigError {
         source: toml::de::Error,
     },
 
-    /// `vocoder.gain_in_db` / `gain_out_db` outside the chip's
-    /// supported range.  Reject at load time rather than silently
-    /// clamping in `dv3000::build_gain`.
-    #[error("vocoder.{field} = {value} dB outside supported range [{min}, {max}]")]
-    GainOutOfRange {
-        field: &'static str,
-        value: i8,
-        min: i8,
-        max: i8,
-    },
-
     #[error(
         "no BM password supplied (set [network].password in config, \
          BRANDMEISTER_PASSWORD env var, [network].password_file, or --password-file)"
@@ -106,8 +95,7 @@ pub(crate) struct Config {
     #[serde(default)]
     pub(crate) brandmeister_api: Option<BrandmeisterApiConfig>,
     /// Optional automatic gain control on the USRP-tx (digital ->
-    /// analog) path.  Off by default; existing setups using
-    /// `vocoder.gain_out_db` see no behavior change.
+    /// analog) path.  Off by default.
     #[serde(default)]
     pub(crate) agc: AgcConfig,
     /// Per-call summary log + periodic heartbeat counters.  Section
@@ -337,8 +325,8 @@ pub(crate) enum NeuralDecoder {
 pub(crate) struct VocoderConfig {
     pub(crate) backend: VocoderBackend,
     /// When `backend = "neural"`, picks the decoder.  The chip-side
-    /// fields (`serial_port` / `host` / `port` / `gain_*_db`) supply
-    /// connection info for `thumbdv` / `ambeserver` decoders.
+    /// fields (`serial_port` / `host` / `port`) supply connection
+    /// info for `thumbdv` / `ambeserver` decoders.
     #[cfg(feature = "neural")]
     #[serde(default)]
     pub(crate) neural_decoder: NeuralDecoder,
@@ -355,12 +343,6 @@ pub(crate) struct VocoderConfig {
     /// ONNX model path (required when backend = "neural").
     #[cfg(feature = "neural")]
     pub(crate) model_path: Option<std::path::PathBuf>,
-    /// DV3000 chip input (encode) gain in dB, -90..=90.  Default 0.
-    /// Ignored by software backends (dynarmic, neural).
-    pub(crate) gain_in_db: Option<i8>,
-    /// DV3000 chip output (decode) gain in dB, -90..=90.  Default 0.
-    /// Ignored by software backends (dynarmic, neural).
-    pub(crate) gain_out_db: Option<i8>,
 }
 
 /// DMR call type: group or private.
@@ -435,13 +417,6 @@ pub(crate) struct NetworkConfig {
     pub(crate) keepalive_interval: Duration,
     pub(crate) keepalive_missed_limit: u32,
 }
-
-/// DV3000 gain packet range.  Matches `ambe::dv3000::GAIN_MIN_DB` /
-/// `GAIN_MAX_DB`; duplicated here because the ambe crate keeps them
-/// `pub(crate)`, and the config layer rejects out-of-range values
-/// before they reach the chip rather than silently clamping.
-const GAIN_MIN_DB: i8 = -90;
-const GAIN_MAX_DB: i8 = 90;
 
 /// Fully-resolved runtime configuration.  Constructed only via
 /// `RuntimeConfig::load` (or the `Config::resolve` test helper),
@@ -525,8 +500,6 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
-        check_gain("gain_in_db", self.vocoder.gain_in_db)?;
-        check_gain("gain_out_db", self.vocoder.gain_out_db)?;
         if self.network.keepalive_interval.is_zero() {
             return Err(ConfigError::KeepaliveIntervalZero);
         }
@@ -771,20 +744,6 @@ pub(crate) fn resolve_api_key(
     }
 }
 
-fn check_gain(field: &'static str, value: Option<i8>) -> Result<(), ConfigError> {
-    if let Some(v) = value
-        && !(GAIN_MIN_DB..=GAIN_MAX_DB).contains(&v)
-    {
-        return Err(ConfigError::GainOutOfRange {
-            field,
-            value: v,
-            min: GAIN_MIN_DB,
-            max: GAIN_MAX_DB,
-        });
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,7 +794,6 @@ keepalive_missed_limit = 3
         assert_eq!(cfg.dmr.slot, Slot::One);
         assert_eq!(cfg.dmr.talkgroup.as_u32(), 9);
         assert!(matches!(cfg.dmr.gateway, GatewayMode::Both));
-        assert!(cfg.vocoder.gain_in_db.is_none());
     }
 
     #[test]
@@ -858,68 +816,6 @@ keepalive_missed_limit = 3
         // would otherwise silently default and ship wrong behavior.
         let text = MINIMAL.replace("[dmr]", "[dmr]\nbogus_typo = 1");
         assert!(matches!(parse(&text), Err(ConfigError::Parse { .. })));
-    }
-
-    #[test]
-    fn gain_in_range_accepted() {
-        let text = MINIMAL.replace(
-            "backend = \"dynarmic\"",
-            "backend = \"dynarmic\"\ngain_in_db = -3\ngain_out_db = 6",
-        );
-        let cfg = parse(&text).expect("in-range gain accepted");
-        assert_eq!(cfg.vocoder.gain_in_db, Some(-3));
-        assert_eq!(cfg.vocoder.gain_out_db, Some(6));
-    }
-
-    #[test]
-    fn gain_below_min_rejected() {
-        let text = MINIMAL.replace(
-            "backend = \"dynarmic\"",
-            "backend = \"dynarmic\"\ngain_in_db = -100",
-        );
-        let err = parse(&text).expect_err("below-min gain rejected");
-        assert!(
-            matches!(
-                err,
-                ConfigError::GainOutOfRange {
-                    field: "gain_in_db",
-                    value: -100,
-                    ..
-                }
-            ),
-            "got {err:?}"
-        );
-    }
-
-    #[test]
-    fn gain_above_max_rejected() {
-        let text = MINIMAL.replace(
-            "backend = \"dynarmic\"",
-            "backend = \"dynarmic\"\ngain_out_db = 100",
-        );
-        let err = parse(&text).expect_err("above-max gain rejected");
-        assert!(
-            matches!(
-                err,
-                ConfigError::GainOutOfRange {
-                    field: "gain_out_db",
-                    value: 100,
-                    ..
-                }
-            ),
-            "got {err:?}"
-        );
-    }
-
-    #[test]
-    fn gain_at_boundaries_accepted() {
-        let text = MINIMAL.replace(
-            "backend = \"dynarmic\"",
-            "backend = \"dynarmic\"\ngain_in_db = -90\ngain_out_db = 90",
-        );
-        let cfg = parse(&text).expect("boundary values accepted");
-        assert_eq!(cfg.vocoder.gain_in_db, Some(-90));
-        assert_eq!(cfg.vocoder.gain_out_db, Some(90));
     }
 
     #[test]
