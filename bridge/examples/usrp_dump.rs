@@ -14,12 +14,16 @@ use std::env;
 use std::io::Write;
 use std::net::UdpSocket;
 
+use usrp_wire::HEADER_SIZE;
+use usrp_wire::PACKET_SIZE;
+use usrp_wire::VOICE_SAMPLES;
+
 const DEFAULT_BIND: &str = "127.0.0.1:34002";
 
+/// USRP packet magic.  `usrp_wire`'s constant is private; mirrored
+/// here so the example can validate inbound packets without going
+/// through `Frame::parse`.
 const USRP_MAGIC: &[u8; 4] = b"USRP";
-const USRP_HEADER_SIZE: usize = 32;
-const VOICE_SAMPLES: usize = 160;
-const USRP_PACKET_SIZE: usize = USRP_HEADER_SIZE + VOICE_SAMPLES * 2;
 
 fn main() -> anyhow::Result<()> {
     let bind_addr = env::args().nth(1).unwrap_or_else(|| DEFAULT_BIND.into());
@@ -28,19 +32,19 @@ fn main() -> anyhow::Result<()> {
     eprintln!("listening on {bind_addr}, writing raw PCM to stdout");
 
     let mut stdout = std::io::stdout().lock();
-    let mut buf = [0u8; USRP_PACKET_SIZE + 64];
+    let mut buf = [0u8; PACKET_SIZE + 64];
 
     loop {
         let (len, _addr) = socket.recv_from(&mut buf)?;
-        if len < USRP_HEADER_SIZE || &buf[..4] != USRP_MAGIC {
+        if len < HEADER_SIZE || &buf[..4] != USRP_MAGIC {
             continue;
         }
 
         let keyup = u32::from_be_bytes(buf[12..16].try_into().unwrap()) != 0;
-        if !keyup || len < USRP_PACKET_SIZE {
+        if !keyup || len < PACKET_SIZE {
             continue;
         }
 
-        stdout.write_all(&buf[USRP_HEADER_SIZE..USRP_HEADER_SIZE + VOICE_SAMPLES * 2])?;
+        stdout.write_all(&buf[HEADER_SIZE..HEADER_SIZE + VOICE_SAMPLES * 2])?;
     }
 }
