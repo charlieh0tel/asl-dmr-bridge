@@ -107,25 +107,17 @@ pub trait Vocoder: Send {
 // re-exports of internal structs.
 
 /// Construct an AMBEserver UDP-proxy backend connected to `addr`.
-/// `gain_db` is `(input_db, output_db)`, each clamped to [-90, 90].
-/// `None` leaves the chip at default 0 dB.
-pub fn open_ambeserver(
-    addr: std::net::SocketAddr,
-    gain_db: Option<(i8, i8)>,
-) -> Result<Box<dyn Vocoder>, VocoderError> {
-    Ok(Box::new(ambeserver::AmbeServer::connect(addr, gain_db)?))
+/// Use `Vocoder::set_gain` to apply non-default gain.
+pub fn open_ambeserver(addr: std::net::SocketAddr) -> Result<Box<dyn Vocoder>, VocoderError> {
+    Ok(Box::new(ambeserver::AmbeServer::connect(addr)?))
 }
 
 /// Construct a ThumbDV (DVSI AMBE-3000R over FTDI serial) backend.
-/// `baud` defaults to 460800 if `None`.  `gain_db` semantics match
-/// `open_ambeserver`.
+/// `baud` defaults to 460800 if `None`.  Use `Vocoder::set_gain` to
+/// apply non-default gain.
 #[cfg(feature = "thumbdv")]
-pub fn open_thumbdv(
-    port: &str,
-    baud: Option<u32>,
-    gain_db: Option<(i8, i8)>,
-) -> Result<Box<dyn Vocoder>, VocoderError> {
-    Ok(Box::new(thumbdv::ThumbDv::open(port, baud, gain_db)?))
+pub fn open_thumbdv(port: &str, baud: Option<u32>) -> Result<Box<dyn Vocoder>, VocoderError> {
+    Ok(Box::new(thumbdv::ThumbDv::open(port, baud)?))
 }
 
 /// Construct a dynarmic (software, JIT-emulated MD380 firmware)

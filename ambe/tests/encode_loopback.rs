@@ -89,7 +89,7 @@ fn assert_voice_shaped(frames: &[PcmFrame], label: &str) {
 #[test]
 #[ignore = "requires AMBEserver daemon; run with AMBE_SERVER_ADDR and --ignored"]
 fn chip_encode_decode_self() {
-    let mut chip = open_ambeserver(server_addr(), None).expect("connect");
+    let mut chip = open_ambeserver(server_addr()).expect("connect");
     let pcm = tone(TONE_FREQ, TONE_PEAK, FRAMES);
     let ambe: Vec<AmbeFrame> = pcm
         .iter()
@@ -110,7 +110,9 @@ fn chip_encode_decode_self() {
 #[ignore = "requires AMBEserver daemon; run with AMBE_SERVER_ADDR and --ignored"]
 fn gain_affects_decoded_amplitude() {
     fn loopback_rms(gain: (i8, i8)) -> f64 {
-        let mut chip = open_ambeserver(server_addr(), Some(gain)).expect("connect");
+        let mut chip = open_ambeserver(server_addr()).expect("connect");
+        chip.set_gain(dsp::dB(f32::from(gain.0)), dsp::dB(f32::from(gain.1)))
+            .expect("set_gain");
         let pcm = tone(TONE_FREQ, TONE_PEAK, FRAMES);
         let ambe: Vec<AmbeFrame> = pcm
             .iter()

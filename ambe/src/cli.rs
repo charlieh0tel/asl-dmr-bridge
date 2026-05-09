@@ -72,19 +72,23 @@ impl ChipBackendArgs {
     }
 
     pub fn open_vocoder(&self) -> Result<Box<dyn Vocoder>, VocoderError> {
-        match self.backend {
-            Backend::Ambeserver => crate::open_ambeserver(self.parse_ambeserver()?, self.gain()),
+        let mut vocoder = match self.backend {
+            Backend::Ambeserver => crate::open_ambeserver(self.parse_ambeserver()?)?,
             Backend::Thumbdv => {
                 #[cfg(feature = "thumbdv")]
                 {
-                    crate::open_thumbdv(&self.serial, self.baud, self.gain())
+                    crate::open_thumbdv(&self.serial, self.baud)?
                 }
                 #[cfg(not(feature = "thumbdv"))]
-                Err(VocoderError::Init(
+                return Err(VocoderError::Init(
                     "thumbdv backend not compiled (build with --features thumbdv)".into(),
-                ))
+                ));
             }
+        };
+        if let Some((in_db, out_db)) = self.gain() {
+            vocoder.set_gain(dsp::dB(f32::from(in_db)), dsp::dB(f32::from(out_db)))?;
         }
+        Ok(vocoder)
     }
 
     /// Open as a low-level `ChipClient`.  Gain is *not* auto-applied:

@@ -66,20 +66,12 @@ pub(crate) struct ThumbDv {
 impl ThumbDv {
     /// Open the serial device and initialize for DMR (AMBE+2).
     ///
-    /// `gain_db`: optional (input_db, output_db) to apply after RATEP.
-    /// Each is clamped to [-90, 90] dB.  `None` leaves the chip at
-    /// its default gain (0 dB).
-    ///
     /// Checks that the FTDI latency_timer is set to 1 (low latency).
     /// Since kernel 4.4.52 the default is 16ms, which is too slow for
     /// the ThumbDV packet flow.  Fix with:
     ///   echo 1 | sudo tee /sys/bus/usb-serial/devices/ttyUSB0/latency_timer
     /// Reference: https://github.com/f4exb/serialDV
-    pub(crate) fn open(
-        path: &str,
-        baud: Option<u32>,
-        gain_db: Option<(i8, i8)>,
-    ) -> Result<Self, VocoderError> {
+    pub(crate) fn open(path: &str, baud: Option<u32>) -> Result<Self, VocoderError> {
         check_latency_timer(path)?;
         let baud = baud.unwrap_or(DEFAULT_BAUD);
         let port = serialport::new(path, baud)
@@ -92,11 +84,11 @@ impl ThumbDv {
             buf: vec![0u8; dv3000::MAX_PACKET],
         };
 
-        dv.init(gain_db)?;
+        dv.init()?;
         Ok(dv)
     }
 
-    fn init(&mut self, gain_db: Option<(i8, i8)>) -> Result<(), VocoderError> {
+    fn init(&mut self) -> Result<(), VocoderError> {
         self.send_raw(&dv3000::build_reset())?;
         let response = self.recv()?;
         if !dv3000::is_ready(&response) {
@@ -121,17 +113,6 @@ impl ThumbDv {
             )));
         }
         info!("ThumbDV configured for DMR");
-
-        if let Some((in_db, out_db)) = gain_db {
-            self.send_raw(&dv3000::build_gain(in_db, out_db))?;
-            let response = self.recv()?;
-            if !dv3000::is_gain_ack(&response) {
-                return Err(VocoderError::Init(format!(
-                    "expected GAIN ack, got {response:?}"
-                )));
-            }
-            info!("ThumbDV gain set: in={in_db} dB, out={out_db} dB");
-        }
 
         Ok(())
     }

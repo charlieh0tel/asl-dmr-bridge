@@ -96,7 +96,7 @@ fn open_backend(spec: &str) -> anyhow::Result<Box<dyn Vocoder>> {
         return Ok(ambe::open_dynarmic());
     }
     if let Some(path) = spec.strip_prefix("thumbdv:") {
-        return Ok(ambe::open_thumbdv(path, None, None)?);
+        return Ok(ambe::open_thumbdv(path, None)?);
     }
     if let Some(path) = spec.strip_prefix("neural:") {
         return Ok(ambe::open_neural(Path::new(path))?);
@@ -105,7 +105,7 @@ fn open_backend(spec: &str) -> anyhow::Result<Box<dyn Vocoder>> {
         let sock_addr: std::net::SocketAddr = addr
             .parse()
             .map_err(|e| anyhow::anyhow!("udp:{addr}: {e}"))?;
-        return Ok(ambe::open_ambeserver(sock_addr, None)?);
+        return Ok(ambe::open_ambeserver(sock_addr)?);
     }
     anyhow::bail!("unknown backend spec: {spec:?}")
 }

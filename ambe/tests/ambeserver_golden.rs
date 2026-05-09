@@ -23,7 +23,7 @@ fn ambeserver_matches_golden() {
     let golden = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_PATH))
         .expect("ambeserver_golden.bin missing; generate via `gen_golden ambeserver`");
 
-    let mut vocoder = ambe::open_ambeserver(addr, None).expect("connect ambeserver");
+    let mut vocoder = ambe::open_ambeserver(addr).expect("connect ambeserver");
     let actual = decode_test_frames(vocoder.as_mut());
     assert_eq!(actual, golden);
 }

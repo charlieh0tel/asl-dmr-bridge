@@ -26,14 +26,7 @@ pub(crate) struct AmbeServer {
 
 impl AmbeServer {
     /// Connect to an AMBEserver proxy and initialize the chip for DMR.
-    ///
-    /// `gain_db`: optional (input_db, output_db) to apply after RATEP.
-    /// Each is clamped to [-90, 90] dB.  `None` leaves the chip at
-    /// its default gain (0 dB).
-    pub(crate) fn connect(
-        addr: SocketAddr,
-        gain_db: Option<(i8, i8)>,
-    ) -> Result<Self, VocoderError> {
+    pub(crate) fn connect(addr: SocketAddr) -> Result<Self, VocoderError> {
         let bind_addr = match addr {
             SocketAddr::V4(_) => "0.0.0.0:0",
             SocketAddr::V6(_) => "[::]:0",
@@ -47,12 +40,12 @@ impl AmbeServer {
             buf: vec![0u8; dv3000::MAX_PACKET],
         };
 
-        server.init(gain_db)?;
+        server.init()?;
         info!("connected to AMBEserver at {addr}");
         Ok(server)
     }
 
-    fn init(&mut self, gain_db: Option<(i8, i8)>) -> Result<(), VocoderError> {
+    fn init(&mut self) -> Result<(), VocoderError> {
         self.send_raw(&dv3000::build_reset())?;
         let response = self.recv()?;
         if !dv3000::is_ready(&response) {
@@ -67,17 +60,6 @@ impl AmbeServer {
             return Err(VocoderError::Init(format!(
                 "expected RATEP ack, got {response:?}"
             )));
-        }
-
-        if let Some((in_db, out_db)) = gain_db {
-            self.send_raw(&dv3000::build_gain(in_db, out_db))?;
-            let response = self.recv()?;
-            if !dv3000::is_gain_ack(&response) {
-                return Err(VocoderError::Init(format!(
-                    "expected GAIN ack, got {response:?}"
-                )));
-            }
-            info!("AMBEserver gain set: in={in_db} dB, out={out_db} dB");
         }
 
         Ok(())

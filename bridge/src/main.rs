@@ -58,7 +58,7 @@ async fn make_neural_decoder(
                     anyhow::anyhow!("neural_decoder = thumbdv requires serial_port")
                 })?;
                 let baud = config.serial_baud;
-                Ok(ambe::open_thumbdv(path, baud, None)?)
+                Ok(ambe::open_thumbdv(path, baud)?)
             }
             #[cfg(not(feature = "thumbdv"))]
             {
@@ -72,7 +72,7 @@ async fn make_neural_decoder(
                 .ok_or_else(|| anyhow::anyhow!("neural_decoder = ambeserver requires host"))?;
             let port = config.port.unwrap_or(2460);
             let addr = resolve_socket_addr(host, port).await?;
-            Ok(ambe::open_ambeserver(addr, None)?)
+            Ok(ambe::open_ambeserver(addr)?)
         }
     }
 }
@@ -86,7 +86,7 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("thumbdv requires serial_port"))?;
             let baud = config.serial_baud;
-            Ok(ambe::open_thumbdv(path, baud, None)?)
+            Ok(ambe::open_thumbdv(path, baud)?)
         }
         #[cfg(not(feature = "thumbdv"))]
         VocoderBackend::Thumbdv => {
@@ -99,7 +99,7 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .ok_or_else(|| anyhow::anyhow!("ambeserver requires host"))?;
             let port = config.port.unwrap_or(2460);
             let addr = resolve_socket_addr(host, port).await?;
-            Ok(ambe::open_ambeserver(addr, None)?)
+            Ok(ambe::open_ambeserver(addr)?)
         }
         #[cfg(feature = "neural")]
         VocoderBackend::Neural => {

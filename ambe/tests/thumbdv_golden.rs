@@ -22,7 +22,7 @@ fn thumbdv_matches_golden() {
     let golden = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_PATH))
         .expect("thumbdv_golden.bin missing; generate via `gen_golden thumbdv`");
 
-    let mut vocoder = ambe::open_thumbdv(&port, None, None).expect("open thumbdv");
+    let mut vocoder = ambe::open_thumbdv(&port, None).expect("open thumbdv");
     let actual = decode_test_frames(vocoder.as_mut());
     assert_eq!(actual, golden);
 }

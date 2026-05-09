@@ -40,7 +40,7 @@ fn main() -> std::io::Result<()> {
                 eprintln!("thumbdv requires serial port path");
                 std::process::exit(1);
             });
-            ambe::open_thumbdv(path, None, None).unwrap_or_else(|e| panic!("opening thumbdv: {e}"))
+            ambe::open_thumbdv(path, None).unwrap_or_else(|e| panic!("opening thumbdv: {e}"))
         }
         #[cfg(not(feature = "thumbdv"))]
         "thumbdv" => {
@@ -56,8 +56,7 @@ fn main() -> std::io::Result<()> {
                 })
                 .parse()
                 .expect("parse addr");
-            ambe::open_ambeserver(addr, None)
-                .unwrap_or_else(|e| panic!("connecting to ambeserver: {e}"))
+            ambe::open_ambeserver(addr).unwrap_or_else(|e| panic!("connecting to ambeserver: {e}"))
         }
         _ => usage(),
     };
