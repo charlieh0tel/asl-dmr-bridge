@@ -81,7 +81,7 @@ fn make_backend(args: &Args) -> Result<Box<dyn Backend>> {
                 .serial
                 .as_deref()
                 .context("--backend thumbdv requires --serial")?;
-            let b = backend::ThumbDvBackend::open(serial, args.baud)?;
+            let b = backend::thumbdv::ThumbDvBackend::open(serial, args.baud)?;
             info!(serial = %serial, baud = args.baud, "thumbdv backend opened");
             Ok(Box::new(b))
         }
@@ -93,7 +93,7 @@ fn make_backend(args: &Args) -> Result<Box<dyn Backend>> {
         cli::Backend::Dynarmic => {
             let v = ambe::open_dynarmic();
             info!("dynarmic backend opened");
-            Ok(Box::new(backend::SoftBackend::new(v, "dynarmic")))
+            Ok(Box::new(backend::soft::SoftBackend::new(v, "dynarmic")))
         }
         #[cfg(not(feature = "dynarmic"))]
         cli::Backend::Dynarmic => {
@@ -107,7 +107,7 @@ fn make_backend(args: &Args) -> Result<Box<dyn Backend>> {
                 .context("--backend neural requires --model-path")?;
             let v = ambe::open_neural(path)?;
             info!(model = %path.display(), "neural backend opened");
-            Ok(Box::new(backend::SoftBackend::new(v, "neural")))
+            Ok(Box::new(backend::soft::SoftBackend::new(v, "neural")))
         }
         #[cfg(not(feature = "neural"))]
         cli::Backend::Neural => {
