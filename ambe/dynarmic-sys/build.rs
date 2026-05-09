@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
+use std::process::Stdio;
 
 fn main() {
     check_prerequisites();
@@ -116,7 +119,6 @@ fn link_search(dir: impl AsRef<std::path::Path>) {
 
 /// True if xxd accepts `-n NAME` (vim 9.0+).  Ubuntu 22.04 ships vim 8.2, which doesn't.
 fn xxd_supports_n() -> bool {
-    use std::process::{Command, Stdio};
     Command::new("xxd")
         .args(["-i", "-n", "probe"])
         .stdin(Stdio::null())
