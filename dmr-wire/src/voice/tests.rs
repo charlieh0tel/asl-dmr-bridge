@@ -415,7 +415,7 @@ fn make_machine_with_callsign(callsign: &str) -> TestMachine {
 
 #[tokio::test]
 async fn tx_with_short_callsign_includes_ta_in_rotation() {
-    // Configured callsign fits TA Header (≤7 ASCII chars), so
+    // Configured callsign fits TA Header (<=7 ASCII chars), so
     // lc_rotation is [voice_lc, ta_header] and superframes
     // alternate.
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) =

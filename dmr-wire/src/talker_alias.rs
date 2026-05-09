@@ -1,4 +1,4 @@
-//! Talker Alias Header LC encoder (ETSI TS 102 361-2 §7.2.21).
+//! Talker Alias Header LC encoder (ETSI TS 102 361-2 sec. 7.2.21).
 //!
 //! Embedded in voice bursts B-E alongside the regular voice LC,
 //! cycled once per superframe so a receiving radio can display the
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn abcde_matches_hand_derived_bytes() {
-        // Hand-derived from ETSI TS 102 361-2 §7.2.21:
+        // Hand-derived from ETSI TS 102 361-2 sec. 7.2.21:
         //   FLCO=4, FID=0
         //   TA_Format=0, TA_Length=5, then 49-bit TA_Data left-
         //     justified holding 'A','B','C','D','E' (5 * 7 = 35 bits)

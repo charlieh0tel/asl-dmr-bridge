@@ -175,7 +175,7 @@ impl Vocoder for ThumbDv {
     fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
         // None -> CMODE LOST_FRAME packet so the chip ignores the
         // (placeholder) channel data and emits a predictor frame-
-        // repeat (AMBE-3000R Users Manual §6.9, bit 2 = LOST_FRAME).
+        // repeat (AMBE-3000R Users Manual sec. 6.9, bit 2 = LOST_FRAME).
         let pkt = match ambe {
             Some(ambe) => build_ambe(ambe),
             None => build_ambe_lost_frame(),

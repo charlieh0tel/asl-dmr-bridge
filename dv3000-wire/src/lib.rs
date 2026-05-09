@@ -252,7 +252,7 @@ pub fn build_ambe(ambe: &AmbeFrame) -> Vec<u8> {
 }
 
 /// Build a DV3000 AMBE packet with `LOST_FRAME` set in the per-
-/// packet CMODE override (AMBE-3000R Users Manual §6.9, bit 2 of
+/// packet CMODE override (AMBE-3000R Users Manual sec. 6.9, bit 2 of
 /// the channel-packet CMODE word).  The chip ignores the channel
 /// data and performs a frame repeat using its predictor, so the
 /// data bytes are sent as zeros.
