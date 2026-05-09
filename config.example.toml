@@ -136,7 +136,10 @@ keepalive_missed_limit = 3
 # Release period (response to quieter signal).
 # release = "200ms"             # default
 # Cap on quiet-signal boost.
-# max_gain_db = 30.0            # default
+# max_gain_db = 12.0            # default
+# Below this envelope level, freeze gain so the AGC does not
+# chase the noise floor during speech pauses.
+# noise_gate_dbfs = -50.0       # default
 
 
 # Per-call summary lines + cumulative-counter heartbeat.

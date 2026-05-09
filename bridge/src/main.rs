@@ -288,6 +288,7 @@ async fn async_main() -> anyhow::Result<()> {
             attack = ?config.agc.attack,
             release = ?config.agc.release,
             max_gain_db = config.agc.max_gain_db,
+            noise_gate_dbfs = config.agc.noise_gate_dbfs,
             "AGC enabled (DMR -> FM)",
         );
         Some(Agc::new(AgcParams {
@@ -295,6 +296,7 @@ async fn async_main() -> anyhow::Result<()> {
             attack: config.agc.attack,
             release: config.agc.release,
             max_gain_db: config.agc.max_gain_db,
+            noise_gate_dbfs: config.agc.noise_gate_dbfs,
         }))
     } else {
         info!("AGC disabled (DMR -> FM)");

@@ -44,6 +44,11 @@ pub struct AgcParams {
     /// Cap on how much we amplify a quiet signal.  Prevents the AGC
     /// from boosting hum / noise floor when the input is silence.
     pub max_gain_db: f32,
+    /// Below this envelope level, freeze gain and stop tracking.
+    /// Prevents the AGC from chasing the noise floor during pauses
+    /// and ramping the gain up to `max_gain_db`, which would slam
+    /// background noise into the listener when speech resumes.
+    pub noise_gate_dbfs: f32,
 }
 
 #[cfg(test)]
@@ -57,7 +62,8 @@ impl AgcParams {
             target_dbfs: -6.0,
             attack: Duration::from_millis(10),
             release: Duration::from_millis(200),
-            max_gain_db: 30.0,
+            max_gain_db: 12.0,
+            noise_gate_dbfs: -50.0,
         }
     }
 }
@@ -65,6 +71,7 @@ impl AgcParams {
 pub struct Agc {
     target: f32,
     max_gain: f32,
+    noise_gate: f32,
     attack_alpha: f32,
     release_alpha: f32,
     envelope: f32,
@@ -76,6 +83,7 @@ impl Agc {
         Self {
             target: db_to_linear(params.target_dbfs),
             max_gain: db_to_linear(params.max_gain_db),
+            noise_gate: db_to_linear(params.noise_gate_dbfs),
             attack_alpha: alpha_for(params.attack),
             release_alpha: alpha_for(params.release),
             envelope: 0.0,
@@ -107,25 +115,26 @@ impl Agc {
             };
             self.envelope += env_alpha * (abs_x - self.envelope);
 
-            // Target gain drives envelope toward target peak.  Floor
-            // the envelope so we don't divide by zero on silence;
-            // cap at max_gain so we don't boost the noise floor.
-            let target_gain = if self.envelope > 1e-6 {
-                (self.target / self.envelope).min(self.max_gain)
-            } else {
-                self.max_gain
-            };
-
-            // Smooth gain asymmetrically.  When the target is below
-            // current gain (signal louder than expected) -> attack
-            // fast.  When target above current (signal quieter) ->
-            // release slow.
-            let gain_alpha = if target_gain < self.gain {
-                self.attack_alpha
-            } else {
-                self.release_alpha
-            };
-            self.gain += gain_alpha * (target_gain - self.gain);
+            // Noise-floor gate on the instantaneous sample: when |x|
+            // is below the gate we freeze gain.  Speech samples sit
+            // well above the gate so the slow gain follower tracks
+            // normally; pauses and noise consistently fall below it
+            // and the gain stays put rather than chasing the noise
+            // floor up toward max_gain.  The envelope keeps updating
+            // either way so it stays current for the next syllable.
+            if abs_x >= self.noise_gate {
+                let target_gain = (self.target / self.envelope.max(1e-6)).min(self.max_gain);
+                // Smooth gain asymmetrically: target below current
+                // (signal louder than expected) -> attack fast;
+                // target above current (signal quieter) -> release
+                // slow.
+                let gain_alpha = if target_gain < self.gain {
+                    self.attack_alpha
+                } else {
+                    self.release_alpha
+                };
+                self.gain += gain_alpha * (target_gain - self.gain);
+            }
 
             // Apply + hard-limit.  The clamp catches the rare case
             // where gain * x crosses full-scale before the envelope
@@ -179,10 +188,11 @@ mod tests {
 
     #[test]
     fn convergence_brings_quiet_input_up_to_target() {
-        // Quiet input (-30 dBFS) should converge to ~target (-6 dBFS).
+        // -12 dBFS input is within max_gain_db (12 dB) of the
+        // target (-6 dBFS), so AGC can fully reach target.
         let mut agc = Agc::new(AgcParams::default_voice());
         // 200 frames * 20 ms = 4 s, plenty for 200 ms release to settle.
-        let peak = run_constant(&mut agc, -30.0, 200);
+        let peak = run_constant(&mut agc, -12.0, 200);
         let peak_db = 20.0 * peak.log10();
         // Within 2 dB of target; the slow release means we approach
         // asymptotically.
@@ -220,9 +230,9 @@ mod tests {
     #[test]
     fn reset_returns_to_neutral_state() {
         let mut agc = Agc::new(AgcParams::default_voice());
-        let _ = run_constant(&mut agc, -30.0, 100);
-        // Gain should be well above 1.0 after pulling -30 to -6.
-        assert!(agc.gain > 5.0);
+        let _ = run_constant(&mut agc, -12.0, 200);
+        // Gain should be well above 1.0 after pulling -12 to -6.
+        assert!(agc.gain > 1.5);
         agc.reset();
         assert_eq!(agc.envelope, 0.0);
         assert_eq!(agc.gain, 1.0);
@@ -232,16 +242,51 @@ mod tests {
     fn max_gain_caps_silence_amplification() {
         // With max_gain_db = 0, AGC must never amplify.  Run a quiet
         // input and verify peak stays at or below the input level.
+        // noise_gate_dbfs = -200 effectively disables the gate so
+        // this test isolates the max_gain cap.
         let mut agc = Agc::new(AgcParams {
             target_dbfs: -6.0,
             attack: Duration::from_millis(10),
             release: Duration::from_millis(200),
             max_gain_db: 0.0,
+            noise_gate_dbfs: -200.0,
         });
         let peak = run_constant(&mut agc, -30.0, 200);
         let peak_db = 20.0 * peak.log10();
         // Input was -30 dBFS; output peak must not exceed -30.
         assert!(peak_db <= -29.0, "max_gain=0 amplified anyway: {peak_db}");
+    }
+
+    #[test]
+    fn noise_gate_freezes_gain_below_threshold() {
+        // Input below the gate (-55 dBFS, gate at -50) must not pull
+        // gain up.  Without the gate the envelope follower would
+        // ramp gain to max_gain to chase the noise; with the gate
+        // enabled the gain stays at its starting value.
+        let mut agc = Agc::new(AgcParams::default_voice());
+        let _ = run_constant(&mut agc, -55.0, 200);
+        assert!(
+            (agc.gain - 1.0).abs() < 0.01,
+            "gate failed: gain drifted in noise: {}",
+            agc.gain
+        );
+    }
+
+    #[test]
+    fn noise_gate_freezes_gain_after_speech() {
+        // Pull gain up with speech-level input, then drop to noise
+        // below the gate.  Gain must stay at the speech-time value
+        // rather than ramping up further toward max_gain.
+        let mut agc = Agc::new(AgcParams::default_voice());
+        let _ = run_constant(&mut agc, -12.0, 200);
+        let speech_gain = agc.gain;
+        let _ = run_constant(&mut agc, -55.0, 200);
+        assert!(
+            (agc.gain - speech_gain).abs() < 0.05,
+            "gate failed: gain {} drifted from speech-time {}",
+            agc.gain,
+            speech_gain,
+        );
     }
 
     #[test]
