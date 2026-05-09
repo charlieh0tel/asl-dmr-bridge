@@ -20,7 +20,7 @@ pub const HEADER_SIZE: usize = 4;
 // `packet_type` values.
 pub const TYPE_CONTROL: u8 = 0x00;
 pub const TYPE_AMBE: u8 = 0x01;
-pub const TYPE_AUDIO: u8 = 0x02;
+const TYPE_AUDIO: u8 = 0x02;
 
 // First byte of a PKT_CONTROL payload: control field id.
 pub const CONTROL_RESET: u8 = 0x33;

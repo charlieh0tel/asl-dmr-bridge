@@ -2,7 +2,7 @@ use thiserror::Error;
 
 /// Cap on response-body bytes carried in `ApiError::Http`.  Client
 /// truncates at construction; Display re-truncates as defense.
-pub const HTTP_BODY_CAP_BYTES: usize = 256;
+pub(crate) const HTTP_BODY_CAP_BYTES: usize = 256;
 
 /// Errors returned by the Brandmeister API client.
 #[derive(Debug, Error)]

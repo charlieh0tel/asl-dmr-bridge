@@ -39,7 +39,7 @@ pub const HEADER_SIZE: usize = 32;
 pub const VOICE_SAMPLES: usize = 160;
 
 /// Bytes for the audio payload (`VOICE_SAMPLES` i16s).
-pub const VOICE_FRAME_SIZE: usize = VOICE_SAMPLES * size_of::<i16>();
+const VOICE_FRAME_SIZE: usize = VOICE_SAMPLES * size_of::<i16>();
 
 /// Bytes for a full voice packet (header + audio).
 pub const PACKET_SIZE: usize = HEADER_SIZE + VOICE_FRAME_SIZE;
