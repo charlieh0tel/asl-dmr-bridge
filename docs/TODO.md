@@ -14,9 +14,8 @@ appears.
   dynarmic at the time).  Print line was dynarmic's signal handler
   `Unhandled SIGSEGV at pc 0x...`, suggesting a fault outside JIT
   memory regions.  Coredump was not captured at the time.  Trigger:
-  reproduces on the v2.0.0 deb, or any other dynarmic-on-arm64
-  crash.  Capture core via systemd-coredump and follow the
-  backtrace.
+  any dynarmic-on-arm64 crash.  Capture core via systemd-coredump
+  and follow the backtrace.
 
 - **Talker alias TA Blocks (FLCO 5/6/7).**  Current scope is TA
   Header only (FLCO 4); covers callsigns up to 7 ASCII chars.
@@ -38,7 +37,3 @@ so they don't get re-proposed.
 - **OpenBridge / cross-network bridging.**  The bridge is single-
   repeater BM peer use, not network-to-network.  See the
   Brandmeister policy section in README.
-
-- **DVSwitch WebProxy / `pcmPort`.**  Niche web UI bridge; no
-  user demand and we've added no equivalent web surface to consume
-  it.
