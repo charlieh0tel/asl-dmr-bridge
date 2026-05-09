@@ -176,6 +176,19 @@ impl PttMachine {
     ) -> Self {
         let pre_encode_filter = policy.pre_encode_filter.then(pre_encode_voice_8khz);
         let diag = super::diagnostics::CallDiagnostics::new(diagnostics.pcm_record_dir);
+        // Validate the configured callsign once: a non-empty value
+        // that the TA encoder rejects (non-ASCII or >31 chars) means
+        // outbound calls will silently emit no Talker Alias.  Warn at
+        // construction so the operator notices instead of wondering
+        // why their callsign never reaches the listener.
+        if !config.callsign.is_empty()
+            && talker_alias::encode_talker_alias_lcs(&config.callsign).is_empty()
+        {
+            warn!(
+                callsign = %config.callsign,
+                "TA disabled: callsign must be ASCII and <=31 chars",
+            );
+        }
         Self {
             config,
             vocoder: Arc::new(Mutex::new(vocoder)),
