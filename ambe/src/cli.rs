@@ -30,7 +30,7 @@ const DEFAULT_SERIAL: &str = "/dev/ttyUSB0";
 pub enum Backend {
     #[default]
     Ambeserver,
-    Thumbdv,
+    ThumbDV,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -74,7 +74,7 @@ impl ChipBackendArgs {
     pub fn open_vocoder(&self) -> Result<Box<dyn Vocoder>, VocoderError> {
         let mut vocoder = match self.backend {
             Backend::Ambeserver => crate::open_ambeserver(self.parse_ambeserver()?)?,
-            Backend::Thumbdv => {
+            Backend::ThumbDV => {
                 #[cfg(feature = "thumbdv")]
                 {
                     crate::open_thumbdv(&self.serial, self.baud)?
@@ -99,7 +99,7 @@ impl ChipBackendArgs {
             Backend::Ambeserver => Ok(Box::new(AmbeServerClient::connect(
                 self.parse_ambeserver()?,
             )?)),
-            Backend::Thumbdv => {
+            Backend::ThumbDV => {
                 #[cfg(feature = "thumbdv")]
                 {
                     Ok(Box::new(crate::chip::ThumbDvClient::open(

@@ -304,7 +304,7 @@ pub(crate) struct UsrpConfig {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum VocoderBackend {
-    Thumbdv,
+    ThumbDV,
     Ambeserver,
     Neural,
     Dynarmic,
@@ -317,7 +317,7 @@ pub(crate) enum VocoderBackend {
 #[serde(rename_all = "lowercase")]
 pub(crate) enum NeuralDecoder {
     #[default]
-    Thumbdv,
+    ThumbDV,
     Dynarmic,
     Ambeserver,
 }

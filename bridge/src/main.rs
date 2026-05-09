@@ -51,7 +51,7 @@ async fn make_neural_decoder(
 ) -> anyhow::Result<Box<dyn ambe::Vocoder>> {
     match config.neural_decoder {
         config::NeuralDecoder::Dynarmic => Ok(ambe::open_dynarmic()),
-        config::NeuralDecoder::Thumbdv => {
+        config::NeuralDecoder::ThumbDV => {
             #[cfg(feature = "thumbdv")]
             {
                 let path = config.serial_port.as_deref().ok_or_else(|| {
@@ -80,7 +80,7 @@ async fn make_neural_decoder(
 async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn ambe::Vocoder>> {
     match config.backend {
         #[cfg(feature = "thumbdv")]
-        VocoderBackend::Thumbdv => {
+        VocoderBackend::ThumbDV => {
             let path = config
                 .serial_port
                 .as_deref()
@@ -89,7 +89,7 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
             Ok(ambe::open_thumbdv(path, baud)?)
         }
         #[cfg(not(feature = "thumbdv"))]
-        VocoderBackend::Thumbdv => {
+        VocoderBackend::ThumbDV => {
             anyhow::bail!("thumbdv backend not compiled (enable the 'thumbdv' feature)")
         }
         VocoderBackend::Ambeserver => {
