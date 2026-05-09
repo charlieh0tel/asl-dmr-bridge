@@ -34,6 +34,7 @@ use tracing::warn;
 use crate::audio::AudioFrame;
 use crate::bptc::build_data_burst;
 use crate::bptc::build_voice_lc;
+use crate::bptc::build_voice_lc_body;
 use crate::dmrd::CallType;
 use crate::dmrd::Dmrd;
 use crate::dmrd::FrameType;
@@ -817,19 +818,14 @@ impl PttMachine {
 
         if matches!(self.state, PttState::Idle) {
             // Compute embedded LC fragments from the 72-bit LC body
-            // (PF+FLCO+FID+opts+dst+src, without RS parity).  The same
-            // body is used for header/terminator BPTC (with RS parity)
-            // and for embedded LC fragments (with 5-bit CRC instead).
+            // (PF+FLCO+FID+opts+dst+src, no RS parity -- embedded LCs
+            // carry a 5-bit CRC instead).
             let group = self.is_group_call();
-            let lc96 = build_voice_lc(
+            let lc_body = build_voice_lc_body(
                 group,
                 self.config.talkgroup.as_u32(),
                 self.config.src_id.as_u32(),
-                DATA_TYPE_VOICE_HEADER,
             );
-            let lc_body: [u8; 72] = lc96[..72]
-                .try_into()
-                .expect("lc96 is [u8; 96], lc96[..72] is len 72");
             let voice_fragments = build_fragments(&lc_body);
 
             // Build the LC rotation: voice LC first (so the receiving

@@ -185,21 +185,35 @@ pub(crate) fn build_data_burst(
     data
 }
 
-/// Build the 96-bit LC payload for a voice call.
-///
-/// Layout: PF(1) + reserved(1) + FLCO(6) + FID(8) + service_opts(8)
-///         + dst_id(24) + src_id(24) + RS(12,9) parity(24)
-///
-/// `data_type`: 1 = voice header, 2 = voice terminator (selects RS mask).
-/// Returns individual bits.
-pub(crate) fn build_voice_lc(
+/// Bits in the LC body alone (PF/Res/FLCO/FID/opts/dst/src), without
+/// the RS(12,9) parity that brings the full LC to 96 bits.  Embedded
+/// LC fragments use this body shape (with a 5-bit CRC instead of RS).
+pub(crate) const LC_BODY_BITS: usize = 72;
+
+/// Build the 72-bit voice LC body (PF/Res/FLCO/FID/opts/dst/src) for
+/// embedded LC encoding.  No RS parity is computed.  Voice header /
+/// terminator construction reuses these bytes via `build_voice_lc`,
+/// which appends RS for the BPTC payload.
+pub(crate) fn build_voice_lc_body(
     group_call: bool,
     dst_id: u32,
     src_id: u32,
-    data_type: u8,
-) -> [u8; DATA_BITS] {
-    let mut payload = [0u8; 12]; // 96 bits = 12 bytes
+) -> [u8; LC_BODY_BITS] {
+    let bytes = lc_body_bytes(group_call, dst_id, src_id);
+    let mut bits = [0u8; LC_BODY_BITS];
+    for (i, &byte) in bytes.iter().enumerate() {
+        for bit in 0..8 {
+            bits[i * 8 + bit] = (byte >> (7 - bit)) & 1;
+        }
+    }
+    bits
+}
 
+/// Pack the 9 LC body bytes (PF/Res/FLCO + FID + opts + dst(3) + src(3)).
+/// Shared between `build_voice_lc` (which appends RS) and
+/// `build_voice_lc_body`.
+fn lc_body_bytes(group_call: bool, dst_id: u32, src_id: u32) -> [u8; 9] {
+    let mut payload = [0u8; 9];
     // PF = 0, reserved = 0
     // FLCO: 0b000000 = group voice, 0b000011 = unit-to-unit voice
     if !group_call {
@@ -213,6 +227,25 @@ pub(crate) fn build_voice_lc(
     // silent truncation would impersonate an unrelated user).
     payload[3..6].copy_from_slice(&super::id_to_24_be(dst_id));
     payload[6..9].copy_from_slice(&super::id_to_24_be(src_id));
+    payload
+}
+
+/// Build the 96-bit LC payload for a voice call.
+///
+/// Layout: PF(1) + reserved(1) + FLCO(6) + FID(8) + service_opts(8)
+///         + dst_id(24) + src_id(24) + RS(12,9) parity(24)
+///
+/// `data_type`: 1 = voice header, 2 = voice terminator (selects RS mask).
+/// Returns individual bits.
+pub(crate) fn build_voice_lc(
+    group_call: bool,
+    dst_id: u32,
+    src_id: u32,
+    data_type: u8,
+) -> [u8; DATA_BITS] {
+    let body = lc_body_bytes(group_call, dst_id, src_id);
+    let mut payload = [0u8; 12];
+    payload[..9].copy_from_slice(&body);
 
     // RS(12,9) FEC over bytes 0-8 with per-data-type mask.
     let mask = if data_type == 2 {
@@ -220,10 +253,7 @@ pub(crate) fn build_voice_lc(
     } else {
         &LC_HEADER_MASK
     };
-    let data9: [u8; 9] = payload[..9]
-        .try_into()
-        .expect("payload is [u8; 12], payload[..9] is len 9");
-    let fec = rs_12_9_fec(&data9, mask);
+    let fec = rs_12_9_fec(&body, mask);
     payload[9] = fec[0];
     payload[10] = fec[1];
     payload[11] = fec[2];
