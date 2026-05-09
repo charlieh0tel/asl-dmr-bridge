@@ -227,10 +227,12 @@ pub struct VoiceConfig {
     /// unrelated subscriber if reused here.
     pub src_id: SubscriberId,
     pub color_code: ColorCode,
-    /// Operator callsign emitted as Talker Alias (FLCO=4) on
-    /// alternate superframes during outbound DMR calls.  Empty
-    /// string, >7 chars, or non-ASCII disables TA emission and the
-    /// voice LC is sent every superframe.
+    /// Operator callsign / alias emitted as Talker Alias on
+    /// alternate superframes during outbound DMR calls.  Up to 31
+    /// ASCII chars: 7 fit in the TA Header (FLCO=4), the remainder
+    /// stream across up to 3 TA Blocks (FLCO=5/6/7) one per
+    /// superframe.  Empty / non-ASCII / over-31 disables TA
+    /// emission and the voice LC is sent every superframe.
     pub callsign: String,
 }
 

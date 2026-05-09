@@ -831,10 +831,10 @@ impl PttMachine {
 
             // Build the LC rotation: voice LC first (so the receiving
             // radio identifies the call before the TA), then optional
-            // talker-alias header.  TA disabled = single-entry vec,
-            // strict voice-LC behavior.
+            // talker-alias LCs (header + 0..=3 blocks).  TA disabled
+            // = single-entry vec, strict voice-LC behavior.
             let mut lc_rotation = vec![voice_fragments];
-            if let Some(ta_bits) = talker_alias::encode_ta_header_bits(&self.config.callsign) {
+            for ta_bits in talker_alias::encode_talker_alias_lcs(&self.config.callsign) {
                 lc_rotation.push(build_fragments(&ta_bits));
             }
 

@@ -441,10 +441,22 @@ async fn tx_with_empty_callsign_omits_ta() {
 }
 
 #[tokio::test]
-async fn tx_with_oversized_callsign_omits_ta() {
-    // >7 chars -> TA encoder returns None -> voice-only rotation.
+async fn tx_with_long_callsign_includes_ta_blocks() {
+    // 15-char alias -> header + 1 block -> rotation = voice + 2 TA = 3.
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) =
-        make_machine_with_callsign("EIGHTCHR");
+        make_machine_with_callsign("N0CALL Operator");
+    m.on_audio(&voice_audio()).await;
+    let PttState::Tx(tx) = &m.state else {
+        unreachable!()
+    };
+    assert_eq!(tx.lc_rotation.len(), 3, "voice + header + 1 block expected");
+}
+
+#[tokio::test]
+async fn tx_with_oversized_callsign_omits_ta() {
+    // >31 chars -> TA encoder returns empty -> voice-only rotation.
+    let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) =
+        make_machine_with_callsign("THIRTYTWOCHARTHIRTYTWOCHARTHIRTY2");
     m.on_audio(&voice_audio()).await;
     let PttState::Tx(tx) = &m.state else {
         unreachable!()
