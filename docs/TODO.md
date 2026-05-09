@@ -34,6 +34,3 @@ so they don't get re-proposed.
   static `[gain].fm_to_dmr_db` knob and offers little benefit for
   our typical single-repeater deployment.
 
-- **OpenBridge / cross-network bridging.**  The bridge is single-
-  repeater BM peer use, not network-to-network.  See the
-  Brandmeister policy section in README.
