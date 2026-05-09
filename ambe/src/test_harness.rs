@@ -5,12 +5,13 @@
 
 use crate::Vocoder;
 use crate::test_vectors::TEST_FRAMES;
+use dv3000_wire::PCM_SAMPLES;
 
 /// Decode all `TEST_FRAMES` through the given vocoder and concatenate
 /// the PCM output as little-endian i16 bytes.  State carries across
 /// frames, matching real-world use.
 pub fn decode_test_frames(vocoder: &mut dyn Vocoder) -> Vec<u8> {
-    let mut out = Vec::with_capacity(TEST_FRAMES.len() * crate::PCM_SAMPLES * 2);
+    let mut out = Vec::with_capacity(TEST_FRAMES.len() * PCM_SAMPLES * 2);
     for (i, frame) in TEST_FRAMES.iter().enumerate() {
         let pcm = vocoder
             .decode(Some(frame))

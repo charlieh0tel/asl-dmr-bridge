@@ -1,16 +1,13 @@
 pub(crate) mod ambeserver;
 pub mod chip;
 pub mod cli;
-pub(crate) mod dv3000;
 #[cfg(feature = "dynarmic")]
 pub(crate) mod dynarmic;
 #[cfg(feature = "neural")]
 pub(crate) mod neural;
-pub mod rates;
 #[cfg(feature = "thumbdv")]
 pub(crate) mod thumbdv;
 pub mod voice_channel;
-pub mod wire;
 
 // `test_harness` + `test_vectors` exist only to feed the goldens'
 // integration tests + `gen_golden`; gated behind a dedicated
@@ -20,23 +17,8 @@ pub mod test_harness;
 #[cfg(any(feature = "testing", test))]
 pub mod test_vectors;
 
-/// PCM frame: 160 samples, 20 ms at 8 kHz.
-pub const PCM_SAMPLES: usize = 160;
-
-/// AMBE+2 frame: 9 bytes (72 bits).
-pub const AMBE_FRAME_SIZE: usize = 9;
-
-/// AMBE+2 frame: 72 bits.
-pub(crate) const AMBE_BITS: u8 = (AMBE_FRAME_SIZE * 8) as u8;
-
-const _: () = assert!(PCM_SAMPLES <= u8::MAX as usize);
-const _: () = assert!(AMBE_FRAME_SIZE * 8 <= u8::MAX as usize);
-
-/// PCM sample buffer type.
-pub type PcmFrame = [i16; PCM_SAMPLES];
-
-/// AMBE+2 encoded frame type.
-pub type AmbeFrame = [u8; AMBE_FRAME_SIZE];
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PcmFrame;
 
 /// Channel-coded AMBE+2 frame-repeat sentinel (`b0=124`, others 0):
 /// a valid silent frame for warm-up / hang padding.
@@ -60,7 +42,7 @@ pub enum VocoderError {
     #[error("protocol error: {0}")]
     Protocol(String),
     #[error("DV3000 parse error: {0}")]
-    Parse(#[from] dv3000::ParseError),
+    Parse(#[from] dv3000_wire::ParseError),
     #[error("device init failed: {0}")]
     Init(String),
     /// Operation is not supported by this backend.  mbelib returns

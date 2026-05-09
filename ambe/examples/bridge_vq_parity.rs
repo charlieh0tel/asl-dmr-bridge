@@ -42,8 +42,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use ambe::NeuralEncoder;
-use ambe::PCM_SAMPLES;
 use clap::Parser;
+use dv3000_wire::PCM_SAMPLES;
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]

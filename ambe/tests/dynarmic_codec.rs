@@ -9,10 +9,10 @@
 //! `#[serial]` forces serialization within this binary so tests
 //! don't race each other's predictor history.
 
-use ambe::AMBE_FRAME_SIZE;
-use ambe::AmbeFrame;
-use ambe::PCM_SAMPLES;
-use ambe::PcmFrame;
+use dv3000_wire::AMBE_FRAME_SIZE;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PCM_SAMPLES;
+use dv3000_wire::PcmFrame;
 use hound::SampleFormat;
 use hound::WavReader;
 use serial_test::serial;

@@ -5,7 +5,7 @@
 //! in `tests/fixtures/` are generated from these via
 //! `cargo run -p ambe --features mbelib --example gen_golden`.
 
-use crate::AmbeFrame;
+use dv3000_wire::AmbeFrame;
 
 /// Eight deterministic AMBE+2 frames.  Chosen to exercise different
 /// codec input conditions (all-zero, all-one, alternating, rotating

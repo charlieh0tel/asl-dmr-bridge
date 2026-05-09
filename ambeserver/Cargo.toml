@@ -9,6 +9,7 @@ description = "UDP-to-serial proxy for a DVSI AMBE-3000R chip with one-active-se
 ambe.workspace = true
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive", "error-context", "help", "std", "suggestions", "usage"] }
+dv3000-wire.workspace = true
 serialport.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -7,13 +7,13 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::OnceLock;
 
-use crate::AMBE_FRAME_SIZE;
-use crate::AmbeFrame;
-use crate::PCM_SAMPLES;
-use crate::PcmFrame;
 use crate::SILENCE_FRAME;
 use crate::Vocoder;
 use crate::VocoderError;
+use dv3000_wire::AMBE_FRAME_SIZE;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PCM_SAMPLES;
+use dv3000_wire::PcmFrame;
 
 static CODEC: OnceLock<Mutex<()>> = OnceLock::new();
 

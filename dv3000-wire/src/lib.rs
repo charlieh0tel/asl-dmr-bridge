@@ -1,6 +1,7 @@
-//! DV3000 packet format used by DVSI AMBE-3000 devices.
+//! DV3000 wire format used by DVSI AMBE-3000 devices.
 //!
-//! Shared between ThumbDV (serial) and AMBEserver (UDP) backends.
+//! Shared by ThumbDV (serial) and AMBEserver (UDP) backends, plus
+//! the bridge's software vocoder pipeline.
 //!
 //! Packet structure:
 //!   start_byte(1) = 0x61
@@ -8,41 +9,60 @@
 //!   packet_type(1)
 //!   payload(variable)
 
-use crate::AMBE_BITS;
-use crate::AMBE_FRAME_SIZE;
-use crate::AmbeFrame;
-use crate::PCM_SAMPLES;
-use crate::PcmFrame;
-use crate::wire::CONTROL_GAIN;
-#[cfg(feature = "thumbdv")]
-use crate::wire::CONTROL_PRODID;
-use crate::wire::CONTROL_RATEP;
-use crate::wire::CONTROL_READY;
-use crate::wire::CONTROL_RESET;
-use crate::wire::HEADER_SIZE;
-use crate::wire::START_BYTE;
-use crate::wire::TYPE_AMBE;
-use crate::wire::TYPE_AUDIO;
-use crate::wire::TYPE_CONTROL;
+pub mod rates;
+
+/// Frame start sentinel (every packet begins with this byte).
+pub const START_BYTE: u8 = 0x61;
+
+/// Length of the fixed-size header: start + len(2) + type.
+pub const HEADER_SIZE: usize = 4;
+
+// `packet_type` values.
+pub const TYPE_CONTROL: u8 = 0x00;
+pub const TYPE_AMBE: u8 = 0x01;
+pub const TYPE_AUDIO: u8 = 0x02;
+
+// First byte of a PKT_CONTROL payload: control field id.
+pub const CONTROL_RESET: u8 = 0x33;
+pub const CONTROL_READY: u8 = 0x39;
+pub const CONTROL_RATEP: u8 = 0x0A;
+pub const CONTROL_GAIN: u8 = 0x4B;
+pub const CONTROL_PRODID: u8 = 0x30;
+
+/// PCM frame: 160 samples, 20 ms at 8 kHz.
+pub const PCM_SAMPLES: usize = 160;
+
+/// AMBE+2 frame: 9 bytes (72 bits).
+pub const AMBE_FRAME_SIZE: usize = 9;
+
+/// AMBE+2 frame: 72 bits.
+const AMBE_BITS: u8 = (AMBE_FRAME_SIZE * 8) as u8;
+
+const _: () = assert!(PCM_SAMPLES <= u8::MAX as usize);
+const _: () = assert!(AMBE_FRAME_SIZE * 8 <= u8::MAX as usize);
+
+/// PCM sample buffer type.
+pub type PcmFrame = [i16; PCM_SAMPLES];
+
+/// AMBE+2 encoded frame type.
+pub type AmbeFrame = [u8; AMBE_FRAME_SIZE];
 
 /// Max receive buffer for DV3000 packets.
 /// Largest packet is audio: header(4) + field_id(1) + num_samples(1)
 /// + samples(320) + cmode(3) = 329 bytes.
-pub(crate) const MAX_PACKET: usize = 512;
+pub const MAX_PACKET: usize = 512;
 
 /// DV3000 gain range (dB), inclusive.  Values outside this range are
 /// clamped before being sent.  Matches serialDV's setGain clamp.
-pub(crate) const GAIN_MIN_DB: i8 = -90;
-pub(crate) const GAIN_MAX_DB: i8 = 90;
+const GAIN_MIN_DB: i8 = -90;
+const GAIN_MAX_DB: i8 = 90;
 
 /// Data field IDs within audio/AMBE payloads.
 const FIELD_SPEECH_DATA: u8 = 0x00;
 const FIELD_CMODE: u8 = 0x02;
 const FIELD_CHANNEL_DATA: u8 = 0x01;
 
-/// DV3000 packet parse error.  Public so `VocoderError::Parse` can
-/// carry it typed across the backend boundary; the enclosing module
-/// `dv3000` is still `pub(crate)`, so effective visibility matches.
+/// DV3000 packet parse error.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     #[error("packet too short: {have} bytes, need {need}")]
@@ -65,7 +85,7 @@ pub enum ParseError {
 
 /// Parsed DV3000 packet.
 #[derive(Debug, Clone)]
-pub(crate) enum Packet {
+pub enum Packet {
     /// AMBE+2 channel-coded data, 72 bits / 9 bytes.  Default DMR
     /// rate (index 33) returns this; routine `Vocoder::encode` expects
     /// only this variant.
@@ -77,19 +97,12 @@ pub(crate) enum Packet {
     /// PCM audio samples.
     Audio(Box<PcmFrame>),
     /// Control response (field_id, raw payload).
-    Control {
-        field_id: u8,
-        #[cfg_attr(
-            not(feature = "thumbdv"),
-            expect(dead_code, reason = "read by thumbdv prodid check")
-        )]
-        data: Vec<u8>,
-    },
+    Control { field_id: u8, data: Vec<u8> },
 }
 
 /// Parse a DV3000 packet from a buffer.
 /// Returns the packet and the number of bytes consumed.
-pub(crate) fn parse(buf: &[u8]) -> Result<(Packet, usize), ParseError> {
+pub fn parse(buf: &[u8]) -> Result<(Packet, usize), ParseError> {
     if buf.len() < HEADER_SIZE {
         return Err(ParseError::TooShort {
             have: buf.len(),
@@ -200,7 +213,7 @@ fn parse_control(payload: &[u8]) -> Result<Packet, ParseError> {
 }
 
 /// Build a DV3000 audio packet (for encode: PCM -> AMBE).
-pub(crate) fn build_audio(pcm: &PcmFrame) -> Vec<u8> {
+pub fn build_audio(pcm: &PcmFrame) -> Vec<u8> {
     // payload: field_id(1) + num_samples(1) + samples(PCM_SAMPLES*2) + cmode_field(1) + cmode(2)
     let payload_len = 1 + 1 + PCM_SAMPLES * 2 + 1 + 2;
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len);
@@ -221,7 +234,7 @@ pub(crate) fn build_audio(pcm: &PcmFrame) -> Vec<u8> {
 }
 
 /// Build a DV3000 AMBE packet (for decode: AMBE -> PCM).
-pub(crate) fn build_ambe(ambe: &AmbeFrame) -> Vec<u8> {
+pub fn build_ambe(ambe: &AmbeFrame) -> Vec<u8> {
     // payload: field_id(1) + num_bits(1) + data(AMBE_FRAME_SIZE).
     // Matches serialDV dvcontroller.cpp decodeIn; no trailing CMODE.
     let payload_len = 1 + 1 + AMBE_FRAME_SIZE;
@@ -243,7 +256,7 @@ pub(crate) fn build_ambe(ambe: &AmbeFrame) -> Vec<u8> {
 /// the channel-packet CMODE word).  The chip ignores the channel
 /// data and performs a frame repeat using its predictor, so the
 /// data bytes are sent as zeros.
-pub(crate) fn build_ambe_lost_frame() -> Vec<u8> {
+pub fn build_ambe_lost_frame() -> Vec<u8> {
     /// Per-frame CMODE override telling the decoder this frame is
     /// known-bad: ignore channel data, do a predictor frame-repeat.
     const CMODE_LOST_FRAME: u16 = 0x0004;
@@ -268,7 +281,7 @@ pub(crate) fn build_ambe_lost_frame() -> Vec<u8> {
 }
 
 /// Build a reset control packet.
-pub(crate) fn build_reset() -> Vec<u8> {
+pub fn build_reset() -> Vec<u8> {
     let payload_len: u16 = 1;
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len as usize);
     buf.push(START_BYTE);
@@ -279,12 +292,12 @@ pub(crate) fn build_reset() -> Vec<u8> {
 }
 
 /// Build a RATEP control packet for DMR (AMBE+2 3600x2450).
-pub(crate) fn build_ratep_dmr() -> Vec<u8> {
-    build_ratep_custom(&crate::rates::RATEP_DMR)
+pub fn build_ratep_dmr() -> Vec<u8> {
+    build_ratep_custom(&rates::RATEP_DMR)
 }
 
 /// Build a RATEP control packet from a 12-byte custom RCW0..RCW5 array.
-pub(crate) fn build_ratep_custom(rcws: &[u8; 12]) -> Vec<u8> {
+pub fn build_ratep_custom(rcws: &[u8; 12]) -> Vec<u8> {
     let payload_len = 1 + rcws.len();
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len);
 
@@ -300,7 +313,7 @@ pub(crate) fn build_ratep_custom(rcws: &[u8; 12]) -> Vec<u8> {
 /// Build a gain control packet.  `in_db` sets encoder input gain,
 /// `out_db` sets decoder output gain; both in dB, clamped to
 /// `GAIN_MIN_DB..=GAIN_MAX_DB`.  Matches serialDV's DV3000_REQ_GAIN.
-pub(crate) fn build_gain(in_db: i8, out_db: i8) -> Vec<u8> {
+pub fn build_gain(in_db: i8, out_db: i8) -> Vec<u8> {
     let in_db = in_db.clamp(GAIN_MIN_DB, GAIN_MAX_DB);
     let out_db = out_db.clamp(GAIN_MIN_DB, GAIN_MAX_DB);
     // payload: field_id(1) + in_gain(1) + out_gain(1) = 3
@@ -316,13 +329,12 @@ pub(crate) fn build_gain(in_db: i8, out_db: i8) -> Vec<u8> {
 }
 
 /// Check if a control packet is a GAIN acknowledgment.
-pub(crate) fn is_gain_ack(packet: &Packet) -> bool {
+pub fn is_gain_ack(packet: &Packet) -> bool {
     matches!(packet, Packet::Control { field_id, .. } if *field_id == CONTROL_GAIN)
 }
 
-/// Build a product ID query packet.
-#[cfg(feature = "thumbdv")]
-pub(crate) fn build_prodid() -> Vec<u8> {
+/// Build a product ID query packet (sent by a client to a chip).
+pub fn build_prodid() -> Vec<u8> {
     let payload_len: u16 = 1;
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len as usize);
     buf.push(START_BYTE);
@@ -333,12 +345,12 @@ pub(crate) fn build_prodid() -> Vec<u8> {
 }
 
 /// Check if a control packet is a READY response.
-pub(crate) fn is_ready(packet: &Packet) -> bool {
+pub fn is_ready(packet: &Packet) -> bool {
     matches!(packet, Packet::Control { field_id, .. } if *field_id == CONTROL_READY)
 }
 
 /// Check if a control packet is a RATEP acknowledgment.
-pub(crate) fn is_ratep_ack(packet: &Packet) -> bool {
+pub fn is_ratep_ack(packet: &Packet) -> bool {
     matches!(packet, Packet::Control { field_id, .. } if *field_id == CONTROL_RATEP)
 }
 
@@ -387,7 +399,7 @@ mod tests {
         assert_eq!(buf[0], START_BYTE);
         assert_eq!(buf[3], TYPE_CONTROL);
         assert_eq!(buf[4], CONTROL_RATEP);
-        assert_eq!(&buf[5..], &crate::rates::RATEP_DMR);
+        assert_eq!(&buf[5..], &rates::RATEP_DMR);
     }
 
     #[test]
@@ -464,7 +476,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "thumbdv")]
     fn prodid_packet_format() {
         let buf = build_prodid();
         assert_eq!(buf[0], START_BYTE);

@@ -15,10 +15,21 @@
 //! - `ThumbDvClient` (`thumbdv` feature): direct serial.  Caller has
 //!   exclusive access to the serial device.
 
-use crate::PcmFrame;
 use crate::VocoderError;
-use crate::dv3000;
-use crate::wire;
+use dv3000_wire::HEADER_SIZE;
+use dv3000_wire::MAX_PACKET;
+use dv3000_wire::Packet;
+use dv3000_wire::PcmFrame;
+use dv3000_wire::START_BYTE;
+use dv3000_wire::TYPE_AMBE;
+use dv3000_wire::build_audio;
+use dv3000_wire::build_gain;
+use dv3000_wire::build_ratep_custom;
+use dv3000_wire::build_reset;
+use dv3000_wire::is_gain_ack;
+use dv3000_wire::is_ratep_ack;
+use dv3000_wire::is_ready;
+use dv3000_wire::parse;
 
 /// Low-level access to a DVSI AMBE-3000R chip.  Use this when you
 /// need to switch rates mid-session or inspect non-72-bit AMBE
@@ -53,10 +64,10 @@ pub trait ChipClient: Send {
 fn build_ambe_for_bits(bits: u8, data: &[u8]) -> Vec<u8> {
     const FIELD_CHANNEL_DATA: u8 = 0x01;
     let payload_len = 1 + 1 + data.len();
-    let mut buf = Vec::with_capacity(wire::HEADER_SIZE + payload_len);
-    buf.push(wire::START_BYTE);
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len);
+    buf.push(START_BYTE);
     buf.extend_from_slice(&(payload_len as u16).to_be_bytes());
-    buf.push(wire::TYPE_AMBE);
+    buf.push(TYPE_AMBE);
     buf.push(FIELD_CHANNEL_DATA);
     buf.push(bits);
     buf.extend_from_slice(data);
@@ -84,22 +95,22 @@ impl AmbeServerClient {
         socket.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
         Ok(Self {
             socket,
-            buf: vec![0u8; dv3000::MAX_PACKET],
+            buf: vec![0u8; MAX_PACKET],
         })
     }
 
-    fn send_recv(&mut self, packet: &[u8]) -> Result<dv3000::Packet, VocoderError> {
+    fn send_recv(&mut self, packet: &[u8]) -> Result<Packet, VocoderError> {
         self.socket.send(packet)?;
         let len = self.socket.recv(&mut self.buf)?;
-        let (response, _) = dv3000::parse(&self.buf[..len])?;
+        let (response, _) = parse(&self.buf[..len])?;
         Ok(response)
     }
 }
 
 impl ChipClient for AmbeServerClient {
     fn reset(&mut self) -> Result<(), VocoderError> {
-        let response = self.send_recv(&dv3000::build_reset())?;
-        if !dv3000::is_ready(&response) {
+        let response = self.send_recv(&build_reset())?;
+        if !is_ready(&response) {
             return Err(VocoderError::Protocol(format!(
                 "expected READY after reset, got {response:?}"
             )));
@@ -108,8 +119,8 @@ impl ChipClient for AmbeServerClient {
     }
 
     fn set_ratep(&mut self, rcws: &[u8; 12]) -> Result<(), VocoderError> {
-        let response = self.send_recv(&dv3000::build_ratep_custom(rcws))?;
-        if !dv3000::is_ratep_ack(&response) {
+        let response = self.send_recv(&build_ratep_custom(rcws))?;
+        if !is_ratep_ack(&response) {
             return Err(VocoderError::Protocol(format!(
                 "expected RATEP ack, got {response:?}"
             )));
@@ -118,8 +129,8 @@ impl ChipClient for AmbeServerClient {
     }
 
     fn set_gain(&mut self, in_db: i8, out_db: i8) -> Result<(), VocoderError> {
-        let response = self.send_recv(&dv3000::build_gain(in_db, out_db))?;
-        if !dv3000::is_gain_ack(&response) {
+        let response = self.send_recv(&build_gain(in_db, out_db))?;
+        if !is_gain_ack(&response) {
             return Err(VocoderError::Protocol(format!(
                 "expected GAIN ack, got {response:?}"
             )));
@@ -128,9 +139,9 @@ impl ChipClient for AmbeServerClient {
     }
 
     fn encode_raw(&mut self, pcm: &PcmFrame) -> Result<(u8, Vec<u8>), VocoderError> {
-        match self.send_recv(&dv3000::build_audio(pcm))? {
-            dv3000::Packet::Ambe(frame) => Ok((72, frame.to_vec())),
-            dv3000::Packet::AmbeBits { bits, data } => Ok((bits, data)),
+        match self.send_recv(&build_audio(pcm))? {
+            Packet::Ambe(frame) => Ok((72, frame.to_vec())),
+            Packet::AmbeBits { bits, data } => Ok((bits, data)),
             other => Err(VocoderError::Encode(format!(
                 "expected AMBE response, got {other:?}"
             ))),
@@ -139,7 +150,7 @@ impl ChipClient for AmbeServerClient {
 
     fn decode_raw(&mut self, bits: u8, data: &[u8]) -> Result<PcmFrame, VocoderError> {
         match self.send_recv(&build_ambe_for_bits(bits, data))? {
-            dv3000::Packet::Audio(samples) => Ok(*samples),
+            Packet::Audio(samples) => Ok(*samples),
             other => Err(VocoderError::Decode(format!(
                 "expected audio response, got {other:?}"
             ))),
@@ -177,11 +188,11 @@ impl ThumbDvClient {
             .map_err(|e| VocoderError::Init(format!("clear serial buffers: {e}")))?;
         let mut client = Self {
             port,
-            buf: vec![0u8; dv3000::MAX_PACKET],
+            buf: vec![0u8; MAX_PACKET],
         };
-        client.send_raw(&dv3000::build_reset())?;
+        client.send_raw(&build_reset())?;
         let r = client.recv()?;
-        if !dv3000::is_ready(&r) {
+        if !is_ready(&r) {
             return Err(VocoderError::Init(format!(
                 "expected READY after reset, got {r:?}"
             )));
@@ -196,11 +207,11 @@ impl ThumbDvClient {
         Ok(())
     }
 
-    fn recv(&mut self) -> Result<dv3000::Packet, VocoderError> {
+    fn recv(&mut self) -> Result<Packet, VocoderError> {
         use std::io::Read as _;
-        let mut header = [0u8; wire::HEADER_SIZE];
+        let mut header = [0u8; HEADER_SIZE];
         self.port.read_exact(&mut header)?;
-        if header[0] != wire::START_BYTE {
+        if header[0] != START_BYTE {
             return Err(VocoderError::Protocol(format!(
                 "bad start byte: 0x{:02x}",
                 header[0]
@@ -214,11 +225,11 @@ impl ThumbDvClient {
         }
         self.buf[..4].copy_from_slice(&header);
         self.port.read_exact(&mut self.buf[4..4 + payload_len])?;
-        let (packet, _) = dv3000::parse(&self.buf[..4 + payload_len])?;
+        let (packet, _) = parse(&self.buf[..4 + payload_len])?;
         Ok(packet)
     }
 
-    fn send_recv(&mut self, packet: &[u8]) -> Result<dv3000::Packet, VocoderError> {
+    fn send_recv(&mut self, packet: &[u8]) -> Result<Packet, VocoderError> {
         self.send_raw(packet)?;
         self.recv()
     }
@@ -227,8 +238,8 @@ impl ThumbDvClient {
 #[cfg(feature = "thumbdv")]
 impl ChipClient for ThumbDvClient {
     fn reset(&mut self) -> Result<(), VocoderError> {
-        let r = self.send_recv(&dv3000::build_reset())?;
-        if !dv3000::is_ready(&r) {
+        let r = self.send_recv(&build_reset())?;
+        if !is_ready(&r) {
             return Err(VocoderError::Protocol(format!(
                 "expected READY after reset, got {r:?}"
             )));
@@ -237,8 +248,8 @@ impl ChipClient for ThumbDvClient {
     }
 
     fn set_ratep(&mut self, rcws: &[u8; 12]) -> Result<(), VocoderError> {
-        let r = self.send_recv(&dv3000::build_ratep_custom(rcws))?;
-        if !dv3000::is_ratep_ack(&r) {
+        let r = self.send_recv(&build_ratep_custom(rcws))?;
+        if !is_ratep_ack(&r) {
             return Err(VocoderError::Protocol(format!(
                 "expected RATEP ack, got {r:?}"
             )));
@@ -247,8 +258,8 @@ impl ChipClient for ThumbDvClient {
     }
 
     fn set_gain(&mut self, in_db: i8, out_db: i8) -> Result<(), VocoderError> {
-        let r = self.send_recv(&dv3000::build_gain(in_db, out_db))?;
-        if !dv3000::is_gain_ack(&r) {
+        let r = self.send_recv(&build_gain(in_db, out_db))?;
+        if !is_gain_ack(&r) {
             return Err(VocoderError::Protocol(format!(
                 "expected GAIN ack, got {r:?}"
             )));
@@ -257,9 +268,9 @@ impl ChipClient for ThumbDvClient {
     }
 
     fn encode_raw(&mut self, pcm: &PcmFrame) -> Result<(u8, Vec<u8>), VocoderError> {
-        match self.send_recv(&dv3000::build_audio(pcm))? {
-            dv3000::Packet::Ambe(frame) => Ok((72, frame.to_vec())),
-            dv3000::Packet::AmbeBits { bits, data } => Ok((bits, data)),
+        match self.send_recv(&build_audio(pcm))? {
+            Packet::Ambe(frame) => Ok((72, frame.to_vec())),
+            Packet::AmbeBits { bits, data } => Ok((bits, data)),
             other => Err(VocoderError::Encode(format!(
                 "expected AMBE response, got {other:?}"
             ))),
@@ -268,7 +279,7 @@ impl ChipClient for ThumbDvClient {
 
     fn decode_raw(&mut self, bits: u8, data: &[u8]) -> Result<PcmFrame, VocoderError> {
         match self.send_recv(&build_ambe_for_bits(bits, data))? {
-            dv3000::Packet::Audio(samples) => Ok(*samples),
+            Packet::Audio(samples) => Ok(*samples),
             other => Err(VocoderError::Decode(format!(
                 "expected audio response, got {other:?}"
             ))),

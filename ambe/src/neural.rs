@@ -21,12 +21,12 @@ use tract_onnx::prelude::TypedRunnableModel;
 use tract_onnx::prelude::tract_ndarray;
 use tract_onnx::prelude::tvec;
 
-use crate::AmbeFrame;
-use crate::PCM_SAMPLES;
-use crate::PcmFrame;
 use crate::Vocoder;
 use crate::VocoderError;
 use crate::dynarmic::DynarmicVocoder;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PCM_SAMPLES;
+use dv3000_wire::PcmFrame;
 
 /// Field layout name carried in ONNX metadata (`nambe.layout`).
 const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";
@@ -372,12 +372,12 @@ fn parse_metadata(proto: &pb::ModelProto) -> Result<NeuralMeta, VocoderError> {
         EXPECTED_PCM_NORMALIZATION,
     )?;
     let frame_hop_samples: usize = parse_kv(&props, "nambe.frame_hop_samples")?;
-    if frame_hop_samples != crate::PCM_SAMPLES {
+    if frame_hop_samples != PCM_SAMPLES {
         return Err(init_err(format!(
             "nambe.frame_hop_samples={frame_hop_samples}, expected {} \
              (matches PCM_SAMPLES; the bridge feeds the model one
              20 ms PCM frame per encode call)",
-            crate::PCM_SAMPLES,
+            PCM_SAMPLES,
         )));
     }
     let opset = require(&props, "nambe.opset")?;

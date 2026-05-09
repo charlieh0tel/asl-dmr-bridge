@@ -5,8 +5,8 @@
 //! FrameType, etc.) is the transport's responsibility.
 
 /// 8 kHz mono PCM frame, 20 ms == 160 samples.  Same shape as
-/// `ambe::PcmFrame`; the dmr-wire crate owns its own definition so
-/// it does not need to re-export ambe constants in its API.
+/// `dv3000_wire::PcmFrame`; the dmr-wire crate owns its own
+/// definition so transport users don't need to import the wire crate.
 pub const VOICE_SAMPLES: usize = 160;
 
 /// Audio events crossing the FM <-> DMR seam.  `keyup` carries the

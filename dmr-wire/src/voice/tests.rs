@@ -5,15 +5,18 @@ use dmr_types::ColorCode;
 use dmr_types::DmrId;
 use dmr_types::SubscriberId;
 use dmr_types::Talkgroup;
+use dv3000_wire::AMBE_FRAME_SIZE;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PCM_SAMPLES;
 use tokio::time::Instant;
 
 struct StubVocoder;
 
 impl Vocoder for StubVocoder {
-    fn encode(&mut self, _pcm: &PcmFrame) -> Result<ambe::AmbeFrame, ambe::VocoderError> {
-        Ok([0xAA; ambe::AMBE_FRAME_SIZE])
+    fn encode(&mut self, _pcm: &PcmFrame) -> Result<AmbeFrame, ambe::VocoderError> {
+        Ok([0xAA; AMBE_FRAME_SIZE])
     }
-    fn decode(&mut self, _ambe: Option<&ambe::AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
+    fn decode(&mut self, _ambe: Option<&AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
         Ok([1000i16; VOICE_SAMPLES])
     }
     fn reset(&mut self) {}
@@ -27,10 +30,10 @@ impl Vocoder for StubVocoder {
 struct PanickingVocoder;
 
 impl Vocoder for PanickingVocoder {
-    fn encode(&mut self, _pcm: &PcmFrame) -> Result<ambe::AmbeFrame, ambe::VocoderError> {
+    fn encode(&mut self, _pcm: &PcmFrame) -> Result<AmbeFrame, ambe::VocoderError> {
         panic!("simulated vocoder panic")
     }
-    fn decode(&mut self, _ambe: Option<&ambe::AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
+    fn decode(&mut self, _ambe: Option<&AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
         Ok([0i16; VOICE_SAMPLES])
     }
     fn reset(&mut self) {}
@@ -140,7 +143,7 @@ fn terminator_dmrd(stream_id: u32) -> Dmrd {
 fn voice_audio() -> AudioFrame {
     AudioFrame {
         keyup: true,
-        samples: Some([1000i16; ambe::PCM_SAMPLES]),
+        samples: Some([1000i16; PCM_SAMPLES]),
         dmr_stream_id: None,
     }
 }

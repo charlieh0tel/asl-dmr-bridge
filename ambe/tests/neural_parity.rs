@@ -17,6 +17,7 @@ use ambe::voice_channel::RAW_BYTES;
 use ambe::voice_channel::channel_decode;
 use ambe::voice_channel::permute_chip_to_mbelib;
 use ambe::voice_channel::unpack_msb_first;
+use dv3000_wire::PCM_SAMPLES;
 use tract_onnx::prelude::Framework;
 
 const PASS_THRESHOLD: f64 = 1.0;
@@ -88,9 +89,9 @@ fn aug50_bit_parity() {
     let pcm = read_wav_pcm(&paths.wav);
     let expected = fs::read(&paths.expected_bin).expect("read parity_expected_49bit.bin");
 
-    assert_eq!(pcm.len() % ambe::PCM_SAMPLES, 0);
+    assert_eq!(pcm.len() % PCM_SAMPLES, 0);
     assert_eq!(expected.len() % RAW_BYTES, 0);
-    let total_pcm_frames = pcm.len() / ambe::PCM_SAMPLES;
+    let total_pcm_frames = pcm.len() / PCM_SAMPLES;
     let expected_frames = expected.len() / RAW_BYTES;
     let warmup = total_pcm_frames - expected_frames;
 
@@ -100,9 +101,9 @@ fn aug50_bit_parity() {
     // against misaligned frames otherwise.
     let lookback = harness_lookback_samples(&paths.model);
     assert!(
-        warmup * ambe::PCM_SAMPLES >= lookback,
+        warmup * PCM_SAMPLES >= lookback,
         "fixture warmup={warmup} frames ({} samples) < harness_lookback_samples={lookback}",
-        warmup * ambe::PCM_SAMPLES,
+        warmup * PCM_SAMPLES,
     );
 
     let mut v = ambe::open_neural(&paths.model).expect("open neural");
@@ -110,8 +111,8 @@ fn aug50_bit_parity() {
     let mut total_bits = 0usize;
     let mut matching_bits = 0usize;
     for f in 0..total_pcm_frames {
-        let mut frame = [0i16; ambe::PCM_SAMPLES];
-        frame.copy_from_slice(&pcm[f * ambe::PCM_SAMPLES..(f + 1) * ambe::PCM_SAMPLES]);
+        let mut frame = [0i16; PCM_SAMPLES];
+        frame.copy_from_slice(&pcm[f * PCM_SAMPLES..(f + 1) * PCM_SAMPLES]);
         let coded = v.encode(&frame).expect("encode");
         if f < warmup {
             // Harness emits zeros during warm-up; expected fixture

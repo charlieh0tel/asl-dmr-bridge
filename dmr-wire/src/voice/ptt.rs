@@ -14,8 +14,6 @@ use std::time::Duration;
 use dsp::biquad::BiquadCascade;
 use dsp::biquad::pre_encode_voice_8khz;
 
-use ambe::AmbeFrame;
-use ambe::PcmFrame;
 use ambe::Vocoder;
 use ambe::VocoderError;
 use dmr_events::CallDirection;
@@ -24,6 +22,8 @@ use dmr_events::CallsignLookup;
 use dmr_events::MetaEvent;
 use dmr_events::StatsEvent;
 use dmr_events::TerminationReason;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PcmFrame;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -411,7 +411,7 @@ impl PttMachine {
         pcm: &[PcmFrame; FRAMES_PER_BURST],
         tx: &mut TxCall,
     ) -> Option<(Vec<u8>, [Duration; FRAMES_PER_BURST])> {
-        let mut ambe = [ambe::AmbeFrame::default(); FRAMES_PER_BURST];
+        let mut ambe = [AmbeFrame::default(); FRAMES_PER_BURST];
         let mut transcode_times = [Duration::ZERO; FRAMES_PER_BURST];
         for (i, frame) in pcm.iter().enumerate() {
             let t0 = Instant::now();
@@ -436,11 +436,7 @@ impl PttMachine {
     /// (vseq=0) carries `BS_VOICE_SYNC`; bursts B-E (vseq 1..=4) carry
     /// embedded-LC fragments 0..3 with LCSS 1/3/3/2 per ETSI
     /// TS 102 361-1; burst F (vseq=5) carries null EMB.
-    fn build_voice_burst(
-        &self,
-        ambe: &[ambe::AmbeFrame; FRAMES_PER_BURST],
-        tx: &mut TxCall,
-    ) -> Vec<u8> {
+    fn build_voice_burst(&self, ambe: &[AmbeFrame; FRAMES_PER_BURST], tx: &mut TxCall) -> Vec<u8> {
         let sync = match tx.vseq {
             0 => BS_VOICE_SYNC,
             n @ 1..=4 => {

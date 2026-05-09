@@ -17,10 +17,10 @@
 //! Defaults: input ambe/tests/fixtures/voice.wav, output
 //! /tmp/cross_loopback_<encode>_<decode>.wav.
 
-use ambe::AmbeFrame;
-use ambe::PCM_SAMPLES;
-use ambe::PcmFrame;
 use ambe::Vocoder;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PCM_SAMPLES;
+use dv3000_wire::PcmFrame;
 use hound::SampleFormat;
 use hound::WavReader;
 use hound::WavSpec;

@@ -13,10 +13,10 @@
 
 use std::net::SocketAddr;
 
-use ambe::AmbeFrame;
-use ambe::PCM_SAMPLES;
-use ambe::PcmFrame;
 use ambe::open_ambeserver;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::PCM_SAMPLES;
+use dv3000_wire::PcmFrame;
 
 /// Frames of input signal.  20 * 20ms = 400ms.
 const FRAMES: usize = 20;

@@ -23,14 +23,14 @@ use std::net::UdpSocket;
 use std::time::Duration;
 use std::time::Instant;
 
-use ambe::wire::CONTROL_GAIN;
-use ambe::wire::CONTROL_RATEP;
-use ambe::wire::CONTROL_RESET;
-use ambe::wire::START_BYTE;
-use ambe::wire::TYPE_CONTROL;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
+use dv3000_wire::CONTROL_GAIN;
+use dv3000_wire::CONTROL_RATEP;
+use dv3000_wire::CONTROL_RESET;
+use dv3000_wire::START_BYTE;
+use dv3000_wire::TYPE_CONTROL;
 use tracing::debug;
 use tracing::info;
 use tracing::warn;
@@ -59,7 +59,7 @@ fn describe_control(buf: &[u8]) -> Option<String> {
         CONTROL_RATEP if buf.len() >= 5 + 12 => {
             let mut payload = [0u8; 12];
             payload.copy_from_slice(&buf[5..5 + 12]);
-            let name = ambe::rates::rate_name(&payload)
+            let name = dv3000_wire::rates::rate_name(&payload)
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("custom rcws={payload:02x?}"));
             Some(format!("RATEP {name}"))
@@ -161,8 +161,8 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambe::rates::RATEP_DMR;
-    use ambe::rates::RATEP_RAW;
+    use dv3000_wire::rates::RATEP_DMR;
+    use dv3000_wire::rates::RATEP_RAW;
 
     fn ratep_packet(rcws: &[u8; 12]) -> Vec<u8> {
         let mut buf = vec![START_BYTE, 0x00, 0x0D, TYPE_CONTROL, CONTROL_RATEP];

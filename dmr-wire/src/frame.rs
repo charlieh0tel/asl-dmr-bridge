@@ -17,8 +17,8 @@
 //! Reference: ETSI TS 102 361-1 Section 9.1.
 //! See DESIGN.md "DMR Voice Burst Disassembly" for the full spec.
 
-use ambe::AMBE_FRAME_SIZE;
-use ambe::AmbeFrame;
+use dv3000_wire::AMBE_FRAME_SIZE;
+use dv3000_wire::AmbeFrame;
 
 use super::dmrd::DMR_DATA_SIZE;
 

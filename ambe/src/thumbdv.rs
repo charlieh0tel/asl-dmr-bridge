@@ -10,12 +10,25 @@ use std::time::Duration;
 
 use tracing::info;
 
-use crate::AmbeFrame;
-use crate::PcmFrame;
 use crate::Vocoder;
 use crate::VocoderError;
-use crate::dv3000;
-use crate::wire;
+use dv3000_wire::AmbeFrame;
+use dv3000_wire::HEADER_SIZE;
+use dv3000_wire::MAX_PACKET;
+use dv3000_wire::Packet;
+use dv3000_wire::PcmFrame;
+use dv3000_wire::START_BYTE;
+use dv3000_wire::build_ambe;
+use dv3000_wire::build_ambe_lost_frame;
+use dv3000_wire::build_audio;
+use dv3000_wire::build_gain;
+use dv3000_wire::build_prodid;
+use dv3000_wire::build_ratep_dmr;
+use dv3000_wire::build_reset;
+use dv3000_wire::is_gain_ack;
+use dv3000_wire::is_ratep_ack;
+use dv3000_wire::is_ready;
+use dv3000_wire::parse;
 
 const DEFAULT_BAUD: u32 = 460_800;
 const SERIAL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -81,7 +94,7 @@ impl ThumbDv {
 
         let mut dv = Self {
             port,
-            buf: vec![0u8; dv3000::MAX_PACKET],
+            buf: vec![0u8; MAX_PACKET],
         };
 
         dv.init()?;
@@ -89,25 +102,25 @@ impl ThumbDv {
     }
 
     fn init(&mut self) -> Result<(), VocoderError> {
-        self.send_raw(&dv3000::build_reset())?;
+        self.send_raw(&build_reset())?;
         let response = self.recv()?;
-        if !dv3000::is_ready(&response) {
+        if !is_ready(&response) {
             return Err(VocoderError::Init(format!(
                 "expected READY after reset, got {response:?}"
             )));
         }
         info!("ThumbDV reset OK");
 
-        self.send_raw(&dv3000::build_prodid())?;
+        self.send_raw(&build_prodid())?;
         let response = self.recv()?;
-        if let dv3000::Packet::Control { data, .. } = &response {
+        if let Packet::Control { data, .. } = &response {
             let id = String::from_utf8_lossy(data);
             info!("ThumbDV product: {id}");
         }
 
-        self.send_raw(&dv3000::build_ratep_dmr())?;
+        self.send_raw(&build_ratep_dmr())?;
         let response = self.recv()?;
-        if !dv3000::is_ratep_ack(&response) {
+        if !is_ratep_ack(&response) {
             return Err(VocoderError::Init(format!(
                 "expected RATEP ack, got {response:?}"
             )));
@@ -123,10 +136,10 @@ impl ThumbDv {
         Ok(())
     }
 
-    fn recv(&mut self) -> Result<dv3000::Packet, VocoderError> {
-        let mut header = [0u8; wire::HEADER_SIZE];
+    fn recv(&mut self) -> Result<Packet, VocoderError> {
+        let mut header = [0u8; HEADER_SIZE];
         self.port.read_exact(&mut header)?;
-        if header[0] != wire::START_BYTE {
+        if header[0] != START_BYTE {
             return Err(VocoderError::Protocol(format!(
                 "bad start byte: 0x{:02x}",
                 header[0]
@@ -134,7 +147,7 @@ impl ThumbDv {
         }
 
         let payload_len = u16::from_be_bytes([header[1], header[2]]) as usize;
-        if payload_len + wire::HEADER_SIZE > self.buf.len() {
+        if payload_len + HEADER_SIZE > self.buf.len() {
             return Err(VocoderError::Protocol(format!(
                 "payload too large: {payload_len}"
             )));
@@ -143,16 +156,16 @@ impl ThumbDv {
         self.buf[..4].copy_from_slice(&header);
         self.port.read_exact(&mut self.buf[4..4 + payload_len])?;
 
-        let (packet, _) = dv3000::parse(&self.buf[..4 + payload_len])?;
+        let (packet, _) = parse(&self.buf[..4 + payload_len])?;
         Ok(packet)
     }
 }
 
 impl Vocoder for ThumbDv {
     fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
-        self.send_raw(&dv3000::build_audio(pcm))?;
+        self.send_raw(&build_audio(pcm))?;
         match self.recv()? {
-            dv3000::Packet::Ambe(frame) => Ok(frame),
+            Packet::Ambe(frame) => Ok(frame),
             other => Err(VocoderError::Encode(format!(
                 "expected AMBE response, got {other:?}"
             ))),
@@ -164,12 +177,12 @@ impl Vocoder for ThumbDv {
         // (placeholder) channel data and emits a predictor frame-
         // repeat (AMBE-3000R Users Manual §6.9, bit 2 = LOST_FRAME).
         let pkt = match ambe {
-            Some(ambe) => dv3000::build_ambe(ambe),
-            None => dv3000::build_ambe_lost_frame(),
+            Some(ambe) => build_ambe(ambe),
+            None => build_ambe_lost_frame(),
         };
         self.send_raw(&pkt)?;
         match self.recv()? {
-            dv3000::Packet::Audio(samples) => Ok(*samples),
+            Packet::Audio(samples) => Ok(*samples),
             other => Err(VocoderError::Decode(format!(
                 "expected audio response, got {other:?}"
             ))),
@@ -183,9 +196,9 @@ impl Vocoder for ThumbDv {
     fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
         let in_byte = in_db.to_chip_byte();
         let out_byte = out_db.to_chip_byte();
-        self.send_raw(&dv3000::build_gain(in_byte, out_byte))?;
+        self.send_raw(&build_gain(in_byte, out_byte))?;
         let response = self.recv()?;
-        if !dv3000::is_gain_ack(&response) {
+        if !is_gain_ack(&response) {
             return Err(VocoderError::Init(format!(
                 "expected GAIN ack, got {response:?}"
             )));

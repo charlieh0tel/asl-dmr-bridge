@@ -16,7 +16,6 @@ use std::hash::BuildHasher;
 use std::hash::Hasher;
 use std::time::Duration;
 
-use ambe::PcmFrame;
 use ambe::Vocoder;
 use dmr_events::CallsignLookup;
 use dmr_events::MetaEvent;
@@ -26,6 +25,8 @@ use dmr_types::DmrId;
 use dmr_types::Slot;
 use dmr_types::SubscriberId;
 use dmr_types::Talkgroup;
+use dv3000_wire::PCM_SAMPLES;
+use dv3000_wire::PcmFrame;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -45,7 +46,7 @@ mod ptt;
 const DATA_TYPE_VOICE_HEADER: u8 = 1;
 const DATA_TYPE_VOICE_TERMINATOR: u8 = 2;
 const FRAMES_PER_BURST: usize = 3;
-const SILENCE: PcmFrame = [0i16; ambe::PCM_SAMPLES];
+const SILENCE: PcmFrame = [0i16; PCM_SAMPLES];
 
 /// Out-of-band control messages for `voice_task`.
 ///
