@@ -104,7 +104,7 @@ Fail: empty capture, or output near-zero.
   hardware loopback test (`encode_loopback`) catches the same
   defect locally, run that first.
 - **Voice-shaped at very low amplitude**: chip output gain is set
-  low; tune `vocoder.gain_out_db` in the config (try `+6`).
+  low; tune `[gain].dmr_to_fm_db` in the config (try `+6`).
 - **Drop-outs in the middle**: backpressure or chip stall on the
   serial path.  Check bridge log for `USRP tx channel full,
   dropping voice burst` warnings.
