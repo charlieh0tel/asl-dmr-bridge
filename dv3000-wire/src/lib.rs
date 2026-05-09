@@ -344,6 +344,46 @@ pub fn build_prodid() -> Vec<u8> {
     buf
 }
 
+/// Build a PRODID response with the chip's product string in the
+/// payload.  Real chips terminate the string with a NUL byte;
+/// callers append `\0` themselves if they want chip-faithful framing.
+pub fn build_prodid_response(payload: &[u8]) -> Vec<u8> {
+    let payload_len = (1 + payload.len()) as u16;
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len as usize);
+    buf.push(START_BYTE);
+    buf.extend_from_slice(&payload_len.to_be_bytes());
+    buf.push(TYPE_CONTROL);
+    buf.push(CONTROL_PRODID);
+    buf.extend_from_slice(payload);
+    buf
+}
+
+/// Build a READY response (sent by a chip after reset).
+pub fn build_ready() -> Vec<u8> {
+    let payload_len: u16 = 1;
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len as usize);
+    buf.push(START_BYTE);
+    buf.extend_from_slice(&payload_len.to_be_bytes());
+    buf.push(TYPE_CONTROL);
+    buf.push(CONTROL_READY);
+    buf
+}
+
+/// Build a control acknowledgement: header + field_id + 1-byte
+/// result code.  Matches the chip's short ack format for RATEP and
+/// GAIN; `result == 0` is success, non-zero is a chip-style negative
+/// ack.
+pub fn build_control_ack(field_id: u8, result: u8) -> Vec<u8> {
+    let payload_len: u16 = 2;
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len as usize);
+    buf.push(START_BYTE);
+    buf.extend_from_slice(&payload_len.to_be_bytes());
+    buf.push(TYPE_CONTROL);
+    buf.push(field_id);
+    buf.push(result);
+    buf
+}
+
 /// Check if a control packet is a READY response.
 pub fn is_ready(packet: &Packet) -> bool {
     matches!(packet, Packet::Control { field_id, .. } if *field_id == CONTROL_READY)

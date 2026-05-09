@@ -80,6 +80,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_mangen",
+ "dsp",
  "dv3000-wire",
  "serialport",
  "tracing",

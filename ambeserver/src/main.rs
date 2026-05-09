@@ -1,23 +1,24 @@
-//! UDP-to-serial proxy for the DVSI AMBE-3000R chip with one-active-
-//! session exclusivity.
+//! UDP <-> AMBE-3000R proxy with one-active-session exclusivity.
 //!
 //! Each `(srcaddr, srcport)` is a session.  At most one session may
-//! drive the chip at a time: while a holder is active (any packet
+//! drive the backend at a time: while a holder is active (any packet
 //! within the last `EXCLUSIVE_HOLD`), other peers' packets are
 //! dropped silently and they UDP-time-out cleanly.  When the holder
 //! goes idle, the next peer to send a packet takes over.
 //!
-//! Dumb relay: every accepted packet is forwarded to the chip
-//! verbatim, the response goes back to the same peer.  No per-
-//! session `RATEP` / `GAIN` bookkeeping -- clients are expected to
-//! init the chip themselves at startup (the OpenDV-protocol
-//! convention is `RESET` -> `RATEP` -> optional `GAIN`).  Wire-
-//! compatible with OpenDV ambeserver clients.
+//! Two backends behind a uniform UDP wire surface:
+//!
+//! - `--backend thumbdv` (default): byte-for-byte serial relay to a
+//!   real DVSI AMBE-3000R chip.  Wire-compatible with OpenDV
+//!   ambeserver clients; clients init the chip themselves at startup
+//!   (RESET -> RATEP -> optional GAIN).
+//! - `--backend dynarmic` / `--backend neural`: in-process software
+//!   vocoder.  ambeserver fabricates the chip's responses for control
+//!   packets and runs encode/decode through `ambe::Vocoder`.  Refuses
+//!   any non-DMR RATEP and poisons the session until the next RESET.
 //!
 //! Single-threaded sync loop.
 
-use std::io::Read;
-use std::io::Write;
 use std::net::SocketAddr;
 use std::net::UdpSocket;
 use std::time::Duration;
@@ -36,15 +37,16 @@ use tracing::info;
 use tracing::warn;
 use tracing_subscriber::EnvFilter;
 
+mod backend;
 mod cli;
+use backend::Backend;
 use cli::Args;
 
-const SERIAL_TIMEOUT: Duration = Duration::from_secs(2);
 const RECV_BUF: usize = 4096;
 /// Minimum gap between a holder's last packet and another peer
-/// taking over the chip.  Long enough to bridge inter-frame gaps
-/// (50 fps voice = 20 ms) and brief processing pauses; short
-/// enough that a crashed client doesn't wedge the chip.
+/// taking over the backend.  Long enough to bridge inter-frame gaps
+/// (50 fps voice = 20 ms) and brief processing pauses; short enough
+/// that a crashed client doesn't wedge the backend.
 const EXCLUSIVE_HOLD: Duration = Duration::from_secs(1);
 
 /// If the packet is a control packet we know about, return a short
@@ -71,35 +73,46 @@ fn describe_control(buf: &[u8]) -> Option<String> {
     }
 }
 
-struct Chip {
-    port: Box<dyn serialport::SerialPort>,
-}
-
-impl Chip {
-    fn open(path: &str, baud: u32) -> Result<Self> {
-        let port = serialport::new(path, baud)
-            .timeout(SERIAL_TIMEOUT)
-            .open()
-            .with_context(|| format!("open {path} at {baud} baud"))?;
-        port.clear(serialport::ClearBuffer::All)?;
-        Ok(Self { port })
-    }
-
-    fn round_trip(&mut self, request: &[u8]) -> Result<Vec<u8>> {
-        self.port.write_all(request)?;
-        self.port.flush()?;
-        let mut header = [0u8; 4];
-        self.port.read_exact(&mut header)?;
-        anyhow::ensure!(
-            header[0] == START_BYTE,
-            "chip: bad start byte {:#x}",
-            header[0]
-        );
-        let payload_len = u16::from_be_bytes([header[1], header[2]]) as usize;
-        let mut buf = vec![0u8; 4 + payload_len];
-        buf[..4].copy_from_slice(&header);
-        self.port.read_exact(&mut buf[4..])?;
-        Ok(buf)
+fn make_backend(args: &Args) -> Result<Box<dyn Backend>> {
+    match args.backend {
+        #[cfg(feature = "thumbdv")]
+        cli::Backend::ThumbDV => {
+            let serial = args
+                .serial
+                .as_deref()
+                .context("--backend thumbdv requires --serial")?;
+            let b = backend::ThumbDvBackend::open(serial, args.baud)?;
+            info!(serial = %serial, baud = args.baud, "thumbdv backend opened");
+            Ok(Box::new(b))
+        }
+        #[cfg(not(feature = "thumbdv"))]
+        cli::Backend::ThumbDV => {
+            anyhow::bail!("thumbdv backend not compiled (build with --features thumbdv)")
+        }
+        #[cfg(feature = "dynarmic")]
+        cli::Backend::Dynarmic => {
+            let v = ambe::open_dynarmic();
+            info!("dynarmic backend opened");
+            Ok(Box::new(backend::SoftBackend::new(v, "dynarmic")))
+        }
+        #[cfg(not(feature = "dynarmic"))]
+        cli::Backend::Dynarmic => {
+            anyhow::bail!("dynarmic backend not compiled (build with --features dynarmic)")
+        }
+        #[cfg(feature = "neural")]
+        cli::Backend::Neural => {
+            let path = args
+                .model_path
+                .as_deref()
+                .context("--backend neural requires --model-path")?;
+            let v = ambe::open_neural(path)?;
+            info!(model = %path.display(), "neural backend opened");
+            Ok(Box::new(backend::SoftBackend::new(v, "neural")))
+        }
+        #[cfg(not(feature = "neural"))]
+        cli::Backend::Neural => {
+            anyhow::bail!("neural backend not compiled (build with --features neural)")
+        }
     }
 }
 
@@ -107,9 +120,7 @@ fn run(args: Args) -> Result<()> {
     let socket = UdpSocket::bind(&args.listen).with_context(|| format!("bind {}", args.listen))?;
     info!(listen = %args.listen, "listening");
 
-    let mut chip = Chip::open(&args.serial, args.baud)?;
-    info!(serial = %args.serial, baud = args.baud, "chip opened");
-
+    let mut backend = make_backend(&args)?;
     let mut holder: Option<(SocketAddr, Instant)> = None;
     let mut buf = vec![0u8; RECV_BUF];
 
@@ -134,18 +145,20 @@ fn run(args: Args) -> Result<()> {
         let prior = holder.map(|(h, _)| h);
         holder = Some((peer, now));
         if prior != Some(peer) {
-            info!(%peer, "client took over chip");
+            info!(%peer, "client took over");
+            backend.on_takeover();
         }
         if let Some(desc) = desc {
             info!(%peer, "{desc}");
         }
-        match chip.round_trip(pkt) {
-            Ok(resp) => {
+        match backend.handle(pkt) {
+            Ok(Some(resp)) => {
                 if let Err(e) = socket.send_to(&resp, peer) {
                     warn!(%peer, "send_to: {e}");
                 }
             }
-            Err(e) => warn!(%peer, "chip round trip failed: {e:#}"),
+            Ok(None) => {}
+            Err(e) => warn!(%peer, "backend handle failed: {e:#}"),
         }
     }
 }
