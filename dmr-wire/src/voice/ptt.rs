@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use pcm_utils::biquad::BiquadCascade;
-use pcm_utils::biquad::pre_encode_voice_8khz;
+use dsp::biquad::BiquadCascade;
+use dsp::biquad::pre_encode_voice_8khz;
 
 use ambe::AmbeFrame;
 use ambe::PcmFrame;

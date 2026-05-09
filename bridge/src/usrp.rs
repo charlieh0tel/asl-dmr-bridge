@@ -25,8 +25,8 @@ use usrp_wire::RECV_SLACK;
 use usrp_wire::VOICE_FRAME_INTERVAL;
 
 use crate::agc::Agc;
-use pcm_utils::levels::LevelAccumulator;
-use pcm_utils::levels::fmt_dbfs;
+use dsp::levels::LevelAccumulator;
+use dsp::levels::fmt_dbfs;
 use pcm_utils::wav::WavRecorder;
 
 /// Receive USRP packets from the socket, strip the wire-only fields

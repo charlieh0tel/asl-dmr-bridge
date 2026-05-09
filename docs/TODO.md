@@ -14,11 +14,8 @@ appears.
   retired when softambe-rs folded into `ambe::dynarmic`.  Bring it
   back as an `ambeserver` mode (e.g. `--backend dynarmic`), speaking
   the same DV3000 UDP protocol so existing clients don't know the
-  difference.  Needs in-process gain blocks (matching the bridge's
-  `[gain]` semantics) so callers don't have to handle the
-  software/chip distinction themselves.  Likely requires extracting
-  the bridge's gain + chip-routing logic into a small shared module
-  to avoid copy-paste between bridge and ambeserver.
+  difference.  Gain handling is uniform via `Vocoder::set_gain`, so
+  callers see the same semantics regardless of backend.
 
 - **Investigate the v1.8.0 SIGSEGV.**  Crash hit on the first RX
   header on arm64 with `backend = "neural"` (decode delegated to
@@ -43,7 +40,7 @@ so they don't get re-proposed.
 
 - **AGC on USRP-rx (analog -> digital).**  ASL3's chan_usrp
   pre-applies operator-tuned gain; AGC there would compete with the
-  static `vocoder.gain_in_db` knob and offers little benefit for
+  static `[gain].fm_to_dmr_db` knob and offers little benefit for
   our typical single-repeater deployment.
 
 - **OpenBridge / cross-network bridging.**  The bridge is single-
