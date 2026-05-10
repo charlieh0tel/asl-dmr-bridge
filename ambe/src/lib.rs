@@ -7,6 +7,7 @@ pub(crate) mod dynarmic;
 pub(crate) mod neural;
 #[cfg(feature = "thumbdv")]
 pub(crate) mod thumbdv;
+pub(crate) mod udp_dv;
 pub mod voice_channel;
 
 // `test_harness` + `test_vectors` exist only to feed the goldens'

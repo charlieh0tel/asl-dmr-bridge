@@ -16,6 +16,7 @@
 //!   exclusive access to the serial device.
 
 use crate::VocoderError;
+use crate::udp_dv::UdpDvTransport;
 use dv3000_wire::HEADER_SIZE;
 use dv3000_wire::MAX_PACKET;
 use dv3000_wire::Packet;
@@ -80,36 +81,20 @@ fn build_ambe_for_bits(bits: u8, data: &[u8]) -> Vec<u8> {
 /// session from the server's perspective; per-session `RATEP` /
 /// `GAIN` state lives on the server side.
 pub struct AmbeServerClient {
-    socket: std::net::UdpSocket,
-    buf: Vec<u8>,
+    transport: UdpDvTransport,
 }
 
 impl AmbeServerClient {
     pub fn connect(addr: std::net::SocketAddr) -> Result<Self, VocoderError> {
-        let bind_addr = match addr {
-            std::net::SocketAddr::V4(_) => "0.0.0.0:0",
-            std::net::SocketAddr::V6(_) => "[::]:0",
-        };
-        let socket = std::net::UdpSocket::bind(bind_addr)?;
-        socket.connect(addr)?;
-        socket.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
         Ok(Self {
-            socket,
-            buf: vec![0u8; MAX_PACKET],
+            transport: UdpDvTransport::connect(addr)?,
         })
-    }
-
-    fn send_recv(&mut self, packet: &[u8]) -> Result<Packet, VocoderError> {
-        self.socket.send(packet)?;
-        let len = self.socket.recv(&mut self.buf)?;
-        let (response, _) = parse(&self.buf[..len])?;
-        Ok(response)
     }
 }
 
 impl ChipClient for AmbeServerClient {
     fn reset(&mut self) -> Result<(), VocoderError> {
-        let response = self.send_recv(&build_reset())?;
+        let response = self.transport.send_recv(&build_reset())?;
         if !is_ready(&response) {
             return Err(VocoderError::Protocol(format!(
                 "expected READY after reset, got {response:?}"
@@ -119,7 +104,7 @@ impl ChipClient for AmbeServerClient {
     }
 
     fn set_ratep(&mut self, rcws: &[u8; 12]) -> Result<(), VocoderError> {
-        let response = self.send_recv(&build_ratep_custom(rcws))?;
+        let response = self.transport.send_recv(&build_ratep_custom(rcws))?;
         if !is_ratep_ack(&response) {
             return Err(VocoderError::Protocol(format!(
                 "expected RATEP ack, got {response:?}"
@@ -129,7 +114,7 @@ impl ChipClient for AmbeServerClient {
     }
 
     fn set_gain(&mut self, in_db: i8, out_db: i8) -> Result<(), VocoderError> {
-        let response = self.send_recv(&build_gain(in_db, out_db))?;
+        let response = self.transport.send_recv(&build_gain(in_db, out_db))?;
         if !is_gain_ack(&response) {
             return Err(VocoderError::Protocol(format!(
                 "expected GAIN ack, got {response:?}"
@@ -139,7 +124,7 @@ impl ChipClient for AmbeServerClient {
     }
 
     fn encode_raw(&mut self, pcm: &PcmFrame) -> Result<(u8, Vec<u8>), VocoderError> {
-        match self.send_recv(&build_audio(pcm))? {
+        match self.transport.send_recv(&build_audio(pcm))? {
             Packet::Ambe(frame) => Ok((72, frame.to_vec())),
             Packet::AmbeBits { bits, data } => Ok((bits, data)),
             other => Err(VocoderError::Encode(format!(
@@ -149,7 +134,7 @@ impl ChipClient for AmbeServerClient {
     }
 
     fn decode_raw(&mut self, bits: u8, data: &[u8]) -> Result<PcmFrame, VocoderError> {
-        match self.send_recv(&build_ambe_for_bits(bits, data))? {
+        match self.transport.send_recv(&build_ambe_for_bits(bits, data))? {
             Packet::Audio(samples) => Ok(*samples),
             other => Err(VocoderError::Decode(format!(
                 "expected audio response, got {other:?}"
