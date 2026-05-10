@@ -17,6 +17,7 @@ testing = []
 
 [dependencies]
 clap.workspace = true
+dmr-types.workspace = true
 dsp.workspace = true
 dv3000-wire.workspace = true
 dynarmic-sys = { workspace = true, optional = true }

@@ -19,6 +19,7 @@ neural = ["ambe/neural"]
 ambe.workspace = true
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive", "error-context", "help", "std", "suggestions", "usage"] }
+dmr-types.workspace = true
 dsp.workspace = true
 dv3000-wire.workspace = true
 serialport = { workspace = true, optional = true }

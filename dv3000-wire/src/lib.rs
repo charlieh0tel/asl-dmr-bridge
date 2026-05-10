@@ -29,23 +29,16 @@ pub const CONTROL_RATEP: u8 = 0x0A;
 pub const CONTROL_GAIN: u8 = 0x4B;
 pub const CONTROL_PRODID: u8 = 0x30;
 
-/// PCM frame: 160 samples, 20 ms at 8 kHz.
-pub const PCM_SAMPLES: usize = 160;
-
-/// AMBE+2 frame: 9 bytes (72 bits).
-pub const AMBE_FRAME_SIZE: usize = 9;
+use dmr_types::AMBE_FRAME_SIZE;
+use dmr_types::AmbeFrame;
+use dmr_types::PCM_SAMPLES;
+use dmr_types::PcmFrame;
 
 /// AMBE+2 frame: 72 bits.
 const AMBE_BITS: u8 = (AMBE_FRAME_SIZE * 8) as u8;
 
 const _: () = assert!(PCM_SAMPLES <= u8::MAX as usize);
 const _: () = assert!(AMBE_FRAME_SIZE * 8 <= u8::MAX as usize);
-
-/// PCM sample buffer type.
-pub type PcmFrame = [i16; PCM_SAMPLES];
-
-/// AMBE+2 encoded frame type.
-pub type AmbeFrame = [u8; AMBE_FRAME_SIZE];
 
 /// Max receive buffer for DV3000 packets.
 /// Largest packet is audio: header(4) + field_id(1) + num_samples(1)

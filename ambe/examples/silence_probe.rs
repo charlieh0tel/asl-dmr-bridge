@@ -1,5 +1,5 @@
 use ambe::NeuralEncoder;
-use dv3000_wire::PCM_SAMPLES;
+use dmr_types::PCM_SAMPLES;
 
 fn main() {
     let model = std::env::args().nth(1).expect("model path");

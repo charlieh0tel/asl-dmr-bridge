@@ -18,9 +18,9 @@
 //! /tmp/cross_loopback_<encode>_<decode>.wav.
 
 use ambe::Vocoder;
-use dv3000_wire::AmbeFrame;
-use dv3000_wire::PCM_SAMPLES;
-use dv3000_wire::PcmFrame;
+use dmr_types::AmbeFrame;
+use dmr_types::PCM_SAMPLES;
+use dmr_types::PcmFrame;
 use hound::SampleFormat;
 use hound::WavReader;
 use hound::WavSpec;

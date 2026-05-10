@@ -6,6 +6,7 @@ license.workspace = true
 description = "DV3000 wire-protocol parser and packet builders for DVSI AMBE-3000 devices."
 
 [dependencies]
+dmr-types.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

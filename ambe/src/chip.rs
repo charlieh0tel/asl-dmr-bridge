@@ -15,8 +15,8 @@
 //!   serial.
 
 use crate::VocoderError;
+use dmr_types::PcmFrame;
 use dv3000_wire::HEADER_SIZE;
-use dv3000_wire::PcmFrame;
 use dv3000_wire::START_BYTE;
 use dv3000_wire::TYPE_AMBE;
 

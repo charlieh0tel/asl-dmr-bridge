@@ -17,7 +17,7 @@ use ambe::voice_channel::RAW_BYTES;
 use ambe::voice_channel::channel_decode;
 use ambe::voice_channel::permute_chip_to_mbelib;
 use ambe::voice_channel::unpack_msb_first;
-use dv3000_wire::PCM_SAMPLES;
+use dmr_types::PCM_SAMPLES;
 use tract_onnx::prelude::Framework;
 
 const PASS_THRESHOLD: f64 = 1.0;

@@ -316,6 +316,21 @@ impl Serialize for Slot {
     }
 }
 
+/// PCM samples per DMR voice frame: 160 samples = 20 ms at 8 kHz
+/// (ETSI TS 102 361-2; matches the AMBE-3000R RATEP_DMR encode/
+/// decode unit).
+pub const PCM_SAMPLES: usize = 160;
+
+/// AMBE+2 channel-coded frame at the DMR rate (3600 b/s, RATEP idx
+/// 33): 9 bytes (72 bits).  ETSI TS 102 361-2 sec. 6.1.1.1.
+pub const AMBE_FRAME_SIZE: usize = 9;
+
+/// One DMR voice frame's worth of i16 PCM at 8 kHz.
+pub type PcmFrame = [i16; PCM_SAMPLES];
+
+/// One channel-coded AMBE+2 frame at the DMR rate.
+pub type AmbeFrame = [u8; AMBE_FRAME_SIZE];
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -57,6 +57,7 @@ version = "2.2.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dmr-types",
  "dsp",
  "dv3000-wire",
  "dynarmic-sys",
@@ -80,6 +81,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_mangen",
+ "dmr-types",
  "dsp",
  "dv3000-wire",
  "serialport",
@@ -683,7 +685,6 @@ dependencies = [
  "dmr-events",
  "dmr-types",
  "dsp",
- "dv3000-wire",
  "hex",
  "pcm-utils",
  "proptest",
@@ -713,6 +714,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 name = "dv3000-wire"
 version = "2.2.0"
 dependencies = [
+ "dmr-types",
  "proptest",
  "thiserror 2.0.18",
 ]

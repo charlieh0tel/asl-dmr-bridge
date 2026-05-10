@@ -24,9 +24,9 @@ use tract_onnx::prelude::tvec;
 use crate::Vocoder;
 use crate::VocoderError;
 use crate::dynarmic::DynarmicVocoder;
-use dv3000_wire::AmbeFrame;
-use dv3000_wire::PCM_SAMPLES;
-use dv3000_wire::PcmFrame;
+use dmr_types::AmbeFrame;
+use dmr_types::PCM_SAMPLES;
+use dmr_types::PcmFrame;
 
 /// Field layout name carried in ONNX metadata (`nambe.layout`).
 const LAYOUT_DMR_3600X2450: &str = "DMR_3600X2450";

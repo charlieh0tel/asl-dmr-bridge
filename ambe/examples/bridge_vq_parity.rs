@@ -43,7 +43,7 @@ use std::process::ExitCode;
 
 use ambe::NeuralEncoder;
 use clap::Parser;
-use dv3000_wire::PCM_SAMPLES;
+use dmr_types::PCM_SAMPLES;
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]

@@ -9,7 +9,6 @@ ambe.workspace = true
 dmr-types.workspace = true
 dmr-events.workspace = true
 dsp.workspace = true
-dv3000-wire.workspace = true
 pcm-utils.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

@@ -23,7 +23,7 @@ use std::process::ExitCode;
 use ambe::chip::ChipClient;
 use ambe::cli::ChipBackendArgs;
 use clap::Parser;
-use dv3000_wire::PCM_SAMPLES;
+use dmr_types::PCM_SAMPLES;
 use dv3000_wire::rates::RATEP_DMR;
 use dv3000_wire::rates::RATEP_RAW;
 const PCM_FRAME_BYTES: usize = PCM_SAMPLES * 2;

@@ -14,10 +14,10 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use dmr_types::AmbeFrame;
+use dmr_types::PcmFrame;
 use dsp::levels::LevelAccumulator;
 use dsp::levels::fmt_dbfs;
-use dv3000_wire::AmbeFrame;
-use dv3000_wire::PcmFrame;
 use pcm_utils::wav;
 use pcm_utils::wav::WavRecorder;
 use tracing::info;

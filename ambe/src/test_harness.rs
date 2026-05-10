@@ -5,7 +5,7 @@
 
 use crate::Vocoder;
 use crate::test_vectors::TEST_FRAMES;
-use dv3000_wire::PCM_SAMPLES;
+use dmr_types::PCM_SAMPLES;
 
 /// Decode all `TEST_FRAMES` through the given vocoder and concatenate
 /// the PCM output as little-endian i16 bytes.  State carries across

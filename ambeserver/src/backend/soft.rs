@@ -145,9 +145,9 @@ impl Backend for SoftBackend {
 mod tests {
     use super::*;
     use ambe::VocoderError;
-    use dv3000_wire::AmbeFrame;
+    use dmr_types::AmbeFrame;
+    use dmr_types::PcmFrame;
     use dv3000_wire::CONTROL_READY;
-    use dv3000_wire::PcmFrame;
     use dv3000_wire::build_audio;
     use dv3000_wire::build_gain;
     use dv3000_wire::build_prodid;

@@ -10,10 +10,10 @@ use std::sync::OnceLock;
 use crate::SILENCE_FRAME;
 use crate::Vocoder;
 use crate::VocoderError;
-use dv3000_wire::AMBE_FRAME_SIZE;
-use dv3000_wire::AmbeFrame;
-use dv3000_wire::PCM_SAMPLES;
-use dv3000_wire::PcmFrame;
+use dmr_types::AMBE_FRAME_SIZE;
+use dmr_types::AmbeFrame;
+use dmr_types::PCM_SAMPLES;
+use dmr_types::PcmFrame;
 use tracing::error;
 
 static CODEC: OnceLock<Mutex<()>> = OnceLock::new();

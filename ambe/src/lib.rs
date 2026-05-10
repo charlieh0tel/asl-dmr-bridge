@@ -18,8 +18,8 @@ pub mod test_harness;
 #[cfg(any(feature = "testing", test))]
 pub mod test_vectors;
 
-use dv3000_wire::AmbeFrame;
-use dv3000_wire::PcmFrame;
+use dmr_types::AmbeFrame;
+use dmr_types::PcmFrame;
 
 /// Channel-coded AMBE+2 frame-repeat sentinel (`b0=124`, others 0):
 /// a valid silent frame for warm-up / hang padding.
