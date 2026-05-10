@@ -369,6 +369,7 @@ fn emit_call_agc(dir: &str, stream_id: Option<u32>, agc: &mut Agc) {
         return;
     }
     let frozen_pct = (s.frozen_samples as f64 * 100.0) / s.samples as f64;
+    let limited_pct = (s.limited_samples as f64 * 100.0) / s.samples as f64;
     let stream_id = match stream_id {
         Some(sid) => format!(" stream_id={sid}"),
         None => String::new(),
@@ -376,7 +377,8 @@ fn emit_call_agc(dir: &str, stream_id: Option<u32>, agc: &mut Agc) {
     info!(
         "call_agc dir={dir}{stream_id} samples={} \
          frozen={}/{} ({:.1}%) gain_min={} gain_mean={} \
-         gain_max={} peak_in={} peak_out={}",
+         gain_max={} peak_in={} peak_out={} \
+         limited={}/{} ({:.1}%)",
         s.samples,
         s.frozen_samples,
         s.samples,
@@ -386,6 +388,9 @@ fn emit_call_agc(dir: &str, stream_id: Option<u32>, agc: &mut Agc) {
         fmt_db(s.gain_max.unwrap_or(1.0)),
         fmt_dbfs(linear_to_dbfs(f64::from(s.peak_in))),
         fmt_dbfs(linear_to_dbfs(f64::from(s.peak_out))),
+        s.limited_samples,
+        s.samples,
+        limited_pct,
     );
 }
 
