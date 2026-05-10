@@ -125,21 +125,25 @@ keepalive_missed_limit = 3
 # reconcile_interval = "0s"     # default
 
 
-# Peak-tracking AGC on the USRP-tx (digital -> analog) path.
-[agc]
-# Enable AGC.
-# enabled = false               # default
-# Peak target, dBFS.
-# target_dbfs = -6.0            # default
-# Attack period (response to louder signal).
-# attack = "10ms"               # default
-# Release period (response to quieter signal).
-# release = "200ms"             # default
-# Cap on quiet-signal boost.
-# max_gain_db = 18.0            # default
-# Below this envelope level, freeze gain so the AGC does not
-# chase the noise floor during speech pauses.
-# noise_gate_dbfs = -50.0       # default
+# Peak-tracking AGC, configured per direction.  Same field set on
+# both subsections; only the defaults differ.  Defaults shown.
+[agc.dmr_to_fm]
+# enabled = false
+# target_dbfs = -6.0
+# attack = "10ms"
+# release = "200ms"
+# max_gain_db = 18.0
+# noise_gate_dbfs = -50.0
+
+[agc.fm_to_dmr]
+# enabled = false
+# Hotter target (FM-side input has wider variance and tends to
+# come in quiet).
+# target_dbfs = -3.0
+# attack = "10ms"
+# release = "200ms"
+# max_gain_db = 18.0
+# noise_gate_dbfs = -50.0
 
 
 # Per-call summary lines + cumulative-counter heartbeat.

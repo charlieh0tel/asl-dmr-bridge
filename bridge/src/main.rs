@@ -215,6 +215,32 @@ fn spawn_signal_handler(cancel: CancellationToken) {
     });
 }
 
+/// Build an `Agc` for one direction from its config block, or return
+/// `None` when disabled.  Logs the chosen state once at startup so
+/// the operator sees both directions in the boot log.
+fn build_direction_agc(cfg: &config::AgcConfig, direction: &str) -> Option<Agc> {
+    if cfg.enabled {
+        info!(
+            target_dbfs = cfg.target_dbfs,
+            attack = ?cfg.attack,
+            release = ?cfg.release,
+            max_gain_db = cfg.max_gain_db,
+            noise_gate_dbfs = cfg.noise_gate_dbfs,
+            "AGC enabled ({direction})",
+        );
+        Some(Agc::new(AgcParams {
+            target_dbfs: cfg.target_dbfs,
+            attack: cfg.attack,
+            release: cfg.release,
+            max_gain_db: cfg.max_gain_db,
+            noise_gate_dbfs: cfg.noise_gate_dbfs,
+        }))
+    } else {
+        info!("AGC disabled ({direction})");
+        None
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -281,27 +307,8 @@ async fn async_main() -> anyhow::Result<()> {
         () = brandmeister_provision::provision(&config) => {}
     }
 
-    // Optional AGC on the USRP-tx (digital -> analog) path.
-    let agc_state: Option<Agc> = if config.agc.enabled {
-        info!(
-            target_dbfs = config.agc.target_dbfs,
-            attack = ?config.agc.attack,
-            release = ?config.agc.release,
-            max_gain_db = config.agc.max_gain_db,
-            noise_gate_dbfs = config.agc.noise_gate_dbfs,
-            "AGC enabled (DMR -> FM)",
-        );
-        Some(Agc::new(AgcParams {
-            target_dbfs: config.agc.target_dbfs,
-            attack: config.agc.attack,
-            release: config.agc.release,
-            max_gain_db: config.agc.max_gain_db,
-            noise_gate_dbfs: config.agc.noise_gate_dbfs,
-        }))
-    } else {
-        info!("AGC disabled (DMR -> FM)");
-        None
-    };
+    let dmr_to_fm_agc = build_direction_agc(&config.agc.dmr_to_fm, "DMR -> FM");
+    let fm_to_dmr_agc = build_direction_agc(&config.agc.fm_to_dmr, "FM -> DMR");
 
     // Optional callsign-lookup wired into voice_task: enriches USRP
     // TEXT call metadata with `call`/`name` fields when an inbound
@@ -553,6 +560,7 @@ async fn async_main() -> anyhow::Result<()> {
             audio_in_tx,
             remote_addr,
             byte_swap,
+            fm_to_dmr_agc,
             cancel_for_rx.clone(),
         )
         .await;
@@ -570,7 +578,7 @@ async fn async_main() -> anyhow::Result<()> {
             remote_addr,
             tg,
             byte_swap,
-            agc_state,
+            dmr_to_fm_agc,
             pcm_record_dir,
             cancel_for_tx.clone(),
         )

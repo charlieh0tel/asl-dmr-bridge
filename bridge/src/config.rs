@@ -94,10 +94,10 @@ pub(crate) struct Config {
     /// no API calls at all.
     #[serde(default)]
     pub(crate) brandmeister_api: Option<BrandmeisterApiConfig>,
-    /// Optional automatic gain control on the USRP-tx (digital ->
-    /// analog) path.  Off by default.
+    /// Optional per-direction automatic gain control.  Both
+    /// directions off by default.
     #[serde(default)]
-    pub(crate) agc: AgcConfig,
+    pub(crate) agc: AgcSection,
     /// Per-call summary log + periodic heartbeat counters.  Section
     /// absent uses the defaults: 60s heartbeat, idle-suppress on,
     /// 250ms minimum-call threshold for per-call lines.  See
@@ -132,8 +132,8 @@ pub(crate) struct GainConfig {
     pub(crate) dmr_to_fm_db: f32,
 }
 
-/// AGC parameters with sensible defaults; `enabled = false` skips
-/// processing entirely so the path stays bit-exact when AGC is off.
+/// Per-direction AGC parameters; `enabled = false` skips processing
+/// entirely so the path stays bit-exact when AGC is off.
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct AgcConfig {
@@ -148,6 +148,8 @@ pub(crate) struct AgcConfig {
 }
 
 impl Default for AgcConfig {
+    /// Defaults shared by both directions; per-direction tuning lives
+    /// in `AgcSection::default`.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -156,6 +158,30 @@ impl Default for AgcConfig {
             release: Duration::from_millis(200),
             max_gain_db: 18.0,
             noise_gate_dbfs: -50.0,
+        }
+    }
+}
+
+/// Both AGC directions, configured independently.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct AgcSection {
+    /// AGC on the DMR -> FM (vocoder-decoded PCM out to USRP) path.
+    pub(crate) dmr_to_fm: AgcConfig,
+    /// AGC on the FM -> DMR (USRP PCM in to vocoder) path.  Default
+    /// target is hotter (-3 dBFS) than dmr_to_fm because the FM-side
+    /// input has wider variance and tends to come in quiet.
+    pub(crate) fm_to_dmr: AgcConfig,
+}
+
+impl Default for AgcSection {
+    fn default() -> Self {
+        Self {
+            dmr_to_fm: AgcConfig::default(),
+            fm_to_dmr: AgcConfig {
+                target_dbfs: -3.0,
+                ..AgcConfig::default()
+            },
         }
     }
 }
@@ -434,7 +460,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) dmr: DmrConfig,
     pub(crate) network: ResolvedNetworkConfig,
     pub(crate) brandmeister_api: Option<ResolvedBrandmeisterApiConfig>,
-    pub(crate) agc: AgcConfig,
+    pub(crate) agc: AgcSection,
     pub(crate) stats: StatsConfig,
     pub(crate) diagnostics: DiagnosticsConfig,
     pub(crate) encode_filter: EncodeFilterConfig,

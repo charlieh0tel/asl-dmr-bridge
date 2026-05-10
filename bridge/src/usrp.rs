@@ -38,18 +38,28 @@ use pcm_utils::wav::WavRecorder;
 /// everything else is dropped with a warn log.  ASL3 is the sole
 /// peer in this bridge -- accepting voice from arbitrary senders
 /// would let a network neighbor inject audio onto the DMR side.
+///
+/// `agc`, when `Some`, processes voice samples in place per frame
+/// (so the encoder sees the levelled PCM) and resets state on
+/// unkey so each new talker starts neutral.  A per-call summary
+/// is emitted as `call_agc dir=fm_to_dmr ...`.
 pub(crate) async fn rx_task(
     socket: Arc<UdpSocket>,
     tx: mpsc::Sender<AudioFrame>,
     remote: SocketAddr,
     byte_swap: bool,
+    mut agc: Option<Agc>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     let mut buf = [0u8; PACKET_SIZE + RECV_SLACK];
+    let mut had_voice_in_call = false;
     loop {
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => return Ok(()),
+            _ = cancel.cancelled() => {
+                finalize_fm_in_agc_call(agc.as_mut(), &mut had_voice_in_call);
+                return Ok(());
+            }
             result = socket.recv_from(&mut buf) => {
                 let (len, addr) = match result {
                     Ok(v) => v,
@@ -68,9 +78,20 @@ pub(crate) async fn rx_task(
                         if frame.frame_type != FrameType::Voice {
                             continue;
                         }
+                        let mut samples = frame.audio;
+                        if let Some(agc_state) = agc.as_mut() {
+                            if frame.keyup {
+                                if let Some(buf) = samples.as_mut() {
+                                    agc_state.process(buf);
+                                    had_voice_in_call = true;
+                                }
+                            } else {
+                                finalize_fm_in_agc_call(Some(agc_state), &mut had_voice_in_call);
+                            }
+                        }
                         let audio = AudioFrame {
                             keyup: frame.keyup,
-                            samples: frame.audio,
+                            samples,
                             dmr_stream_id: None,
                         };
                         // try_send rather than send().await: backpressuring
@@ -82,7 +103,10 @@ pub(crate) async fn rx_task(
                             Err(mpsc::error::TrySendError::Full(_)) => {
                                 warn!("USRP rx: voice_task channel full, dropping frame");
                             }
-                            Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
+                            Err(mpsc::error::TrySendError::Closed(_)) => {
+                                finalize_fm_in_agc_call(agc.as_mut(), &mut had_voice_in_call);
+                                return Ok(());
+                            }
                         }
                     }
                     Err(e) => {
@@ -313,29 +337,56 @@ fn finalize_agc_out_call(
         fmt_dbfs(voiced_rms),
     );
     if let Some(agc) = agc {
-        let s = agc.take_summary();
-        if s.samples > 0 {
-            let frozen_pct = (s.frozen_samples as f64 * 100.0) / s.samples as f64;
-            info!(
-                "call_agc dir=dmr_to_fm stream_id={sid} samples={} \
-                 frozen={}/{} ({:.1}%) gain_min={} gain_mean={} \
-                 gain_max={} peak_in={} peak_out={}",
-                s.samples,
-                s.frozen_samples,
-                s.samples,
-                frozen_pct,
-                fmt_db(s.gain_min.unwrap_or(1.0)),
-                fmt_db(s.gain_mean()),
-                fmt_db(s.gain_max.unwrap_or(1.0)),
-                fmt_dbfs(linear_to_dbfs(f64::from(s.peak_in))),
-                fmt_dbfs(linear_to_dbfs(f64::from(s.peak_out))),
-            );
-        }
+        emit_call_agc("dmr_to_fm", Some(sid), agc);
     }
     *levels = LevelAccumulator::default();
     *recorder = None;
     *dmr_stream_id = None;
     *had_voice = false;
+}
+
+/// Drain the FM->DMR AGC summary and emit `call_agc dir=fm_to_dmr ...`.
+/// No-op when no voice was observed in the current call.  Resets the
+/// AGC envelope so the next talker starts neutral.
+fn finalize_fm_in_agc_call(agc: Option<&mut Agc>, had_voice: &mut bool) {
+    if !*had_voice {
+        return;
+    }
+    if let Some(agc) = agc {
+        emit_call_agc("fm_to_dmr", None, agc);
+        agc.reset();
+    }
+    *had_voice = false;
+}
+
+/// Drain a per-call `AgcSummary` and emit `call_agc dir=<dir> ...` at
+/// INFO.  `stream_id` is `Some` on directions where the bridge knows
+/// the DMR stream id (DMR->FM); `None` on FM->DMR ingress, where
+/// stream id is assigned later by the voice task.
+fn emit_call_agc(dir: &str, stream_id: Option<u32>, agc: &mut Agc) {
+    let s = agc.take_summary();
+    if s.samples == 0 {
+        return;
+    }
+    let frozen_pct = (s.frozen_samples as f64 * 100.0) / s.samples as f64;
+    let stream_id = match stream_id {
+        Some(sid) => format!(" stream_id={sid}"),
+        None => String::new(),
+    };
+    info!(
+        "call_agc dir={dir}{stream_id} samples={} \
+         frozen={}/{} ({:.1}%) gain_min={} gain_mean={} \
+         gain_max={} peak_in={} peak_out={}",
+        s.samples,
+        s.frozen_samples,
+        s.samples,
+        frozen_pct,
+        fmt_db(s.gain_min.unwrap_or(1.0)),
+        fmt_db(s.gain_mean()),
+        fmt_db(s.gain_max.unwrap_or(1.0)),
+        fmt_dbfs(linear_to_dbfs(f64::from(s.peak_in))),
+        fmt_dbfs(linear_to_dbfs(f64::from(s.peak_out))),
+    );
 }
 
 /// Format a linear gain factor as a dB string with one decimal.
@@ -396,6 +447,7 @@ mod tests {
             tx,
             sender_addr,
             false,
+            None,
             cancel.clone(),
         ));
 
