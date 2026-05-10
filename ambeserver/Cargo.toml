@@ -1,6 +1,6 @@
 [package]
 name = "ambeserver"
-version = "2.4.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "UDP DV3000 vocoder server: ThumbDV chip or in-process software backend."

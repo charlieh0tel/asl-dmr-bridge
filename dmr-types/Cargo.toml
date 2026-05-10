@@ -1,6 +1,6 @@
 [package]
 name = "dmr-types"
-version = "2.4.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Shared DMR identity and voice-frame types for asl-dmr-bridge."

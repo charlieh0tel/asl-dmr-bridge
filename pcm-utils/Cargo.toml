@@ -1,6 +1,6 @@
 [package]
 name = "pcm-utils"
-version = "2.4.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "PCM diagnostic utilities for asl-dmr-bridge."

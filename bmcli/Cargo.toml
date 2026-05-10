@@ -1,6 +1,6 @@
 [package]
 name = "bmcli"
-version = "2.4.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Brandmeister API CLI: query / manage a peer's static talkgroups, plus diagnostic reads."
