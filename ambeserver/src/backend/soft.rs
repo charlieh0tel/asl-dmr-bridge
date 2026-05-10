@@ -137,7 +137,11 @@ impl Backend for SoftBackend {
     }
 
     fn on_takeover(&mut self) {
+        // New peer; drop the prior peer's RATEP / poison state so they
+        // negotiate from scratch (same effect as a fresh RESET).
         self.vocoder.reset();
+        self.ratep_acked = false;
+        self.poisoned = false;
     }
 }
 
@@ -198,6 +202,20 @@ mod tests {
         // Short-form ack: header(4) + field_id(1) + result(1).
         assert_eq!(resp.len(), 6);
         assert_eq!(resp[5], ACK_OK);
+    }
+
+    #[test]
+    fn on_takeover_clears_ratep_and_poison() {
+        let mut b = fresh();
+        b.handle(&build_reset()).unwrap();
+        b.handle(&build_ratep_dmr()).unwrap();
+        assert!(b.ratep_acked);
+        b.handle(&build_ratep_custom(&RATEP_RAW)).unwrap();
+        assert!(b.poisoned);
+
+        Backend::on_takeover(&mut b);
+        assert!(!b.ratep_acked);
+        assert!(!b.poisoned);
     }
 
     #[test]
