@@ -103,24 +103,52 @@ Inside `Agc::process`:
     `max_future = max(|x|)` over the window.
 3.  Required GR: `gr_req = ceiling / (max_future * gain)` if that's
     below 1.0, else 1.0.
-4.  Smoother: ramp toward `gr_req` with attack alpha matching the
-    lookahead window (so GR reaches minimum exactly when the
-    transient hits the output); release back to 1.0 over ~50 ms.
+4.  Smoother: when `gr_req < lookahead_gr` (a peak just entered that
+    needs more reduction than is currently applied), **snap**
+    `lookahead_gr = gr_req` -- instant attack.  Otherwise (release
+    branch), one-pole toward 1.0 with ~50 ms time constant.
 5.  Pop oldest buffered sample; output =
-    `oldest * gain * smoother_gr`, then `clamp(+/-1.0)` as a final
-    safety belt.
+    `oldest * gain * lookahead_gr`, then `clamp(+/-1.0)` as a
+    safety belt that should never fire under correct operation.
 
-Lookahead window N and smoother attack should match.  Mismatched
-attack causes either a discontinuous GR step (audible click) or a
-GR that arrives late (peak still clips).
+### Why instant attack
+
+A one-pole smoother with attack time matched to the lookahead window
+only reaches ~63% of the target value in one time constant (≈74% at
+N=16 with τ=N).  The peak emerges from the delay line before GR has
+fully settled, and the safety clamp ends up doing the work -- which
+is hard digital clipping at full scale, exactly what we set out to
+avoid.  An instant snap on the attack branch gets GR fully in place
+the same sample the peak enters the buffer; by the time the peak
+emerges N samples later, the GR has been at its target value for
+N samples.
+
+The cost of instant attack is a 1-sample step in GR on whatever
+audio was 2 ms ahead of the triggering peak.  For voice + a
+vocoder, the duck happens within the leading edge of the same
+syllable and is masked by perceptual fusion -- the listener
+doesn't hear it as a click.  If field testing ever shows audible
+artifacts, the fallback is a fast one-pole (τ ~ 0.2 ms, settles in
+~5 samples), which trades a small unsettled-residual for a softer
+edge.
+
+Composition with overlapping peaks: when multiple peaks are in the
+buffer, instant attack snaps to the deepest required GR.  When
+that worst peak emerges, GR is exactly right for it; subsequent
+(less-deep) peaks emerge with GR stricter than they need --
+slightly over-attenuating, which is the safe direction.
 
 ### Numbers
 
 - `N` = 16 samples = 2 ms at 8 kHz.
-- Smoother attack = 1.5 ms.
-- Smoother release = 50 ms.
-- `ceiling` = 1.0 (full scale).  Could be -0.5 dBFS for safety
-  margin if we observe quantization-edge clipping in practice.
+- Attack = instantaneous (snap on the attack branch).
+- Release = 50 ms one-pole.
+- `LIMITER_CEILING` = 0.95 linear = -0.45 dBFS.  Safety margin
+  against gain drift between push and pop, float imprecision, and
+  any subtle math error.  The trailing `clamp(+/-1.0)` should
+  never fire under correct operation; `clipped_samples` in the
+  summary counts any time it does and is the definitive failure
+  indicator.
 
 ### Why current `gain` is a fine proxy
 
@@ -148,37 +176,41 @@ ring buffer (trivial; costs 4 extra bytes per slot).
 
 ### `dsp/src/agc.rs`
 
-1.  New `const LOOKAHEAD_SAMPLES: usize = 16` (= 2 ms at 8 kHz).
-2.  New `const CEILING: f32 = 1.0`.
-3.  Add fields to `Agc`:
+1.  `const LOOKAHEAD_SAMPLES: usize = 16` (= 2 ms at 8 kHz).
+2.  `const LIMITER_CEILING: f32 = 0.95` (= -0.45 dBFS).
+3.  Fields on `Agc`:
     - `lookahead_buf: VecDeque<f32>` (capacity = LOOKAHEAD_SAMPLES + 1).
-    - `lookahead_gr: f32` (smoothed gain reduction, init 1.0).
-    - `lookahead_attack_alpha: f32` (one-pole alpha for 1.5 ms).
+    - `lookahead_gr: f32` (gain reduction, init 1.0).
     - `lookahead_release_alpha: f32` (one-pole alpha for 50 ms).
-4.  In `process()`: push, scan, smooth, pop, apply (see Architecture).
-5.  In `reset()`: clear `lookahead_buf`, set `lookahead_gr = 1.0`.
-6.  Add `limited_samples: u64` to `AgcSummary` (count of samples
-    where `lookahead_gr < 1.0`).
-7.  In `take_summary`: drained as before.
+4.  `process()`: push, scan max, snap GR on attack, one-pole on
+    release, pop oldest, apply gain * GR, count clips, emit.
+5.  `reset()`: clear `lookahead_buf`, set `lookahead_gr = 1.0`.
+6.  Fields on `AgcSummary`:
+    - `limited_samples: u64` (count of samples where GR < 1.0).
+    - `gr_min: Option<f32>` (deepest GR applied during the call).
+    - `clipped_samples: u64` (post-limiter safety-clamp fires;
+      should always be 0 under correct operation).
 
 Tests:
--  Pure tone above ceiling: `peak_out <= ceiling` after warmup.
--  Pure tone below ceiling: limiter transparent, output unchanged.
--  Single transient on quiet background: peak attenuated to
-   ceiling, surrounding samples roughly unchanged after release.
+-  Pure tone above ceiling: `peak_out <= ceiling`, `clipped == 0`,
+   `limited > 0`, `gr_min` recorded.
+-  Pure tone below ceiling: limiter transparent, `limited == 0`,
+   `gr_min == None`, `clipped == 0`.
 -  `reset()` clears ring buffer (no audio bleed across calls).
--  `limited_samples` increments only when GR < 1.0.
 
 ### `bridge/src/usrp.rs`
 
 Extend `emit_call_agc` log line with limiter telemetry:
 
 ```
-call_agc dir=fm_to_dmr samples=... frozen=... gain_min=... gain_mean=...
+call_agc dir=... samples=... frozen=... gain_min=... gain_mean=...
          gain_max=... peak_in=... peak_out=... limited=N (P%)
+         gr_min=... clipped=N
 ```
 
-`limited` is `s.limited_samples`, `P%` is `100 * limited / samples`.
+`limited`/`P%` is engagement breadth.  `gr_min` is engagement
+depth.  `clipped` is the failure indicator -- non-zero means the
+limiter let a peak past the ceiling.
 
 ### `config.example.toml`, `bridge/src/config.rs`, `bridge/src/main.rs`
 
@@ -197,30 +229,51 @@ deferred follow-ups.
 
 ## Acceptance criteria
 
-A representative listening session must show:
+A representative session must show:
 
-1.  `peak_out < 0 dBFS` on every `call_agc` line for FM->DMR.
-2.  `voiced_rms` stays >= -16 dBFS on loud-input source paths.
-3.  `limited > 0` on at least some calls (proof the limiter is
-    engaging; if it never fires, lookahead is doing no work and
-    we have a wiring bug).
-4.  Subjective listening: no audible "ducking" or pumping on
-    transient-heavy speech.  Listener should not be able to
-    distinguish limiter-on from limiter-off except for the
-    absence of digital-clip distortion.
+1.  `clipped = 0` on every `call_agc` line.  This is the
+    definitive failure indicator -- non-zero means the limiter
+    let a peak past full scale.
+2.  `peak_out` at or just under -0.45 dBFS on limited calls;
+    below that on unlimited.  (Below -0.45 dBFS but still showing
+    `peak_out` near 0.0 dBFS would point at a different bug.)
+3.  `voiced_rms` stays >= -16 dBFS on loud-input source paths
+    once `max_gain_db` is back at 18.
+4.  `limited > 0` and `gr_min` populated on at least some calls
+    (proof the limiter is engaging; if it never fires, lookahead
+    is doing no work and we have a wiring bug).
+5.  Subjective listening: no audible "ducking" or pumping on
+    transient-heavy speech.
+
+## In-field test plan (one deb cycle)
+
+Build the deb, install, restart the service.  Then iterate
+config-only:
+
+1.  `max_gain_db = 8` on both directions (current value, known
+    clean for DMR->FM).  Make 5-10 calls each direction.  Check
+    `clipped = 0` everywhere; sanity-check `gr_min` values.
+2.  Listen on FM side for speech-onset clicks.  If clean, proceed.
+3.  Bump `max_gain_db = 12`, restart, repeat.
+4.  Bump `max_gain_db = 18` (the loudness target), restart,
+    repeat.  voiced_rms should reach -14 to -16 dBFS on FM->DMR.
+
+If any step shows `clipped > 0` or audible artifacts, stop and
+report -- the parameter knobs in the next iteration will be
+guided by which step broke.
 
 ## Post-deployment tuning
 
-Once the limiter is in place, the FM->DMR config can be tuned more
-aggressively because the limiter handles peak protection:
+Once the limiter is confirmed working at `max_gain_db = 18`:
 
-- Reasonable starting point: `target_dbfs = -6, max_gain_db = 18`.
 - If `limited %` over a session is consistently > 5%, the AGC is
-  overdriving the limiter; back off `target_dbfs` (more negative).
+  overdriving the limiter on average; back off `target_dbfs` (more
+  negative).
 - If `limited %` is near 0 and listeners still report soft audio,
   raise `target_dbfs`.
 
-The limiter itself should not need tuning unless we observe audible
-artifacts.  If we ever do (audible ducking, lost transients, etc.),
-the next steps are upgrade-path (3) (RMS-target detector) and (4)
-(dual-decay release) from `docs/TODO.md`.
+The limiter itself should not need tuning unless we observe
+audible artifacts.  Fallback for clicks: replace instant attack
+with a fast one-pole (alpha for 200 us).  Fallback for residual
+softness despite `limited %` low: upgrade-path (2) (RMS-target
+detector) from `docs/TODO.md`.

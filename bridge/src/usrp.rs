@@ -374,11 +374,16 @@ fn emit_call_agc(dir: &str, stream_id: Option<u32>, agc: &mut Agc) {
         Some(sid) => format!(" stream_id={sid}"),
         None => String::new(),
     };
+    // gr_min reports the deepest gain reduction the limiter
+    // applied during the call.  None -> limiter never engaged ->
+    // log "0.0 dB" (no reduction).  clipped is samples where the
+    // post-limiter safety clamp fired; > 0 means the limiter let
+    // a peak through and is the definitive failure indicator.
     info!(
         "call_agc dir={dir}{stream_id} samples={} \
          frozen={}/{} ({:.1}%) gain_min={} gain_mean={} \
          gain_max={} peak_in={} peak_out={} \
-         limited={}/{} ({:.1}%)",
+         limited={}/{} ({:.1}%) gr_min={} clipped={}",
         s.samples,
         s.frozen_samples,
         s.samples,
@@ -391,6 +396,8 @@ fn emit_call_agc(dir: &str, stream_id: Option<u32>, agc: &mut Agc) {
         s.limited_samples,
         s.samples,
         limited_pct,
+        fmt_db(s.gr_min.unwrap_or(1.0)),
+        s.clipped_samples,
     );
 }
 
