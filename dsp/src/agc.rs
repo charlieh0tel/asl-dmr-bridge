@@ -17,12 +17,25 @@
 //! from a clean baseline rather than inheriting the previous call's
 //! gain.  Off by default.
 
+use std::collections::VecDeque;
 use std::time::Duration;
 
 /// 8 kHz / 20 ms per USRP voice frame -- matches `usrp_wire`.  Local
 /// constant rather than an import to keep AGC math self-contained
 /// and make the time-constant arithmetic obvious in tests.
 const SAMPLE_RATE_HZ: f32 = 8000.0;
+
+/// Look-ahead window for the peak limiter.  16 samples = 2 ms at
+/// 8 kHz.  Smoother attack is matched to this window so gain
+/// reduction reaches its minimum exactly when the predicted peak
+/// arrives at the output, avoiding both an audible discontinuity
+/// (instant attack) and a late-arriving GR (peak still clips).
+const LOOKAHEAD_SAMPLES: usize = 16;
+
+/// Output ceiling enforced by the limiter (linear).  1.0 = full
+/// scale; the trailing `clamp(-1.0, 1.0)` after the limiter is a
+/// safety belt that should never fire under correct operation.
+const LIMITER_CEILING: f32 = 1.0;
 
 /// 2^15 -- divide i16 by this to map i16::MIN onto -1.0 exactly.
 /// Multiplying back relies on the `as i16` saturating cast for the
@@ -114,6 +127,21 @@ pub struct Agc {
     release_alpha: f32,
     envelope: f32,
     gain: f32,
+    /// Look-ahead ring buffer of the most recent input samples
+    /// (post-`/FULL_SCALE` normalization).  Per-iteration scan
+    /// across this buffer drives the limiter's GR target, then we
+    /// pop the oldest sample and apply gain to it -- so the GR is
+    /// applied in time-coincidence with the peak that triggered it.
+    lookahead_buf: VecDeque<f32>,
+    /// Current smoothed gain reduction (linear, in (0, 1]).  1.0 =
+    /// no reduction.  Drops on attack, rises on release.
+    lookahead_gr: f32,
+    /// One-pole alpha for the limiter's attack ramp; matched to the
+    /// lookahead window so GR reaches its minimum exactly when the
+    /// triggering peak arrives at the output.
+    lookahead_attack_alpha: f32,
+    /// One-pole alpha for the limiter's release back to unity.
+    lookahead_release_alpha: f32,
     summary: AgcSummary,
 }
 
@@ -127,16 +155,23 @@ impl Agc {
             release_alpha: alpha_for(params.release),
             envelope: 0.0,
             gain: 1.0,
+            lookahead_buf: VecDeque::with_capacity(LOOKAHEAD_SAMPLES + 1),
+            lookahead_gr: 1.0,
+            lookahead_attack_alpha: alpha_for(Duration::from_micros(1500)),
+            lookahead_release_alpha: alpha_for(Duration::from_millis(50)),
             summary: AgcSummary::default(),
         }
     }
 
-    /// Clear envelope + gain.  Call at call boundaries so the next
-    /// talker starts from a neutral state.  Does NOT clear the
-    /// summary -- callers grab it via `take_summary` first.
+    /// Clear envelope, gain, and the look-ahead pipeline.  Call at
+    /// call boundaries so the next talker starts from a neutral
+    /// state.  Does NOT clear the summary -- callers grab it via
+    /// `take_summary` first.
     pub fn reset(&mut self) {
         self.envelope = 0.0;
         self.gain = 1.0;
+        self.lookahead_buf.clear();
+        self.lookahead_gr = 1.0;
     }
 
     /// Drain the per-call summary and clear it for the next call.
@@ -146,8 +181,18 @@ impl Agc {
 
     /// Apply AGC in place to one PCM frame.  Each i16 sample is
     /// rescaled to `[-1, 1]`, fed through the envelope follower and
-    /// gain smoother, multiplied by the smoothed gain, hard-limited
-    /// to `[-1, 1]`, and re-quantized to i16.
+    /// gain smoother, queued into the look-ahead buffer, and the
+    /// oldest queued sample is emitted with `gain * lookahead_gr`
+    /// applied.  Output is clamped to `[-1, 1]` as a safety belt
+    /// (the limiter math should keep it in range on its own) and
+    /// re-quantized to i16.
+    ///
+    /// Output is delayed by `LOOKAHEAD_SAMPLES` relative to input.
+    /// The first `LOOKAHEAD_SAMPLES` slots after construction or
+    /// `reset()` emit zero (buffer warmup); the trailing
+    /// `LOOKAHEAD_SAMPLES` of input still in the buffer at
+    /// `reset()` are dropped.  Both windows are 2 ms at 8 kHz --
+    /// well below voice intelligibility thresholds.
     pub fn process(&mut self, samples: &mut [i16]) {
         for s in samples.iter_mut() {
             let x = f32::from(*s) / FULL_SCALE;
@@ -209,14 +254,56 @@ impl Agc {
                 None => self.gain,
             });
 
-            // Apply + hard-limit.  The clamp catches the rare case
-            // where gain * x crosses full-scale before the envelope
-            // catches up.
-            let y = (x * self.gain).clamp(-1.0, 1.0);
+            // Look-ahead limiter.  Push the current sample, scan
+            // the window for the largest |x| we will see in the
+            // next LOOKAHEAD_SAMPLES, derive the gain reduction
+            // needed to keep `max_future * gain` at or below the
+            // ceiling, smooth GR with attack matched to the
+            // window, and emit the oldest delayed sample.  Using
+            // current `gain` to predict future output is fine: the
+            // gain follower's 200 ms release means `gain` moves by
+            // well under 1% across the 2 ms lookahead window.
+            self.lookahead_buf.push_back(x);
+            if self.lookahead_buf.len() <= LOOKAHEAD_SAMPLES {
+                *s = 0;
+                continue;
+            }
+            let max_future = self
+                .lookahead_buf
+                .iter()
+                .map(|v| v.abs())
+                .fold(0.0_f32, f32::max);
+            let predicted = max_future * self.gain;
+            let gr_req = if predicted > LIMITER_CEILING {
+                LIMITER_CEILING / predicted
+            } else {
+                1.0
+            };
+            if gr_req < self.lookahead_gr {
+                self.lookahead_gr += self.lookahead_attack_alpha * (gr_req - self.lookahead_gr);
+            } else {
+                self.lookahead_gr += self.lookahead_release_alpha * (1.0 - self.lookahead_gr);
+                self.lookahead_gr = self.lookahead_gr.min(1.0);
+            }
+            if self.lookahead_gr < 1.0 {
+                self.summary.limited_samples += 1;
+            }
+            // Pop the oldest sample (post-LOOKAHEAD push, the
+            // buffer is one over capacity; pop_front returns
+            // Some).  Apply gain + GR; the trailing clamp is a
+            // safety belt that should never fire under correct
+            // limiter operation.
+            let oldest = self
+                .lookahead_buf
+                .pop_front()
+                .expect("buffer is non-empty post-push");
+            let y = (oldest * self.gain * self.lookahead_gr).clamp(-1.0, 1.0);
             let abs_y = y.abs();
             if abs_y > self.summary.peak_out {
                 self.summary.peak_out = abs_y;
             }
+            // i16 cast saturates at +/-32767; the clamp keeps `y`
+            // in [-1, 1] so the cast never saturates in practice.
             *s = (y * FULL_SCALE) as i16;
         }
     }
@@ -413,5 +500,64 @@ mod tests {
         // ~target (-6 dBFS).  Just sanity-check that the output is
         // non-zero so we know the pipeline ran end-to-end.
         assert!(buf.iter().any(|&s| s != 0));
+    }
+
+    #[test]
+    fn lookahead_caps_loud_transient_in_quiet_call() {
+        // Drive a quiet sustained tone (gain ramps up toward
+        // max_gain), then inject a transient that without the
+        // limiter would push gain*x past full scale.  Output peak
+        // must stay <= LIMITER_CEILING and limited_samples must
+        // increment.
+        let mut agc = Agc::new(AgcParams::default_voice());
+        // 200 frames of -25 dBFS converges gain near max_gain.
+        let _ = run_constant(&mut agc, -25.0, 200);
+        // One frame of mostly quiet samples with a single near-
+        // full-scale spike in the middle.
+        let mut frame = [(db_to_linear(-25.0) * FULL_SCALE) as i16; 160];
+        frame[80] = (db_to_linear(-1.0) * FULL_SCALE) as i16;
+        agc.process(&mut frame);
+        let peak = frame.iter().copied().map(i16::unsigned_abs).max().unwrap();
+        let peak_lin = f32::from(peak) / FULL_SCALE;
+        assert!(
+            peak_lin <= LIMITER_CEILING + 1e-6,
+            "limiter let peak through: {peak_lin}"
+        );
+        let s = agc.take_summary();
+        assert!(
+            s.limited_samples > 0,
+            "limiter never engaged on a transient that would clip"
+        );
+    }
+
+    #[test]
+    fn lookahead_transparent_when_within_ceiling() {
+        // Steady -20 dBFS through default AGC: gain pulls peaks
+        // toward target (-6 dBFS), which is well under ceiling.
+        // Limiter must never engage; limited_samples stays 0.
+        let mut agc = Agc::new(AgcParams::default_voice());
+        let _ = run_constant(&mut agc, -20.0, 200);
+        let s = agc.take_summary();
+        assert_eq!(
+            s.limited_samples, 0,
+            "limiter engaged on a signal that does not exceed ceiling"
+        );
+    }
+
+    #[test]
+    fn lookahead_buf_cleared_on_reset() {
+        // Run loud input through the AGC, reset, then process
+        // pure silence.  The output must not contain any echo
+        // from the prior call's lookahead buffer.
+        let mut agc = Agc::new(AgcParams::default_voice());
+        let mut loud = [i16::MAX; 160];
+        agc.process(&mut loud);
+        agc.reset();
+        let mut silence = [0i16; 160];
+        agc.process(&mut silence);
+        assert!(
+            silence.iter().all(|&s| s == 0),
+            "reset failed: prior call leaked into next via lookahead buffer"
+        );
     }
 }
