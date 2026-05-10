@@ -76,7 +76,7 @@ pub trait Vocoder: Send {
     /// Output is only required to be logically reset, not bit-equal
     /// to a freshly-constructed instance.  A no-op is valid when
     /// the backend exposes no per-stream state.
-    fn reset(&mut self);
+    fn reset(&mut self) {}
 
     /// Set static input/output gain.  Last call wins; `dB::UNITY`
     /// is a no-op.

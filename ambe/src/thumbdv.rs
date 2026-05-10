@@ -190,8 +190,8 @@ impl Vocoder for ThumbDv {
     }
 
     // [TODO] @charlieh0tel: send chip RESET if field testing shows
-    // audible inter-stream artifacts; replay RATEP+gain after.
-    fn reset(&mut self) {}
+    // audible inter-stream artifacts; replay RATEP+gain after.  Until
+    // then the trait's default no-op reset is correct.
 
     fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
         let in_byte = in_db.to_chip_byte();
