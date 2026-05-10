@@ -38,10 +38,6 @@ use pcm_utils::wav::WavRecorder;
 /// everything else is dropped with a warn log.  ASL3 is the sole
 /// peer in this bridge -- accepting voice from arbitrary senders
 /// would let a network neighbor inject audio onto the DMR side.
-///
-/// Per-call levels (peak / RMS / voiced-RMS in dBFS) on the
-/// untouched ingress PCM are accumulated and emitted on each unkey
-/// as `call_levels dir=fm_to_dmr point=usrp_in ...`.
 pub(crate) async fn rx_task(
     socket: Arc<UdpSocket>,
     tx: mpsc::Sender<AudioFrame>,
@@ -50,15 +46,10 @@ pub(crate) async fn rx_task(
     cancel: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     let mut buf = [0u8; PACKET_SIZE + RECV_SLACK];
-    let mut usrp_in_levels = LevelAccumulator::default();
-    let mut had_voice_in_call = false;
     loop {
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => {
-                finalize_usrp_in_call(&mut usrp_in_levels, &mut had_voice_in_call);
-                return Ok(());
-            }
+            _ = cancel.cancelled() => return Ok(()),
             result = socket.recv_from(&mut buf) => {
                 let (len, addr) = match result {
                     Ok(v) => v,
@@ -77,14 +68,6 @@ pub(crate) async fn rx_task(
                         if frame.frame_type != FrameType::Voice {
                             continue;
                         }
-                        if frame.keyup {
-                            if let Some(samples) = frame.audio.as_ref() {
-                                usrp_in_levels.add_frame(samples);
-                                had_voice_in_call = true;
-                            }
-                        } else {
-                            finalize_usrp_in_call(&mut usrp_in_levels, &mut had_voice_in_call);
-                        }
                         let audio = AudioFrame {
                             keyup: frame.keyup,
                             samples: frame.audio,
@@ -99,10 +82,7 @@ pub(crate) async fn rx_task(
                             Err(mpsc::error::TrySendError::Full(_)) => {
                                 warn!("USRP rx: voice_task channel full, dropping frame");
                             }
-                            Err(mpsc::error::TrySendError::Closed(_)) => {
-                                finalize_usrp_in_call(&mut usrp_in_levels, &mut had_voice_in_call);
-                                return Ok(());
-                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
                         }
                     }
                     Err(e) => {
@@ -112,25 +92,6 @@ pub(crate) async fn rx_task(
             }
         }
     }
-}
-
-/// Emit the per-call usrp_in level summary and reset the
-/// accumulator.  No-op when no voice was observed in the current
-/// call (idle close-outs and back-to-back unkeys).
-fn finalize_usrp_in_call(levels: &mut LevelAccumulator, had_voice: &mut bool) {
-    if !*had_voice {
-        return;
-    }
-    let (peak, rms, voiced_rms) = levels.summary();
-    info!(
-        "call_levels dir=fm_to_dmr point=usrp_in \
-         peak={} rms={} voiced_rms={}",
-        fmt_dbfs(peak),
-        fmt_dbfs(rms),
-        fmt_dbfs(voiced_rms),
-    );
-    *levels = LevelAccumulator::default();
-    *had_voice = false;
 }
 
 /// Read `AudioFrame`s from the channel and send them as USRP packets,
