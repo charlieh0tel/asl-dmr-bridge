@@ -1,6 +1,6 @@
 [package]
 name = "dmr-wire"
-version = "2.3.0"
+version = "2.4.0"
 edition.workspace = true
 license.workspace = true
 description = "DMR Homebrew protocol and on-air frame codec for asl-dmr-bridge."
