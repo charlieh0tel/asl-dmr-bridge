@@ -433,13 +433,11 @@ async fn async_main() -> anyhow::Result<()> {
         color_code: config.peer.color_code,
         callsign: config.peer.callsign.as_str().to_string(),
     };
-    if config.gain.fm_to_dmr_db != 0.0 || config.gain.dmr_to_fm_db != 0.0 {
-        info!(
-            fm_to_dmr_db = config.gain.fm_to_dmr_db,
-            dmr_to_fm_db = config.gain.dmr_to_fm_db,
-            "static gain applied via vocoder"
-        );
-    }
+    info!(
+        fm_to_dmr_db = config.gain.fm_to_dmr_db,
+        dmr_to_fm_db = config.gain.dmr_to_fm_db,
+        "static gain applied via vocoder"
+    );
     let voice_diagnostics = dmr_wire::voice::PttDiagnostics {
         pcm_record_dir: config.diagnostics.pcm_record_dir.clone(),
     };
