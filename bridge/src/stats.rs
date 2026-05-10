@@ -75,7 +75,7 @@ impl Stats {
 /// line (subject to `min_call_log_duration`).
 struct CallAccumulator {
     started_at: Instant,
-    src_id: u32,
+    src_id: dmr_types::SubscriberId,
     dst_id: u32,
     slot: Slot,
     frames: u64,
@@ -87,7 +87,7 @@ struct CallAccumulator {
 }
 
 impl CallAccumulator {
-    fn new(src_id: u32, dst_id: u32, slot: Slot) -> Self {
+    fn new(src_id: dmr_types::SubscriberId, dst_id: u32, slot: Slot) -> Self {
         Self {
             started_at: Instant::now(),
             src_id,
@@ -203,7 +203,7 @@ fn log_call(
     info!(
         target: "bridge::stats::call",
         dir = dir.as_str(),
-        src = acc.src_id,
+        src = acc.src_id.as_u32(),
         dst = acc.dst_id,
         slot = ?acc.slot,
         dur_ms = dur.as_millis() as u64,

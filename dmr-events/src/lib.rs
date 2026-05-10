@@ -107,7 +107,7 @@ impl TerminationReason {
 pub enum StatsEvent {
     CallStart {
         dir: CallDirection,
-        src_id: u32,
+        src_id: SubscriberId,
         dst_id: u32,
         slot: Slot,
     },
