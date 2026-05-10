@@ -327,8 +327,8 @@ fn finalize_agc_out_call(
                 fmt_db(s.gain_min.unwrap_or(1.0)),
                 fmt_db(s.gain_mean()),
                 fmt_db(s.gain_max.unwrap_or(1.0)),
-                fmt_dbfs(f64::from(s.peak_in)),
-                fmt_dbfs(f64::from(s.peak_out)),
+                fmt_dbfs(linear_to_dbfs(f64::from(s.peak_in))),
+                fmt_dbfs(linear_to_dbfs(f64::from(s.peak_out))),
             );
         }
     }
@@ -344,6 +344,16 @@ fn fmt_db(linear: f32) -> String {
         "-inf dB".to_string()
     } else {
         format!("{:.1} dB", 20.0 * linear.log10())
+    }
+}
+
+/// Linear amplitude in [0, 1] -> dBFS.  Zero maps to -inf so
+/// `fmt_dbfs` renders silence as "-infdBFS".
+fn linear_to_dbfs(linear: f64) -> f64 {
+    if linear > 0.0 {
+        20.0 * linear.log10()
+    } else {
+        f64::NEG_INFINITY
     }
 }
 
