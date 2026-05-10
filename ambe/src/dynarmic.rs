@@ -14,12 +14,16 @@ use dv3000_wire::AMBE_FRAME_SIZE;
 use dv3000_wire::AmbeFrame;
 use dv3000_wire::PCM_SAMPLES;
 use dv3000_wire::PcmFrame;
+use tracing::error;
 
 static CODEC: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn lock() -> MutexGuard<'static, ()> {
     let m = CODEC.get_or_init(|| {
         let rc = unsafe { dynarmic_sys::md380_init() };
+        if rc != 0 {
+            error!(rc, "md380_init failed");
+        }
         assert_eq!(rc, 0, "md380_init failed");
         // Pre-warm the dynarmic JIT for both encode and decode paths.
         // The first call to either otherwise pays a multi-second
@@ -32,6 +36,9 @@ fn lock() -> MutexGuard<'static, ()> {
         unsafe { dynarmic_sys::md380_encode_fec(ambe.as_mut_ptr(), pcm_in.as_ptr()) };
         unsafe { dynarmic_sys::md380_decode_fec(ambe.as_ptr(), pcm_out.as_mut_ptr()) };
         let rc = unsafe { dynarmic_sys::md380_init() };
+        if rc != 0 {
+            error!(rc, "md380_init failed after warm-up");
+        }
         assert_eq!(rc, 0, "md380_init failed after warm-up");
         Mutex::new(())
     });
@@ -78,6 +85,9 @@ impl Vocoder for DynarmicVocoder {
     fn reset(&mut self) {
         let _g = lock();
         let rc = unsafe { dynarmic_sys::md380_init() };
+        if rc != 0 {
+            error!(rc, "md380_init failed on reset");
+        }
         assert_eq!(rc, 0, "md380_init failed on reset");
     }
 
