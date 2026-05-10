@@ -17,12 +17,6 @@ appears.
   any dynarmic-on-arm64 crash.  Capture core via systemd-coredump
   and follow the backtrace.
 
-- **Bump `agc.max_gain_db` default 12 -> 15-18.**  Quiet talkers
-  (-25 dBFS, common on BM) currently cap at -13 dBFS instead of
-  reaching the -6 dBFS target.  Right value is empirical; pick a
-  number after `call_agc` log lines from a real listening pass
-  show how often the cap is hit.
-
 - **Pre-encode LP 3000 -> 3400 Hz A/B.**  AMBE+2 at DMR rate is
   documented for 250-3400 Hz; current LP at 3000 Hz is the
   conservative P25/DMR pre-emphasis target and loses sibilance

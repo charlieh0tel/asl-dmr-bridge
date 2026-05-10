@@ -154,7 +154,7 @@ impl Default for AgcConfig {
             target_dbfs: -6.0,
             attack: Duration::from_millis(10),
             release: Duration::from_millis(200),
-            max_gain_db: 12.0,
+            max_gain_db: 18.0,
             noise_gate_dbfs: -50.0,
         }
     }
