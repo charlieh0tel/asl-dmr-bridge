@@ -1,7 +1,8 @@
 # Look-Ahead Limiter for the FM->DMR AGC
 
-Working design and implementation plan.  Background context lives
-in `docs/FUTURE_AGC.md`; the doc here is what we run against.
+Status: implemented in `dsp/src/agc.rs`.  Background context lives
+in `docs/FUTURE_AGC.md`; this doc is the design rationale and
+in-field acceptance criteria.
 
 ## Why we need this
 
