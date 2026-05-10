@@ -24,18 +24,20 @@ appears.
   audio; the codec at half-rate may not preserve the extra 400 Hz
   anyway.
 
-- **AGC upgrade path; defer until calls demand it.**  AGC is
-  peak-tracking with the look-ahead limiter from
-  `docs/AGC_LOOKAHEAD_LIMITER.md` providing peak protection.  If
-  listeners report pumping, audible ducking around transients,
-  or `voiced_rms` stuck well below the expected loudness despite
-  the limiter behaving, climb in this order:
-  (1) drop release toward ~120 ms (one-line tuning, lands solidly
-  in syllabic territory);
-  (2) switch the level detector from |x| to RMS / syllabic
-  envelope so voiced_rms can be lifted independent of peak
-  headroom (the actual fix for quiet-but-peaky talkers);
-  (3) dual-decay release, only after (2) is in.
-  Skip until tuning of `target_dbfs` and `max_gain_db` per
-  direction proves insufficient.
+- **AGC upgrade path; only if anyone wants FM->DMR AGC again.**
+  AGC on FM->DMR has been ruled out by listener tests
+  (`docs/AGC_LOOKAHEAD_LIMITER.md`, Field result section): the
+  peak-tracking gain follower + limiter combination pumps at
+  speech-syllable rate in a way the AMBE+2 vocoder encodes
+  audibly badly, even though the in-bridge metrics
+  (`clipped = 0`, `peak_out` at ceiling, `voiced_rms` at target)
+  look clean.  Static `fm_to_dmr_db` pad before the vocoder is
+  the working answer.  AGC on DMR->FM remains useful because the
+  listener is downstream of the codec.
+  If FM->DMR AGC is ever wanted again, the only path that can
+  work is switching the level detector from peak (|x|) to
+  RMS / syllabic envelope so the gain follower stops chasing
+  inter-syllable pauses.  That's a meaningful DSP change
+  (~100 LOC + careful tuning), not a small tweak.  Optional
+  follow-on: dual-decay release.
 

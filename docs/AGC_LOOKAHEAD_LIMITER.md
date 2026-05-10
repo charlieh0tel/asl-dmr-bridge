@@ -1,8 +1,43 @@
 # Look-Ahead Limiter for the FM->DMR AGC
 
-Status: implemented in `dsp/src/agc.rs`.  Background context lives
-in `docs/FUTURE_AGC.md`; this doc is the design rationale and
-in-field acceptance criteria.
+Status: implemented in `dsp/src/agc.rs` (shipped v2.7.0).
+Background context lives in `docs/FUTURE_AGC.md`; this doc is the
+design rationale and in-field result.
+
+**Field result on FM->DMR: AGC is contraindicated.** The limiter
+holds the ceiling cleanly (`clipped = 0` everywhere, `peak_out` at
+-0.45 dBFS as designed) and `voiced_rms` reaches the loudness
+target.  But listener tests at `max_gain_db = 18` showed FM->DMR
+audio is audibly WORSE with AGC enabled than with AGC off plus a
+static `fm_to_dmr_db = -6` pad before the vocoder.  The mechanism
+is per-syllable pumping: between syllables the gain follower
+ramps gain UP toward `max_gain_db` chasing the quiet inter-
+syllable level, the next syllable arrives loud, the limiter
+slams (`gr_min` -3 to -10 dB, `limited %` 30-90%), release
+proceeds over 50 ms, cycle repeats.  AMBE+2 encodes the
+modulated envelope faithfully and the listener hears compressed-
+sounding voice.  Lowering `target_dbfs` from -6 toward -12
+softened the effect but did not remove it.  Raising the noise
+gate would freeze gain during pauses but also freeze legitimate
+quiet voice.
+
+Conclusion: peak-tracking AGC + a hard limiter is the wrong
+architecture for vocoder input regardless of how well the
+limiter does its narrow job.  Working configuration on FM->DMR:
+
+```
+[gain]
+fm_to_dmr_db = -6.0
+
+[agc.fm_to_dmr]
+enabled = false
+```
+
+The limiter itself is correct code and stays in the tree -- it's
+still the right answer for any AGC that does run (e.g.,
+DMR->FM), and it's the foundation the RMS-target detector
+(`docs/TODO.md`, AGC upgrade path) would build on if anyone ever
+wants AGC on the encoder side.
 
 ## Why we need this
 
