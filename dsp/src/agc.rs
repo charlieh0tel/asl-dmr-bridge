@@ -89,6 +89,9 @@ pub struct AgcSummary {
     pub peak_in: f32,
     /// Peak output amplitude (linear, in [0, 1]) post-clamp.
     pub peak_out: f32,
+    /// Samples where the look-ahead limiter applied gain reduction
+    /// (lookahead_gr < 1.0).  Stays 0 until the limiter ships.
+    pub limited_samples: u64,
 }
 
 impl AgcSummary {
@@ -375,6 +378,9 @@ mod tests {
         let gmin = s.gain_min.unwrap();
         assert!(gmax > 1.0 && gmin >= 1.0);
         assert!(s.gain_mean() > 1.0);
+        // No limiter yet -- field stays 0 until the look-ahead
+        // limiter lands.
+        assert_eq!(s.limited_samples, 0);
         // take_summary clears for next call.
         let s2 = agc.take_summary();
         assert_eq!(s2.samples, 0);
