@@ -122,6 +122,15 @@ impl Agc {
             // and the gain stays put rather than chasing the noise
             // floor up toward max_gain.  The envelope keeps updating
             // either way so it stays current for the next syllable.
+            //
+            // Correctness depends on `release_alpha` being slow:
+            // during a long gated stretch the envelope decays toward
+            // 0, so the FIRST unmuted sample after silence has
+            // target_gain = target / tiny_envelope clamped to
+            // max_gain.  With release_alpha ~1.25e-4 the actual gain
+            // barely moves on that single sample.  A faster release
+            // would let it lurch up before the gate has a chance to
+            // re-fire on a louder syllable.
             if abs_x >= self.noise_gate {
                 let target_gain = (self.target / self.envelope.max(1e-6)).min(self.max_gain);
                 // Smooth gain asymmetrically: target below current
