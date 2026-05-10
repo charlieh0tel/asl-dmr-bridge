@@ -131,7 +131,7 @@ keepalive_missed_limit = 3
 # enabled = false               # default
 # target_dbfs = -6.0            # default
 # attack = "10ms"               # default
-# release = "200ms"             # default
+# release = "120ms"             # default
 # max_gain_db = 18.0            # default
 # noise_gate_dbfs = -50.0       # default
 
@@ -141,7 +141,7 @@ keepalive_missed_limit = 3
 # come in quiet).
 # target_dbfs = -3.0            # default
 # attack = "10ms"               # default
-# release = "200ms"             # default
+# release = "120ms"             # default
 # max_gain_db = 18.0            # default
 # noise_gate_dbfs = -50.0       # default
 
