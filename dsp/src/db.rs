@@ -10,11 +10,7 @@ impl dB {
 
     /// Convert to a linear amplitude multiplier (`10^(db/20)`).
     pub fn linear(self) -> f32 {
-        if self.0 == 0.0 {
-            1.0
-        } else {
-            10.0_f32.powf(self.0 / 20.0)
-        }
+        10.0_f32.powf(self.0 / 20.0)
     }
 
     /// Round and clamp to the DV3000 chip's accepted range (signed
