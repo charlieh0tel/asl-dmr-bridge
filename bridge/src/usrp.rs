@@ -144,6 +144,7 @@ pub(crate) async fn tx_task(
                     &mut agc_out_recorder,
                     &mut current_dmr_stream_id,
                     &mut had_voice_in_call,
+                    agc.as_mut(),
                 );
                 return Ok(());
             }
@@ -189,6 +190,7 @@ pub(crate) async fn tx_task(
                         &mut agc_out_recorder,
                         &mut current_dmr_stream_id,
                         &mut had_voice_in_call,
+                        agc.as_mut(),
                     );
                     return Ok(());
                 };
@@ -206,6 +208,7 @@ pub(crate) async fn tx_task(
                                     &mut agc_out_recorder,
                                     &mut current_dmr_stream_id,
                                     &mut had_voice_in_call,
+                                    agc.as_mut(),
                                 );
                                 return Ok(());
                             }
@@ -224,6 +227,8 @@ pub(crate) async fn tx_task(
                 }
 
                 // Reset AGC on unkey so each new call starts neutral.
+                // The per-call summary is drained later in
+                // finalize_agc_out_call (reset() leaves it intact).
                 let mut samples = audio.samples;
                 if let Some(agc_state) = agc.as_mut() {
                     if !audio.keyup {
@@ -261,6 +266,7 @@ pub(crate) async fn tx_task(
                         &mut agc_out_recorder,
                         &mut current_dmr_stream_id,
                         &mut had_voice_in_call,
+                        agc.as_mut(),
                     );
                 }
 
@@ -283,20 +289,22 @@ pub(crate) async fn tx_task(
     }
 }
 
-/// Emit the per-call agc_out level summary and reset the in-flight
-/// recorder/accumulator state.  No-op when no voice was observed in
-/// the current call (both unkey paths and idle close-outs).
+/// Emit the per-call agc_out level + AGC behavior summaries and
+/// reset the in-flight recorder/accumulator state.  No-op when no
+/// voice was observed in the current call (both unkey paths and
+/// idle close-outs).
 fn finalize_agc_out_call(
     levels: &mut LevelAccumulator,
     recorder: &mut Option<WavRecorder>,
     dmr_stream_id: &mut Option<u32>,
     had_voice: &mut bool,
+    agc: Option<&mut Agc>,
 ) {
     if !*had_voice {
         return;
     }
-    let (peak, rms, voiced_rms) = levels.summary();
     let sid = dmr_stream_id.unwrap_or(0);
+    let (peak, rms, voiced_rms) = levels.summary();
     info!(
         "call_levels dir=dmr_to_fm point=agc_out stream_id={sid} \
          peak={} rms={} voiced_rms={}",
@@ -304,10 +312,39 @@ fn finalize_agc_out_call(
         fmt_dbfs(rms),
         fmt_dbfs(voiced_rms),
     );
+    if let Some(agc) = agc {
+        let s = agc.take_summary();
+        if s.samples > 0 {
+            let frozen_pct = (s.frozen_samples as f64 * 100.0) / s.samples as f64;
+            info!(
+                "call_agc dir=dmr_to_fm stream_id={sid} samples={} \
+                 frozen={}/{} ({:.1}%) gain_min={} gain_mean={} \
+                 gain_max={} peak_in={} peak_out={}",
+                s.samples,
+                s.frozen_samples,
+                s.samples,
+                frozen_pct,
+                fmt_db(s.gain_min.unwrap_or(1.0)),
+                fmt_db(s.gain_mean()),
+                fmt_db(s.gain_max.unwrap_or(1.0)),
+                fmt_dbfs(f64::from(s.peak_in)),
+                fmt_dbfs(f64::from(s.peak_out)),
+            );
+        }
+    }
     *levels = LevelAccumulator::default();
     *recorder = None;
     *dmr_stream_id = None;
     *had_voice = false;
+}
+
+/// Format a linear gain factor as a dB string with one decimal.
+fn fmt_db(linear: f32) -> String {
+    if linear <= 0.0 {
+        "-inf dB".to_string()
+    } else {
+        format!("{:.1} dB", 20.0 * linear.log10())
+    }
 }
 
 #[cfg(test)]

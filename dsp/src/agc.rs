@@ -68,6 +68,41 @@ impl AgcParams {
     }
 }
 
+/// Per-call AGC behavior summary.  Populated as `process` runs;
+/// drained + reset by `take_summary`.  All gains in linear units;
+/// peaks in linear amplitude (`[0, 1]`) so the caller can format as
+/// dB or raw.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AgcSummary {
+    /// Total samples processed in this call.
+    pub samples: u64,
+    /// Samples where the noise-floor gate kept gain frozen.
+    pub frozen_samples: u64,
+    /// Min smoothed gain seen during the call (linear).  `None` if
+    /// no samples processed.
+    pub gain_min: Option<f32>,
+    /// Max smoothed gain seen (linear).
+    pub gain_max: Option<f32>,
+    /// Sum of gains over all samples; divide by `samples` for mean.
+    pub gain_sum: f32,
+    /// Peak input amplitude (linear, in [0, 1]).
+    pub peak_in: f32,
+    /// Peak output amplitude (linear, in [0, 1]) post-clamp.
+    pub peak_out: f32,
+}
+
+impl AgcSummary {
+    /// Mean smoothed gain (linear).  Returns 1.0 (unity) if the
+    /// summary is empty.
+    pub fn gain_mean(&self) -> f32 {
+        if self.samples == 0 {
+            1.0
+        } else {
+            self.gain_sum / self.samples as f32
+        }
+    }
+}
+
 pub struct Agc {
     target: f32,
     max_gain: f32,
@@ -76,6 +111,7 @@ pub struct Agc {
     release_alpha: f32,
     envelope: f32,
     gain: f32,
+    summary: AgcSummary,
 }
 
 impl Agc {
@@ -88,14 +124,21 @@ impl Agc {
             release_alpha: alpha_for(params.release),
             envelope: 0.0,
             gain: 1.0,
+            summary: AgcSummary::default(),
         }
     }
 
     /// Clear envelope + gain.  Call at call boundaries so the next
-    /// talker starts from a neutral state.
+    /// talker starts from a neutral state.  Does NOT clear the
+    /// summary -- callers grab it via `take_summary` first.
     pub fn reset(&mut self) {
         self.envelope = 0.0;
         self.gain = 1.0;
+    }
+
+    /// Drain the per-call summary and clear it for the next call.
+    pub fn take_summary(&mut self) -> AgcSummary {
+        std::mem::take(&mut self.summary)
     }
 
     /// Apply AGC in place to one PCM frame.  Each i16 sample is
@@ -106,6 +149,10 @@ impl Agc {
         for s in samples.iter_mut() {
             let x = f32::from(*s) / FULL_SCALE;
             let abs_x = x.abs();
+            self.summary.samples += 1;
+            if abs_x > self.summary.peak_in {
+                self.summary.peak_in = abs_x;
+            }
 
             // Envelope follower: fast attack, slow release.
             let env_alpha = if abs_x > self.envelope {
@@ -143,12 +190,30 @@ impl Agc {
                     self.release_alpha
                 };
                 self.gain += gain_alpha * (target_gain - self.gain);
+            } else {
+                self.summary.frozen_samples += 1;
             }
+
+            // Track gain stats AFTER any update on this sample so
+            // we record what's actually applied.
+            self.summary.gain_sum += self.gain;
+            self.summary.gain_min = Some(match self.summary.gain_min {
+                Some(m) => m.min(self.gain),
+                None => self.gain,
+            });
+            self.summary.gain_max = Some(match self.summary.gain_max {
+                Some(m) => m.max(self.gain),
+                None => self.gain,
+            });
 
             // Apply + hard-limit.  The clamp catches the rare case
             // where gain * x crosses full-scale before the envelope
             // catches up.
             let y = (x * self.gain).clamp(-1.0, 1.0);
+            let abs_y = y.abs();
+            if abs_y > self.summary.peak_out {
+                self.summary.peak_out = abs_y;
+            }
             *s = (y * FULL_SCALE) as i16;
         }
     }
@@ -296,6 +361,34 @@ mod tests {
             agc.gain,
             speech_gain,
         );
+    }
+
+    #[test]
+    fn summary_tracks_gain_and_frozen_samples() {
+        let mut agc = Agc::new(AgcParams::default_voice());
+        // 100 frames of -12 dBFS converges gain above 1.0.
+        let _ = run_constant(&mut agc, -12.0, 100);
+        let s = agc.take_summary();
+        assert_eq!(s.samples, 100 * 160);
+        assert_eq!(s.frozen_samples, 0); // -12 dBFS is well above gate
+        let gmax = s.gain_max.unwrap();
+        let gmin = s.gain_min.unwrap();
+        assert!(gmax > 1.0 && gmin >= 1.0);
+        assert!(s.gain_mean() > 1.0);
+        // take_summary clears for next call.
+        let s2 = agc.take_summary();
+        assert_eq!(s2.samples, 0);
+        assert!(s2.gain_min.is_none());
+    }
+
+    #[test]
+    fn summary_counts_gated_samples() {
+        let mut agc = Agc::new(AgcParams::default_voice());
+        // -55 dBFS is below the -50 dBFS gate.
+        let _ = run_constant(&mut agc, -55.0, 50);
+        let s = agc.take_summary();
+        assert_eq!(s.samples, 50 * 160);
+        assert_eq!(s.frozen_samples, 50 * 160);
     }
 
     #[test]
