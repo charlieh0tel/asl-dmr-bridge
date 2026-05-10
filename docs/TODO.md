@@ -24,6 +24,16 @@ appears.
   audio; the codec at half-rate may not preserve the extra 400 Hz
   anyway.
 
+- **OpenBridge peering.**  Worth picking up for multi-TG peering
+  on one instance, peering to non-BM networks (FreeDMR, TGIF),
+  or server-to-server linking.  New wire crate, ~500 LOC, no
+  impact on the FM<->DMR core.  Trigger: an actual use case.
+
+- **XLX reflector support.**  Most XLXd accepts MMDVM-Homebrew on
+  the DMR side, so this is likely `network.profile = "xlx"` plus
+  TG-field-as-module-letter.  Investigate protocol; if ~50 LOC
+  plus config, just do it.
+
 - **AGC upgrade path; only if anyone wants FM->DMR AGC again.**
   AGC on FM->DMR has been ruled out by listener tests
   (`docs/AGC_LOOKAHEAD_LIMITER.md`, Field result section): the
