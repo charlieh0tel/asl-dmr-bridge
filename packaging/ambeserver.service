@@ -4,8 +4,13 @@ After=local-fs.target
 
 [Service]
 Type=simple
+# Defaults match ambeserver's own clap defaults; the operator-supplied
+# /etc/default/ambeserver overrides them.  SERIAL has no default --
+# the unit fails fast at clap parsing if the operator hasn't set it.
+Environment=BAUD=460800
+Environment=LISTEN=127.0.0.1:2460
 EnvironmentFile=-/etc/default/ambeserver
-ExecStart=/usr/bin/ambeserver --serial ${SERIAL} --baud ${BAUD} --listen ${LISTEN}
+ExecStart=/usr/bin/ambeserver --serial "${SERIAL}" --baud "${BAUD}" --listen "${LISTEN}"
 Restart=on-failure
 RestartSec=5
 
