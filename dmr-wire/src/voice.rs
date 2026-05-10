@@ -11,9 +11,6 @@
 //! this file holds the public surface (`Direction`, `VoiceConfig`,
 //! `voice_task`) plus the pure helpers that don't carry state.
 
-use std::collections::hash_map::RandomState;
-use std::hash::BuildHasher;
-use std::hash::Hasher;
 use std::time::Duration;
 
 use ambe::Vocoder;
@@ -132,20 +129,13 @@ fn matches_config(pkt: &Dmrd, config: &VoiceConfig) -> bool {
 }
 
 /// Generate a fresh 32-bit stream ID for an outgoing voice call.
-/// `RandomState::new()` pulls two OS-seeded u64s (the SipHash keys);
-/// we feed a single byte through the hasher and take the low 32 bits
-/// of `finish()` as our entropy source.  Avoids pulling in `rand` /
-/// `getrandom` for one call per call-key-up; collision probability
+/// One `getrandom(2)` syscall per call-key-up; collision probability
 /// across overlapping streams is ~2^-32 which is fine for a stream
 /// disambiguator (Brandmeister also tolerates collisions).
 fn new_stream_id() -> u32 {
-    let mut h = RandomState::new().build_hasher();
-    // The byte value is irrelevant; writing anything is just to
-    // pump the keyed state through SipHash's compression rounds
-    // before finish().  An empty hasher's `finish()` would still
-    // be keyed, but writing a byte yields a fully-mixed output.
-    h.write_u8(0);
-    h.finish() as u32
+    let mut buf = [0u8; 4];
+    getrandom::fill(&mut buf).expect("OS entropy source unavailable");
+    u32::from_ne_bytes(buf)
 }
 
 // --- Audio frame builders ---

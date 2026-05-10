@@ -685,6 +685,7 @@ dependencies = [
  "dmr-events",
  "dmr-types",
  "dsp",
+ "getrandom 0.4.2",
  "hex",
  "pcm-utils",
  "proptest",
