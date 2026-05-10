@@ -12,6 +12,8 @@ use tracing::info;
 
 use crate::Vocoder;
 use crate::VocoderError;
+use crate::chip::ChipClient;
+use crate::chip::build_ambe_for_bits;
 use dv3000_wire::AmbeFrame;
 use dv3000_wire::HEADER_SIZE;
 use dv3000_wire::MAX_PACKET;
@@ -23,6 +25,7 @@ use dv3000_wire::build_ambe_lost_frame;
 use dv3000_wire::build_audio;
 use dv3000_wire::build_gain;
 use dv3000_wire::build_prodid;
+use dv3000_wire::build_ratep_custom;
 use dv3000_wire::build_ratep_dmr;
 use dv3000_wire::build_reset;
 use dv3000_wire::is_gain_ack;
@@ -205,5 +208,125 @@ impl Vocoder for ThumbDv {
         }
         info!("ThumbDV gain set: in={} dB, out={} dB", in_byte, out_byte);
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------- ChipClient
+
+/// Direct serial client to a ThumbDV / DV3000 chip.  Caller has
+/// exclusive access to the serial device.
+pub(crate) struct ThumbDvClient {
+    port: Box<dyn serialport::SerialPort>,
+    buf: Vec<u8>,
+}
+
+impl ThumbDvClient {
+    /// Open the serial device, reset the chip, and wait for the
+    /// READY response.  No RATEP / GAIN is set; caller configures
+    /// before encoding.
+    pub(crate) fn open(path: &str, baud: Option<u32>) -> Result<Self, VocoderError> {
+        let baud = baud.unwrap_or(DEFAULT_BAUD);
+        let port = serialport::new(path, baud)
+            .timeout(SERIAL_TIMEOUT)
+            .open()
+            .map_err(|e| VocoderError::Init(format!("opening {path} at {baud} baud: {e}")))?;
+        port.clear(serialport::ClearBuffer::All)
+            .map_err(|e| VocoderError::Init(format!("clear serial buffers: {e}")))?;
+        let mut client = Self {
+            port,
+            buf: vec![0u8; MAX_PACKET],
+        };
+        client.client_send_raw(&build_reset())?;
+        let r = client.client_recv()?;
+        if !is_ready(&r) {
+            return Err(VocoderError::Init(format!(
+                "expected READY after reset, got {r:?}"
+            )));
+        }
+        Ok(client)
+    }
+
+    fn client_send_raw(&mut self, packet: &[u8]) -> Result<(), VocoderError> {
+        self.port.write_all(packet)?;
+        self.port.flush()?;
+        Ok(())
+    }
+
+    fn client_recv(&mut self) -> Result<Packet, VocoderError> {
+        let mut header = [0u8; HEADER_SIZE];
+        self.port.read_exact(&mut header)?;
+        if header[0] != START_BYTE {
+            return Err(VocoderError::Protocol(format!(
+                "bad start byte: 0x{:02x}",
+                header[0]
+            )));
+        }
+        let payload_len = u16::from_be_bytes([header[1], header[2]]) as usize;
+        if payload_len + HEADER_SIZE > self.buf.len() {
+            return Err(VocoderError::Protocol(format!(
+                "payload too large: {payload_len}"
+            )));
+        }
+        self.buf[..HEADER_SIZE].copy_from_slice(&header);
+        self.port
+            .read_exact(&mut self.buf[HEADER_SIZE..HEADER_SIZE + payload_len])?;
+        let (packet, _) = parse(&self.buf[..HEADER_SIZE + payload_len])?;
+        Ok(packet)
+    }
+
+    fn client_send_recv(&mut self, packet: &[u8]) -> Result<Packet, VocoderError> {
+        self.client_send_raw(packet)?;
+        self.client_recv()
+    }
+}
+
+impl ChipClient for ThumbDvClient {
+    fn reset(&mut self) -> Result<(), VocoderError> {
+        let r = self.client_send_recv(&build_reset())?;
+        if !is_ready(&r) {
+            return Err(VocoderError::Protocol(format!(
+                "expected READY after reset, got {r:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn set_ratep(&mut self, rcws: &[u8; 12]) -> Result<(), VocoderError> {
+        let r = self.client_send_recv(&build_ratep_custom(rcws))?;
+        if !is_ratep_ack(&r) {
+            return Err(VocoderError::Protocol(format!(
+                "expected RATEP ack, got {r:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn set_gain(&mut self, in_db: i8, out_db: i8) -> Result<(), VocoderError> {
+        let r = self.client_send_recv(&build_gain(in_db, out_db))?;
+        if !is_gain_ack(&r) {
+            return Err(VocoderError::Protocol(format!(
+                "expected GAIN ack, got {r:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn encode_raw(&mut self, pcm: &PcmFrame) -> Result<(u8, Vec<u8>), VocoderError> {
+        match self.client_send_recv(&build_audio(pcm))? {
+            Packet::Ambe(frame) => Ok((72, frame.to_vec())),
+            Packet::AmbeBits { bits, data } => Ok((bits, data)),
+            other => Err(VocoderError::Encode(format!(
+                "expected AMBE response, got {other:?}"
+            ))),
+        }
+    }
+
+    fn decode_raw(&mut self, bits: u8, data: &[u8]) -> Result<PcmFrame, VocoderError> {
+        match self.client_send_recv(&build_ambe_for_bits(bits, data))? {
+            Packet::Audio(samples) => Ok(*samples),
+            other => Err(VocoderError::Decode(format!(
+                "expected audio response, got {other:?}"
+            ))),
+        }
     }
 }

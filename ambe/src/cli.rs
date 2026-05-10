@@ -20,7 +20,7 @@ use clap::ValueEnum;
 
 use crate::Vocoder;
 use crate::VocoderError;
-use crate::chip::AmbeServerClient;
+use crate::ambeserver::AmbeServerClient;
 use crate::chip::ChipClient;
 
 const DEFAULT_AMBESERVER: &str = "127.0.0.1:2460";
@@ -102,7 +102,7 @@ impl ChipBackendArgs {
             Backend::ThumbDV => {
                 #[cfg(feature = "thumbdv")]
                 {
-                    Ok(Box::new(crate::chip::ThumbDvClient::open(
+                    Ok(Box::new(crate::thumbdv::ThumbDvClient::open(
                         &self.serial,
                         self.baud,
                     )?))
