@@ -84,6 +84,40 @@ pub trait Vocoder: Send {
     fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError>;
 }
 
+/// Routes `encode` to one backend and `decode` to another.
+struct SplitVocoder {
+    encoder: Box<dyn Vocoder>,
+    decoder: Box<dyn Vocoder>,
+}
+
+impl Vocoder for SplitVocoder {
+    fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
+        self.encoder.encode(pcm)
+    }
+
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
+        self.decoder.decode(ambe)
+    }
+
+    fn reset(&mut self) {
+        self.encoder.reset();
+        self.decoder.reset();
+    }
+
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        self.encoder.set_gain(in_db, dsp::dB::UNITY)?;
+        self.decoder.set_gain(dsp::dB::UNITY, out_db)
+    }
+}
+
+/// Combine `encoder` (encode path) and `decoder` (decode path) into one backend.
+pub fn open_split_vocoder(
+    encoder: Box<dyn Vocoder>,
+    decoder: Box<dyn Vocoder>,
+) -> Box<dyn Vocoder> {
+    Box::new(SplitVocoder { encoder, decoder })
+}
+
 // Factory functions are the only way to construct a backend.  The
 // concrete backend types stay `pub(crate)` so the crate's public
 // surface is just the trait + factories + supporting types -- no
@@ -117,11 +151,19 @@ pub fn open_neural(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, Voc
     Ok(Box::new(neural::NeuralVocoder::open(model_path)?))
 }
 
-/// Construct a neural decoder backend from an ONNX model file.
+/// Construct a neural decoder backend from split frame+step ONNX models.
+/// `frame_model_path` produces the per-frame conditioning vector;
+/// `step_model_path` runs 160x per frame for sample synthesis.
 /// Decode is neural; encode returns `Unsupported`.
 #[cfg(feature = "neural")]
-pub fn open_neural_decoder(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, VocoderError> {
-    Ok(Box::new(neural::NeuralDecoderVocoder::open(model_path)?))
+pub fn open_neural_decoder(
+    frame_model_path: &std::path::Path,
+    step_model_path: &std::path::Path,
+) -> Result<Box<dyn Vocoder>, VocoderError> {
+    Ok(Box::new(neural::NeuralDecoderVocoder::open(
+        frame_model_path,
+        step_model_path,
+    )?))
 }
 
 /// Like `open_neural`, but the caller supplies the decoder backend.

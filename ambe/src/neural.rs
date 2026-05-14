@@ -317,173 +317,149 @@ pub(crate) fn frame_to_vq(frame: &AmbeFrame) -> [i64; 9] {
     vq
 }
 
-/// µ-law encode: float [-1, 1) → 8-bit code 0..=255.
-/// Code 128 ≈ 0 (silence), 255 = max positive, 0 = max negative.
-fn ulaw_encode(sample: f32) -> i64 {
+/// µ-law decode: 8-bit code 0..=255 → i16 PCM.
+/// Code 128 = silence (~0), 255 = max positive, 0 = max negative.
+fn ulaw_decode(code: i64) -> i16 {
     const MU: f32 = 255.0;
-    let mu_log = (1.0f32 + MU).ln();
-    let x = sample.clamp(-1.0 + f32::EPSILON, 1.0 - f32::EPSILON);
-    let y = x.signum() * (1.0 + MU * x.abs()).ln() / mu_log;
-    ((y + 1.0) * 0.5 * 255.0).round().clamp(0.0, 255.0) as i64
+    let y = (code as f32) * 2.0 / 255.0 - 1.0;
+    let x = y.signum() * ((1.0 + MU).powf(y.abs()) - 1.0) / MU;
+    (x * 32768.0).clamp(-32768.0, 32767.0) as i16
 }
 
-/// Validate decoder ONNX I/O names and counts.
-fn validate_decoder_io(proto: &pb::ModelProto) -> Result<(), VocoderError> {
-    const INPUTS: &[&str] = &["bits_window", "prev_mu", "h_in"];
-    const OUTPUTS: &[&str] = &["frame_pcm", "h_out"];
-
-    let graph = proto
-        .graph
-        .as_ref()
-        .ok_or_else(|| init_err("decoder ONNX has no graph".into()))?;
-
-    if graph.input.len() < INPUTS.len() {
-        return Err(init_err(format!(
-            "decoder ONNX has {} inputs, expected >= {}",
-            graph.input.len(),
-            INPUTS.len(),
-        )));
-    }
-    for (i, &expected) in INPUTS.iter().enumerate() {
-        let got = graph.input[i].name.as_str();
-        if got != expected {
-            return Err(init_err(format!(
-                "decoder ONNX input[{i}].name={got:?}, expected {expected:?}"
-            )));
-        }
-    }
-    if graph.output.len() != OUTPUTS.len() {
-        return Err(init_err(format!(
-            "decoder ONNX has {} outputs, expected {}",
-            graph.output.len(),
-            OUTPUTS.len(),
-        )));
-    }
-    for (i, &expected) in OUTPUTS.iter().enumerate() {
-        let got = graph.output[i].name.as_str();
-        if got != expected {
-            return Err(init_err(format!(
-                "decoder ONNX output[{i}].name={got:?}, expected {expected:?}"
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Parse µ-law silence code from decoder ONNX metadata.
-fn parse_decoder_metadata(proto: &pb::ModelProto) -> Result<i64, VocoderError> {
+fn parse_decoder_meta(proto: &pb::ModelProto) -> Result<i64, VocoderError> {
     let props: HashMap<&str, &str> = proto
         .metadata_props
         .iter()
         .map(|kv| (kv.key.as_str(), kv.value.as_str()))
         .collect();
-    let mu_silence: i64 = parse_kv(&props, "nambe.mu_silence")?;
-    if let (Ok(ver), Ok(opset)) = (
-        require(&props, "nambe.model_version"),
-        require(&props, "nambe.opset"),
-    ) {
+    if let (Some(&ver), Some(&opset)) = (props.get("nambe.model_version"), props.get("nambe.opset"))
+    {
         info!(
             model_version = ver,
             opset, "neural decoder model provenance"
         );
     }
-    Ok(mu_silence)
+    parse_kv(&props, "nambe.mu_silence")
 }
 
-/// Neural (ONNX) decoder.  Implements `Vocoder::decode`; `encode` returns
-/// `Unsupported`.
+/// Neural (ONNX) decoder using split frame+step models.  Implements
+/// `Vocoder::decode`; `encode` returns `Unsupported`.
 ///
 /// Uses a 5-frame symmetric context window with 2-frame lookahead: the
 /// first 2 `decode` calls return silence while the lookahead buffer fills.
 /// The up-to-2 buffered frames remaining at `reset` are discarded.
 pub(crate) struct NeuralDecoderVocoder {
-    plan: TypedRunnableModel<TypedModel>,
+    /// Frame conditioning model.  Input: bits_window [1,5,9] int64.
+    /// Output: cond [1,128] float32.  Called once per 20 ms frame.
+    frame_plan: TypedRunnableModel<TypedModel>,
+    /// Per-sample autoregressive step model.  Called 160x per frame.
+    /// Inputs: prev_mu [1] int64, cond [1,128] float32, h_in [1,1,256] float32.
+    /// Outputs: next_mu [1] int64, h_out [1,1,256] float32.
+    step_plan: TypedRunnableModel<TypedModel>,
     /// Incoming frames waiting for 2-frame lookahead (fires when len >= 3).
     pending: VecDeque<[i64; 9]>,
     /// Last 2 decoded frames for left-edge context, oldest first.
     history: VecDeque<[i64; 9]>,
     prev_mu: i64,
-    /// GRU hidden state [1, 1, 256], threaded across frames.
+    /// GRU hidden state [1, 1, 256].
     h: tract_ndarray::Array3<f32>,
     mu_silence: i64,
     out_db: dsp::dB,
 }
 
 impl NeuralDecoderVocoder {
-    pub(crate) fn open(model_path: &Path) -> Result<Self, VocoderError> {
+    pub(crate) fn open(
+        frame_model_path: &Path,
+        step_model_path: &Path,
+    ) -> Result<Self, VocoderError> {
         let onnx = tract_onnx::onnx();
-        let proto = onnx
-            .proto_model_for_path(model_path)
-            .map_err(|e| init_err(format!("load {}: {e}", model_path.display())))?;
 
-        validate_decoder_io(&proto)?;
-        let mu_silence = parse_decoder_metadata(&proto)?;
-
-        let plan = onnx
-            .parse(&proto, None)
-            .map_err(|e| init_err(format!("parse {}: {e}", model_path.display())))?
+        let frame_proto = onnx
+            .proto_model_for_path(frame_model_path)
+            .map_err(|e| init_err(format!("load {}: {e}", frame_model_path.display())))?;
+        let mu_silence = parse_decoder_meta(&frame_proto)?;
+        let frame_plan = onnx
+            .parse(&frame_proto, None)
+            .map_err(|e| init_err(format!("parse {}: {e}", frame_model_path.display())))?
             .model
             .into_typed()
-            .map_err(|e| init_err(format!("into_typed: {e}")))?
+            .map_err(|e| init_err(format!("into_typed {}: {e}", frame_model_path.display())))?
             .into_optimized()
-            .map_err(|e| init_err(format!("optimize: {e}")))?
+            .map_err(|e| init_err(format!("optimize {}: {e}", frame_model_path.display())))?
             .into_runnable()
-            .map_err(|e| init_err(format!("into_runnable: {e}")))?;
-
+            .map_err(|e| init_err(format!("runnable {}: {e}", frame_model_path.display())))?;
         info!(
-            path = %model_path.display(),
+            path = %frame_model_path.display(),
             mu_silence,
-            "neural decoder model loaded",
+            "neural decoder frame model loaded"
+        );
+
+        let step_proto = onnx
+            .proto_model_for_path(step_model_path)
+            .map_err(|e| init_err(format!("load {}: {e}", step_model_path.display())))?;
+        let step_plan = onnx
+            .parse(&step_proto, None)
+            .map_err(|e| init_err(format!("parse {}: {e}", step_model_path.display())))?
+            .model
+            .into_typed()
+            .map_err(|e| init_err(format!("into_typed {}: {e}", step_model_path.display())))?
+            .into_optimized()
+            .map_err(|e| init_err(format!("optimize {}: {e}", step_model_path.display())))?
+            .into_runnable()
+            .map_err(|e| init_err(format!("runnable {}: {e}", step_model_path.display())))?;
+        info!(
+            path = %step_model_path.display(),
+            "neural decoder step model loaded"
         );
 
         Ok(Self {
-            plan,
+            frame_plan,
+            step_plan,
             pending: VecDeque::new(),
             history: VecDeque::new(),
             prev_mu: mu_silence,
-            h: tract_ndarray::Array3::<f32>::zeros((1, 1, 256)),
+            h: tract_ndarray::Array3::zeros((1, 1, 256)),
             mu_silence,
             out_db: dsp::dB::UNITY,
         })
     }
 
     fn run_frame(&mut self, window: &[[i64; 9]; 5]) -> Result<PcmFrame, VocoderError> {
-        let bits_flat: Vec<i64> = window.iter().flat_map(|row| row.iter().copied()).collect();
-        let bits_tensor =
-            tract_ndarray::Array3::from_shape_vec((1usize, 5usize, 9usize), bits_flat)
-                .map_err(|e| VocoderError::Decode(format!("bits_window shape: {e}")))?
-                .into_tensor();
-        let mu_tensor = tract_ndarray::Array1::from_vec(vec![self.prev_mu]).into_tensor();
-        let h_tensor = self.h.clone().into_tensor();
+        // Run frame model once to get conditioning vector.
+        let bits_data: Vec<i64> = window.iter().flat_map(|r| r.iter().copied()).collect();
+        let bits_tensor = tract_ndarray::Array3::from_shape_vec((1usize, 5, 9), bits_data)
+            .map_err(|e| VocoderError::Decode(format!("bits_window shape: {e}")))?
+            .into_tensor();
+        let frame_out = self
+            .frame_plan
+            .run(tvec![bits_tensor.into()])
+            .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?;
+        let cond_val = frame_out.into_iter().next().unwrap();
 
-        let outputs = self
-            .plan
-            .run(tvec!(bits_tensor.into(), mu_tensor.into(), h_tensor.into()))
-            .map_err(|e| VocoderError::Decode(format!("inference: {e}")))?;
-
-        let pcm_slice = outputs[0]
-            .as_slice::<f32>()
-            .map_err(|e| VocoderError::Decode(format!("frame_pcm: {e}")))?;
-        if pcm_slice.len() != PCM_SAMPLES {
-            return Err(VocoderError::Decode(format!(
-                "frame_pcm length {} != {PCM_SAMPLES}",
-                pcm_slice.len(),
-            )));
-        }
-        let h_slice = outputs[1]
-            .as_slice::<f32>()
-            .map_err(|e| VocoderError::Decode(format!("h_out: {e}")))?;
-        self.h
-            .as_slice_mut()
-            .expect("h contiguous")
-            .copy_from_slice(h_slice);
-
-        self.prev_mu = ulaw_encode(pcm_slice[PCM_SAMPLES - 1]);
-
+        // Run step model 160x to produce one PCM frame.
+        let mut prev_mu = self.prev_mu;
         let mut out = [0i16; PCM_SAMPLES];
-        for (o, &f) in out.iter_mut().zip(pcm_slice.iter()) {
-            *o = (f * 32768.0).clamp(-32768.0, 32767.0) as i16;
+        for sample in out.iter_mut() {
+            let mu_tensor = tract_ndarray::arr1(&[prev_mu]).into_tensor();
+            let h_tensor = self.h.clone().into_tensor();
+            let step_out = self
+                .step_plan
+                .run(tvec![mu_tensor.into(), cond_val.clone(), h_tensor.into()])
+                .map_err(|e| VocoderError::Decode(format!("step inference: {e}")))?;
+
+            prev_mu = step_out[0]
+                .as_slice::<i64>()
+                .map_err(|e| VocoderError::Decode(format!("next_mu: {e}")))?[0];
+            let h_slice = step_out[1]
+                .as_slice::<f32>()
+                .map_err(|e| VocoderError::Decode(format!("h_out: {e}")))?;
+            self.h
+                .as_slice_mut()
+                .expect("h contiguous")
+                .copy_from_slice(h_slice);
+            *sample = ulaw_decode(prev_mu);
         }
+        self.prev_mu = prev_mu;
         self.out_db.apply(&mut out);
         Ok(out)
     }
@@ -525,7 +501,7 @@ impl Vocoder for NeuralDecoderVocoder {
         self.pending.clear();
         self.history.clear();
         self.prev_mu = self.mu_silence;
-        self.h = tract_ndarray::Array3::<f32>::zeros((1, 1, 256));
+        self.h.fill(0.0);
     }
 
     fn set_gain(&mut self, _in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
@@ -749,8 +725,10 @@ mod tests {
     }
 
     #[test]
-    fn ulaw_encode_silence_gives_128() {
-        assert_eq!(ulaw_encode(0.0), 128);
+    fn ulaw_decode_silence_near_zero() {
+        // Code 128 is the silence code; should decode to near-zero PCM.
+        let pcm = ulaw_decode(128);
+        assert!(pcm.abs() < 10, "code 128 decoded to {pcm}, expected near 0");
     }
 
     #[test]

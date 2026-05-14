@@ -74,7 +74,7 @@ serial_port = "/dev/ttyUSB0"
 # encoder = "neural"            # default; neural | dynarmic | thumbdv | ambeserver
 # decoder = "dynarmic"          # default; neural | dynarmic | thumbdv | ambeserver
 # encoder_model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
-# decoder_model_path = "/usr/share/asl-dmr-bridge/models/dec-2026-05-06.onnx"
+# decoder_split_dir = "/usr/share/asl-dmr-bridge/models/decoder-d4-split"
 
 
 # DMR call routing.

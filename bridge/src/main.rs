@@ -114,12 +114,15 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .ok_or_else(|| anyhow::anyhow!("neural backend requires [vocoder.neural]"))?;
             let decoder: Box<dyn ambe::Vocoder> = match nc.decoder {
                 config::NeuralHalf::Neural => {
-                    let path = nc.decoder_model_path.as_deref().ok_or_else(|| {
+                    let dir = nc.decoder_split_dir.as_deref().ok_or_else(|| {
                         anyhow::anyhow!(
-                            "[vocoder.neural] decoder_model_path required when decoder = \"neural\""
+                            "[vocoder.neural] decoder_split_dir required when decoder = \"neural\""
                         )
                     })?;
-                    ambe::open_neural_decoder(path)?
+                    ambe::open_neural_decoder(
+                        &dir.join("decoder_frame.onnx"),
+                        &dir.join("decoder_step.onnx"),
+                    )?
                 }
                 half => make_neural_half(half, config).await?,
             };
@@ -132,11 +135,9 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                     })?;
                     Ok(ambe::open_neural_with_decoder(path, decoder)?)
                 }
-                _ => {
-                    anyhow::bail!(
-                        "[vocoder.neural] non-neural encoder with neural decoder not supported; \
-                         use a dedicated backend instead"
-                    )
+                half => {
+                    let encoder = make_neural_half(half, config).await?;
+                    Ok(ambe::open_split_vocoder(encoder, decoder))
                 }
             }
         }
