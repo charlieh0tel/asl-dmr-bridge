@@ -15,6 +15,13 @@ fn main() {
         // which cmake 4.x rejects.  Override the policy floor to keep cmake 4 happy
         // without touching upstream.
         .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
+        // Skip FetchContent git-fetch update steps.  cmake's FetchContent runs
+        // git fetch during every incremental build; when the build tree sits
+        // inside the workspace git repo, git tries to load the workspace
+        // .gitmodules as a config blob from the dynarmic clone's object store,
+        // fails, and aborts the build.  The dynarmic source is already cloned
+        // at the pinned commit, so updates are not needed at build time.
+        .define("FETCHCONTENT_UPDATES_DISCONNECTED", "ON")
         .build_target("md380_vocoder");
 
     // Ubuntu 22.04 ships xxd 8.2 (vim-common), which lacks `-n NAME`.
