@@ -301,6 +301,239 @@ impl Vocoder for NeuralVocoder {
     }
 }
 
+/// Convert one channel-coded AMBE frame to the 9 VQ field indices the
+/// decoder model expects.  Inverts `encode_real_frame`'s scatter step.
+pub(crate) fn frame_to_vq(frame: &AmbeFrame) -> [i64; 9] {
+    let mbelib = crate::voice_channel::to_source_bits(frame);
+    let ambe_d = crate::voice_channel::unpack_msb_first(&mbelib);
+    let mut vq = [0i64; 9];
+    for (j, field) in FIELDS_DMR_3600X2450.iter().enumerate() {
+        let mut v: i64 = 0;
+        for (i, &pos) in field.ambe_d.iter().enumerate() {
+            v |= i64::from(ambe_d[pos as usize]) << (field.bits - 1 - i as u8);
+        }
+        vq[j] = v;
+    }
+    vq
+}
+
+/// µ-law encode: float [-1, 1) → 8-bit code 0..=255.
+/// Code 128 ≈ 0 (silence), 255 = max positive, 0 = max negative.
+fn ulaw_encode(sample: f32) -> i64 {
+    const MU: f32 = 255.0;
+    let mu_log = (1.0f32 + MU).ln();
+    let x = sample.clamp(-1.0 + f32::EPSILON, 1.0 - f32::EPSILON);
+    let y = x.signum() * (1.0 + MU * x.abs()).ln() / mu_log;
+    ((y + 1.0) * 0.5 * 255.0).round().clamp(0.0, 255.0) as i64
+}
+
+/// Validate decoder ONNX I/O names and counts.
+fn validate_decoder_io(proto: &pb::ModelProto) -> Result<(), VocoderError> {
+    const INPUTS: &[&str] = &["bits_window", "prev_mu", "h_in"];
+    const OUTPUTS: &[&str] = &["frame_pcm", "h_out"];
+
+    let graph = proto
+        .graph
+        .as_ref()
+        .ok_or_else(|| init_err("decoder ONNX has no graph".into()))?;
+
+    if graph.input.len() < INPUTS.len() {
+        return Err(init_err(format!(
+            "decoder ONNX has {} inputs, expected >= {}",
+            graph.input.len(),
+            INPUTS.len(),
+        )));
+    }
+    for (i, &expected) in INPUTS.iter().enumerate() {
+        let got = graph.input[i].name.as_str();
+        if got != expected {
+            return Err(init_err(format!(
+                "decoder ONNX input[{i}].name={got:?}, expected {expected:?}"
+            )));
+        }
+    }
+    if graph.output.len() != OUTPUTS.len() {
+        return Err(init_err(format!(
+            "decoder ONNX has {} outputs, expected {}",
+            graph.output.len(),
+            OUTPUTS.len(),
+        )));
+    }
+    for (i, &expected) in OUTPUTS.iter().enumerate() {
+        let got = graph.output[i].name.as_str();
+        if got != expected {
+            return Err(init_err(format!(
+                "decoder ONNX output[{i}].name={got:?}, expected {expected:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Parse µ-law silence code from decoder ONNX metadata.
+fn parse_decoder_metadata(proto: &pb::ModelProto) -> Result<i64, VocoderError> {
+    let props: HashMap<&str, &str> = proto
+        .metadata_props
+        .iter()
+        .map(|kv| (kv.key.as_str(), kv.value.as_str()))
+        .collect();
+    let mu_silence: i64 = parse_kv(&props, "nambe.mu_silence")?;
+    if let (Ok(ver), Ok(opset)) = (
+        require(&props, "nambe.model_version"),
+        require(&props, "nambe.opset"),
+    ) {
+        info!(
+            model_version = ver,
+            opset, "neural decoder model provenance"
+        );
+    }
+    Ok(mu_silence)
+}
+
+/// Neural (ONNX) decoder.  Implements `Vocoder::decode`; `encode` returns
+/// `Unsupported`.
+///
+/// Uses a 5-frame symmetric context window with 2-frame lookahead: the
+/// first 2 `decode` calls return silence while the lookahead buffer fills.
+/// The up-to-2 buffered frames remaining at `reset` are discarded.
+pub(crate) struct NeuralDecoderVocoder {
+    plan: TypedRunnableModel<TypedModel>,
+    /// Incoming frames waiting for 2-frame lookahead (fires when len >= 3).
+    pending: VecDeque<[i64; 9]>,
+    /// Last 2 decoded frames for left-edge context, oldest first.
+    history: VecDeque<[i64; 9]>,
+    prev_mu: i64,
+    /// GRU hidden state [1, 1, 256], threaded across frames.
+    h: tract_ndarray::Array3<f32>,
+    mu_silence: i64,
+    out_db: dsp::dB,
+}
+
+impl NeuralDecoderVocoder {
+    pub(crate) fn open(model_path: &Path) -> Result<Self, VocoderError> {
+        let onnx = tract_onnx::onnx();
+        let proto = onnx
+            .proto_model_for_path(model_path)
+            .map_err(|e| init_err(format!("load {}: {e}", model_path.display())))?;
+
+        validate_decoder_io(&proto)?;
+        let mu_silence = parse_decoder_metadata(&proto)?;
+
+        let plan = onnx
+            .parse(&proto, None)
+            .map_err(|e| init_err(format!("parse {}: {e}", model_path.display())))?
+            .model
+            .into_typed()
+            .map_err(|e| init_err(format!("into_typed: {e}")))?
+            .into_optimized()
+            .map_err(|e| init_err(format!("optimize: {e}")))?
+            .into_runnable()
+            .map_err(|e| init_err(format!("into_runnable: {e}")))?;
+
+        info!(
+            path = %model_path.display(),
+            mu_silence,
+            "neural decoder model loaded",
+        );
+
+        Ok(Self {
+            plan,
+            pending: VecDeque::new(),
+            history: VecDeque::new(),
+            prev_mu: mu_silence,
+            h: tract_ndarray::Array3::<f32>::zeros((1, 1, 256)),
+            mu_silence,
+            out_db: dsp::dB::UNITY,
+        })
+    }
+
+    fn run_frame(&mut self, window: &[[i64; 9]; 5]) -> Result<PcmFrame, VocoderError> {
+        let bits_flat: Vec<i64> = window.iter().flat_map(|row| row.iter().copied()).collect();
+        let bits_tensor =
+            tract_ndarray::Array3::from_shape_vec((1usize, 5usize, 9usize), bits_flat)
+                .map_err(|e| VocoderError::Decode(format!("bits_window shape: {e}")))?
+                .into_tensor();
+        let mu_tensor = tract_ndarray::Array1::from_vec(vec![self.prev_mu]).into_tensor();
+        let h_tensor = self.h.clone().into_tensor();
+
+        let outputs = self
+            .plan
+            .run(tvec!(bits_tensor.into(), mu_tensor.into(), h_tensor.into()))
+            .map_err(|e| VocoderError::Decode(format!("inference: {e}")))?;
+
+        let pcm_slice = outputs[0]
+            .as_slice::<f32>()
+            .map_err(|e| VocoderError::Decode(format!("frame_pcm: {e}")))?;
+        if pcm_slice.len() != PCM_SAMPLES {
+            return Err(VocoderError::Decode(format!(
+                "frame_pcm length {} != {PCM_SAMPLES}",
+                pcm_slice.len(),
+            )));
+        }
+        let h_slice = outputs[1]
+            .as_slice::<f32>()
+            .map_err(|e| VocoderError::Decode(format!("h_out: {e}")))?;
+        self.h
+            .as_slice_mut()
+            .expect("h contiguous")
+            .copy_from_slice(h_slice);
+
+        self.prev_mu = ulaw_encode(pcm_slice[PCM_SAMPLES - 1]);
+
+        let mut out = [0i16; PCM_SAMPLES];
+        for (o, &f) in out.iter_mut().zip(pcm_slice.iter()) {
+            *o = (f * 32768.0).clamp(-32768.0, 32767.0) as i16;
+        }
+        self.out_db.apply(&mut out);
+        Ok(out)
+    }
+}
+
+impl Vocoder for NeuralDecoderVocoder {
+    fn encode(&mut self, _pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
+        Err(VocoderError::Unsupported(
+            "NeuralDecoderVocoder does not support encode",
+        ))
+    }
+
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
+        let vq = match ambe {
+            Some(frame) => frame_to_vq(frame),
+            None => frame_to_vq(&crate::SILENCE_FRAME),
+        };
+        self.pending.push_back(vq);
+        if self.pending.len() < 3 {
+            return Ok([0i16; PCM_SAMPLES]);
+        }
+        let target = self.pending[0];
+        // Edge-replicate left context for the first 2 decoded frames.
+        let past_m2 = self.history.front().copied().unwrap_or(target);
+        let past_m1 = self.history.back().copied().unwrap_or(target);
+        let future_1 = self.pending[1];
+        let future_2 = self.pending[2];
+        let window = [past_m2, past_m1, target, future_1, future_2];
+        let pcm = self.run_frame(&window)?;
+        self.history
+            .push_back(self.pending.pop_front().expect("pending non-empty"));
+        if self.history.len() > 2 {
+            self.history.pop_front();
+        }
+        Ok(pcm)
+    }
+
+    fn reset(&mut self) {
+        self.pending.clear();
+        self.history.clear();
+        self.prev_mu = self.mu_silence;
+        self.h = tract_ndarray::Array3::<f32>::zeros((1, 1, 256));
+    }
+
+    fn set_gain(&mut self, _in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        self.out_db = out_db;
+        Ok(())
+    }
+}
+
 /// Smallest sample-buffer size that holds the model's input slice
 /// for the first real-output frame.  Once `samples` first fills
 /// to this length, every subsequent encode call produces real bits.
@@ -513,6 +746,22 @@ mod tests {
             }
         }
         assert!(seen.iter().all(|&b| b));
+    }
+
+    #[test]
+    fn ulaw_encode_silence_gives_128() {
+        assert_eq!(ulaw_encode(0.0), 128);
+    }
+
+    #[test]
+    fn frame_to_vq_silence_frame() {
+        // b0 = 124 (0b1111100) occupies bits [0..6] of the 49-bit AMBE-D
+        // word in MSB-first order.  b1..b8 should be 0.
+        let vq = frame_to_vq(&crate::SILENCE_FRAME);
+        assert_eq!(vq[0], 124, "b0");
+        for (i, &v) in vq[1..].iter().enumerate() {
+            assert_eq!(v, 0, "b{}", i + 1);
+        }
     }
 
     /// Streaming buffer must yield the same slice the model would see

@@ -117,6 +117,13 @@ pub fn open_neural(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, Voc
     Ok(Box::new(neural::NeuralVocoder::open(model_path)?))
 }
 
+/// Construct a neural decoder backend from an ONNX model file.
+/// Decode is neural; encode returns `Unsupported`.
+#[cfg(feature = "neural")]
+pub fn open_neural_decoder(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, VocoderError> {
+    Ok(Box::new(neural::NeuralDecoderVocoder::open(model_path)?))
+}
+
 /// Like `open_neural`, but the caller supplies the decoder backend.
 /// Encode is always neural; decode goes to whatever `decoder` does.
 #[cfg(feature = "neural")]
