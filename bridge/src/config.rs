@@ -330,21 +330,43 @@ pub(crate) struct UsrpConfig {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum VocoderBackend {
+    #[serde(rename = "thumbdv")]
     ThumbDV,
     Ambeserver,
     Neural,
     Dynarmic,
 }
 
+/// ThumbDV serial hardware configuration (`[vocoder.thumbdv]`).
+#[cfg(feature = "thumbdv")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ThumbDvConfig {
+    pub(crate) serial_port: String,
+    /// Serial baud rate; defaults to 460800 if absent.
+    pub(crate) serial_baud: Option<u32>,
+}
+
+/// AMBEserver UDP-proxy configuration (`[vocoder.ambeserver]`).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AmbeserverConfig {
+    pub(crate) host: String,
+    /// UDP port; defaults to 2460 if absent.
+    pub(crate) port: Option<u16>,
+}
+
 /// Decoder backend used when `vocoder.backend = "neural"`.  Encode is
-/// always neural; decode goes to one of the chip-or-software
-/// backends below.  Defaults to `thumbdv` (the licensed reference).
+/// always neural; decode goes to one of the chip-or-software backends.
+/// Defaults to `dynarmic`.
+#[cfg(feature = "neural")]
 #[derive(Debug, Deserialize, Default, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum NeuralDecoder {
     #[default]
-    ThumbDV,
     Dynarmic,
+    #[serde(rename = "thumbdv")]
+    ThumbDV,
     Ambeserver,
 }
 
@@ -352,23 +374,14 @@ pub(crate) enum NeuralDecoder {
 #[serde(deny_unknown_fields)]
 pub(crate) struct VocoderConfig {
     pub(crate) backend: VocoderBackend,
-    /// When `backend = "neural"`, picks the decoder.  The chip-side
-    /// fields (`serial_port` / `host` / `port`) supply connection
-    /// info for `thumbdv` / `ambeserver` decoders.
+    #[cfg(feature = "thumbdv")]
+    pub(crate) thumbdv: Option<ThumbDvConfig>,
+    pub(crate) ambeserver: Option<AmbeserverConfig>,
+    /// Decoder selection when `backend = "neural"`.
     #[cfg(feature = "neural")]
     #[serde(default)]
     pub(crate) neural_decoder: NeuralDecoder,
-    /// Serial port path for ThumbDV (e.g. "/dev/ttyUSB0").
-    #[cfg(feature = "thumbdv")]
-    pub(crate) serial_port: Option<String>,
-    /// Serial baud rate for ThumbDV (default 460800).
-    #[cfg(feature = "thumbdv")]
-    pub(crate) serial_baud: Option<u32>,
-    /// AMBEserver host (when backend = "ambeserver").
-    pub(crate) host: Option<String>,
-    /// AMBEserver port (when backend = "ambeserver", default 2460).
-    pub(crate) port: Option<u16>,
-    /// ONNX model path (required when backend = "neural").
+    /// ONNX model path; required when `backend = "neural"`.
     #[cfg(feature = "neural")]
     pub(crate) model_path: Option<std::path::PathBuf>,
 }

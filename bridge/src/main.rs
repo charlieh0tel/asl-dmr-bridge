@@ -50,28 +50,29 @@ async fn make_neural_decoder(
     config: &config::VocoderConfig,
 ) -> anyhow::Result<Box<dyn ambe::Vocoder>> {
     match config.neural_decoder {
-        config::NeuralDecoder::Dynarmic => Ok(ambe::open_dynarmic()),
+        config::NeuralDecoder::Dynarmic => {
+            #[cfg(feature = "dynarmic")]
+            return Ok(ambe::open_dynarmic());
+            #[cfg(not(feature = "dynarmic"))]
+            anyhow::bail!("dynarmic requires the 'dynarmic' feature")
+        }
         config::NeuralDecoder::ThumbDV => {
             #[cfg(feature = "thumbdv")]
             {
-                let path = config.serial_port.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!("neural_decoder = thumbdv requires serial_port")
+                let tdc = config.thumbdv.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("neural_decoder = thumbdv requires [vocoder.thumbdv]")
                 })?;
-                let baud = config.serial_baud;
-                Ok(ambe::open_thumbdv(path, baud)?)
+                return Ok(ambe::open_thumbdv(&tdc.serial_port, tdc.serial_baud)?);
             }
             #[cfg(not(feature = "thumbdv"))]
-            {
-                anyhow::bail!("neural_decoder = thumbdv requires the 'thumbdv' feature")
-            }
+            anyhow::bail!("thumbdv requires the 'thumbdv' feature")
         }
         config::NeuralDecoder::Ambeserver => {
-            let host = config
-                .host
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("neural_decoder = ambeserver requires host"))?;
-            let port = config.port.unwrap_or(2460);
-            let addr = resolve_socket_addr(host, port).await?;
+            let asc = config.ambeserver.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("neural_decoder = ambeserver requires [vocoder.ambeserver]")
+            })?;
+            let port = asc.port.unwrap_or(2460);
+            let addr = resolve_socket_addr(&asc.host, port).await?;
             Ok(ambe::open_ambeserver(addr)?)
         }
     }
@@ -81,24 +82,22 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
     match config.backend {
         #[cfg(feature = "thumbdv")]
         VocoderBackend::ThumbDV => {
-            let path = config
-                .serial_port
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("thumbdv requires serial_port"))?;
-            let baud = config.serial_baud;
-            Ok(ambe::open_thumbdv(path, baud)?)
+            let tdc = config
+                .thumbdv
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("backend = thumbdv requires [vocoder.thumbdv]"))?;
+            Ok(ambe::open_thumbdv(&tdc.serial_port, tdc.serial_baud)?)
         }
         #[cfg(not(feature = "thumbdv"))]
         VocoderBackend::ThumbDV => {
             anyhow::bail!("thumbdv backend not compiled (enable the 'thumbdv' feature)")
         }
         VocoderBackend::Ambeserver => {
-            let host = config
-                .host
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("ambeserver requires host"))?;
-            let port = config.port.unwrap_or(2460);
-            let addr = resolve_socket_addr(host, port).await?;
+            let asc = config.ambeserver.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("backend = ambeserver requires [vocoder.ambeserver]")
+            })?;
+            let port = asc.port.unwrap_or(2460);
+            let addr = resolve_socket_addr(&asc.host, port).await?;
             Ok(ambe::open_ambeserver(addr)?)
         }
         #[cfg(feature = "neural")]
@@ -106,7 +105,7 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
             let path = config
                 .model_path
                 .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("neural requires model_path"))?;
+                .ok_or_else(|| anyhow::anyhow!("neural backend requires model_path"))?;
             let decoder = make_neural_decoder(config).await?;
             Ok(ambe::open_neural_with_decoder(path, decoder)?)
         }

@@ -180,6 +180,8 @@ mod tests {
 
             [vocoder]
             backend = "ambeserver"
+
+            [vocoder.ambeserver]
             host = "127.0.0.1"
             port = 2460
 
@@ -286,6 +288,8 @@ mod tests {
 
             [vocoder]
             backend = "ambeserver"
+
+            [vocoder.ambeserver]
             host = "127.0.0.1"
             port = 2460
 

@@ -53,22 +53,26 @@ remote_port = 34002
 
 # AMBE codec backend.
 [vocoder]
-# Backend selection.
-# `dynarmic` requires `--features dynarmic` and is not in the
-# pre-built debs; the others are.
+# `dynarmic` requires `--features dynarmic` and is not in the pre-built debs.
 backend = "thumbdv"             # thumbdv | neural | ambeserver | dynarmic
-# Serial port for ThumbDV.
+
+# ThumbDV serial hardware; required when backend = "thumbdv".
+# Also used when backend = "neural" with encoder/decoder = "thumbdv".
+[vocoder.thumbdv]
 serial_port = "/dev/ttyUSB0"
-# Baud rate for ThumbDV.
 # serial_baud = 460800          # default
-# ONNX model path; required when backend = "neural".
-# model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
-# Decoder used when backend = "neural"; encode is always neural.
-# neural_decoder = "thumbdv"      # default; "thumbdv" | "dynarmic" | "ambeserver"
-# AMBEserver host; required when backend = "ambeserver".
+
+# AMBEserver UDP proxy; required when backend = "ambeserver".
+# Also used when backend = "neural" with encoder/decoder = "ambeserver".
+# [vocoder.ambeserver]
 # host = "127.0.0.1"
-# AMBEserver port.
 # port = 2460                   # default
+
+# Neural vocoder; required when backend = "neural".
+# Also: neural_decoder = "dynarmic" selects the decode-side backend
+# when using the neural encoder only (deprecated; use [vocoder.neural]).
+# neural_decoder = "dynarmic"   # dynarmic | thumbdv | ambeserver
+# model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
 
 
 # DMR call routing.
