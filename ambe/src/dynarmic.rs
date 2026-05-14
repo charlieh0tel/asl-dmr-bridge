@@ -25,21 +25,13 @@ fn lock() -> MutexGuard<'static, ()> {
             error!(rc, "md380_init failed");
         }
         assert_eq!(rc, 0, "md380_init failed");
-        // Pre-warm the dynarmic JIT for both encode and decode paths.
-        // The first call to either otherwise pays a multi-second
-        // compile cost that hangs server clients with sub-second
-        // timeouts on the first frame.  Re-init afterwards so the
-        // warm-up doesn't leak predictor state to the caller.
+        // Pre-warm the dynarmic JIT for both encode and decode paths so
+        // the first real call does not pay the JIT compile cost.
         let mut ambe = [0u8; AMBE_FRAME_SIZE];
         let pcm_in = [0i16; PCM_SAMPLES];
         let mut pcm_out = [0i16; PCM_SAMPLES];
         unsafe { dynarmic_sys::md380_encode_fec(ambe.as_mut_ptr(), pcm_in.as_ptr()) };
         unsafe { dynarmic_sys::md380_decode_fec(ambe.as_ptr(), pcm_out.as_mut_ptr()) };
-        let rc = unsafe { dynarmic_sys::md380_init() };
-        if rc != 0 {
-            error!(rc, "md380_init failed after warm-up");
-        }
-        assert_eq!(rc, 0, "md380_init failed after warm-up");
         Mutex::new(())
     });
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -83,12 +75,7 @@ impl Vocoder for DynarmicVocoder {
     }
 
     fn reset(&mut self) {
-        let _g = lock();
-        let rc = unsafe { dynarmic_sys::md380_init() };
-        if rc != 0 {
-            error!(rc, "md380_init failed on reset");
-        }
-        assert_eq!(rc, 0, "md380_init failed on reset");
+        // No-op: recreating the JIT per PTT causes fastmem SIGSEGV; codec converges within frames.
     }
 
     fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
