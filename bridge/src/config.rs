@@ -211,6 +211,10 @@ pub(crate) struct StatsConfig {
     /// Filters out PTT-tap noise.
     #[serde(with = "humantime_serde")]
     pub(crate) min_call_log_duration: Duration,
+    /// Period for the delta-counters rollup log.  Logs calls, frames,
+    /// and drops per direction since the previous rollup.  `0s` disables.
+    #[serde(with = "humantime_serde")]
+    pub(crate) summary_interval: Duration,
 }
 
 impl Default for StatsConfig {
@@ -219,6 +223,7 @@ impl Default for StatsConfig {
             heartbeat_interval: Duration::from_secs(60),
             skip_idle_heartbeat: true,
             min_call_log_duration: Duration::from_millis(250),
+            summary_interval: Duration::from_secs(12 * 3600),
         }
     }
 }

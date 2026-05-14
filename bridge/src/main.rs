@@ -578,6 +578,15 @@ async fn async_main() -> anyhow::Result<()> {
             anyhow::Ok(())
         }
     };
+    let summary_branch = {
+        let stats_state = stats_state.clone();
+        let interval = config.stats.summary_interval;
+        let cancel = cancel.clone();
+        async move {
+            stats::summary_task(stats_state, interval, cancel).await;
+            anyhow::Ok(())
+        }
+    };
     // rx + tx must `async move` to take ownership of `socket` (or a
     // clone) and the channel halves; cancel is cloned per branch so
     // the outer `cancel` stays available for the non-move branches.
@@ -615,7 +624,17 @@ async fn async_main() -> anyhow::Result<()> {
         cancel_for_tx.cancel();
         r
     };
-    let (r_rx, r_tx, r_homebrew, r_voice, r_subscriber, r_brandmeister, r_stats, r_heartbeat) = tokio::join!(
+    let (
+        r_rx,
+        r_tx,
+        r_homebrew,
+        r_voice,
+        r_subscriber,
+        r_brandmeister,
+        r_stats,
+        r_heartbeat,
+        r_summary,
+    ) = tokio::join!(
         rx,
         tx,
         homebrew,
@@ -624,6 +643,7 @@ async fn async_main() -> anyhow::Result<()> {
         brandmeister_reconcile_branch,
         stats_consumer_branch,
         heartbeat_branch,
+        summary_branch,
     );
     if let Some(e) = [
         r_rx,
@@ -634,6 +654,7 @@ async fn async_main() -> anyhow::Result<()> {
         r_brandmeister,
         r_stats,
         r_heartbeat,
+        r_summary,
     ]
     .into_iter()
     .find_map(Result::err)

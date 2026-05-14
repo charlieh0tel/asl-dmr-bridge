@@ -263,6 +263,57 @@ pub(crate) async fn heartbeat_task(
     }
 }
 
+/// Periodic delta-counters rollup log.  On each tick, logs calls,
+/// frames, and drops per direction since the previous tick.  Always
+/// fires (no idle suppression) so a quiet period is explicit in the
+/// log.  `0s` interval disables the task entirely.
+pub(crate) async fn summary_task(stats: Arc<Stats>, interval: Duration, cancel: CancellationToken) {
+    if interval.is_zero() {
+        return;
+    }
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticker.tick().await; // skip immediate first tick
+    let mut prev_fm_calls: u64 = 0;
+    let mut prev_fm_frames: u64 = 0;
+    let mut prev_fm_drops: u64 = 0;
+    let mut prev_dmr_calls: u64 = 0;
+    let mut prev_dmr_frames: u64 = 0;
+    let mut prev_dmr_drops: u64 = 0;
+    loop {
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return,
+            _ = ticker.tick() => {
+                let fm_calls  = stats.fm_to_dmr.calls_completed.load(Ordering::Relaxed);
+                let fm_frames = stats.fm_to_dmr.voice_frames.load(Ordering::Relaxed);
+                let fm_drops  = stats.fm_to_dmr.drops.load(Ordering::Relaxed);
+                let dmr_calls  = stats.dmr_to_fm.calls_completed.load(Ordering::Relaxed);
+                let dmr_frames = stats.dmr_to_fm.voice_frames.load(Ordering::Relaxed);
+                let dmr_drops  = stats.dmr_to_fm.drops.load(Ordering::Relaxed);
+                info!(
+                    target: "bridge::stats::summary",
+                    uptime_s = stats.started_at.elapsed().as_secs(),
+                    period_s = interval.as_secs(),
+                    fm_to_dmr_calls  = fm_calls  - prev_fm_calls,
+                    fm_to_dmr_frames = fm_frames - prev_fm_frames,
+                    fm_to_dmr_drops  = fm_drops  - prev_fm_drops,
+                    dmr_to_fm_calls  = dmr_calls  - prev_dmr_calls,
+                    dmr_to_fm_frames = dmr_frames - prev_dmr_frames,
+                    dmr_to_fm_drops  = dmr_drops  - prev_dmr_drops,
+                    "summary"
+                );
+                prev_fm_calls  = fm_calls;
+                prev_fm_frames = fm_frames;
+                prev_fm_drops  = fm_drops;
+                prev_dmr_calls  = dmr_calls;
+                prev_dmr_frames = dmr_frames;
+                prev_dmr_drops  = dmr_drops;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

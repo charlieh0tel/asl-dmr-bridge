@@ -161,6 +161,8 @@ keepalive_missed_limit = 3
 # skip_idle_heartbeat = true    # default
 # Per-call lines below this duration are suppressed.
 # min_call_log_duration = "250ms"   # default
+# Rollup summary period.  "0s" disables.
+# summary_interval = "12h"          # default
 
 
 # FM->DMR pre-encode voice-band filter (HP4 @ 250 Hz + LP2 @ 3000 Hz).
