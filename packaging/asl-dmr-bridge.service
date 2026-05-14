@@ -39,6 +39,7 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
+# Must be "no" if the dynarmic vocoder backend is in use; dynarmic's JIT requires W+X mappings.
 MemoryDenyWriteExecute=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
