@@ -77,6 +77,13 @@ pub(crate) enum ConfigError {
 
     #[error("brandmeister_api.api_key_file {path} has multiple lines; expected single-line JWT")]
     BrandmeisterApiKeyFileMultiline { path: PathBuf },
+
+    #[cfg(feature = "neural")]
+    #[error(
+        "[vocoder.neural] encoder and decoder cannot both be non-neural; \
+         use a dedicated backend instead"
+    )]
+    NeuralBothNonNeural,
 }
 
 /// Top-level configuration, mirrors DESIGN.md configuration schema.
@@ -356,18 +363,45 @@ pub(crate) struct AmbeserverConfig {
     pub(crate) port: Option<u16>,
 }
 
-/// Decoder backend used when `vocoder.backend = "neural"`.  Encode is
-/// always neural; decode goes to one of the chip-or-software backends.
-/// Defaults to `dynarmic`.
+/// One direction of the neural vocoder: neural ONNX or a hardware/software
+/// passthrough backend.  Used for both encoder and decoder selection in
+/// `[vocoder.neural]`.
 #[cfg(feature = "neural")]
-#[derive(Debug, Deserialize, Default, Clone, Copy)]
+#[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum NeuralDecoder {
-    #[default]
+pub(crate) enum NeuralHalf {
+    Neural,
     Dynarmic,
     #[serde(rename = "thumbdv")]
     ThumbDV,
     Ambeserver,
+}
+
+#[cfg(feature = "neural")]
+fn default_neural_encoder() -> NeuralHalf {
+    NeuralHalf::Neural
+}
+
+#[cfg(feature = "neural")]
+fn default_neural_decoder() -> NeuralHalf {
+    NeuralHalf::Dynarmic
+}
+
+/// Neural vocoder configuration (`[vocoder.neural]`).  Both directions
+/// independently selectable.  At least one must be `neural` (validated
+/// at load time).
+#[cfg(feature = "neural")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NeuralVocoderConfig {
+    /// Encoder backend; defaults to `neural`.
+    #[serde(default = "default_neural_encoder")]
+    pub(crate) encoder: NeuralHalf,
+    /// Decoder backend; defaults to `dynarmic`.
+    #[serde(default = "default_neural_decoder")]
+    pub(crate) decoder: NeuralHalf,
+    /// ONNX model path; required when `encoder = "neural"`.
+    pub(crate) encoder_model_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -377,13 +411,8 @@ pub(crate) struct VocoderConfig {
     #[cfg(feature = "thumbdv")]
     pub(crate) thumbdv: Option<ThumbDvConfig>,
     pub(crate) ambeserver: Option<AmbeserverConfig>,
-    /// Decoder selection when `backend = "neural"`.
     #[cfg(feature = "neural")]
-    #[serde(default)]
-    pub(crate) neural_decoder: NeuralDecoder,
-    /// ONNX model path; required when `backend = "neural"`.
-    #[cfg(feature = "neural")]
-    pub(crate) model_path: Option<std::path::PathBuf>,
+    pub(crate) neural: Option<NeuralVocoderConfig>,
 }
 
 /// DMR call type: group or private.
@@ -544,6 +573,14 @@ impl Config {
     fn validate(&self) -> Result<(), ConfigError> {
         if self.network.keepalive_interval.is_zero() {
             return Err(ConfigError::KeepaliveIntervalZero);
+        }
+        #[cfg(feature = "neural")]
+        if let VocoderBackend::Neural = self.vocoder.backend
+            && let Some(nc) = &self.vocoder.neural
+            && !matches!(nc.encoder, NeuralHalf::Neural)
+            && !matches!(nc.decoder, NeuralHalf::Neural)
+        {
+            return Err(ConfigError::NeuralBothNonNeural);
         }
         Ok(())
     }

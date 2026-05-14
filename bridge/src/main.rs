@@ -45,31 +45,37 @@ fn make_profile(profile: &Network) -> Box<dyn network::NetworkProfile> {
     }
 }
 
+/// Open a non-neural vocoder half (encoder or decoder) for the neural backend.
+/// `Neural` is never passed here -- the caller handles that path.
 #[cfg(feature = "neural")]
-async fn make_neural_decoder(
+async fn make_neural_half(
+    half: config::NeuralHalf,
     config: &config::VocoderConfig,
 ) -> anyhow::Result<Box<dyn ambe::Vocoder>> {
-    match config.neural_decoder {
-        config::NeuralDecoder::Dynarmic => {
+    match half {
+        config::NeuralHalf::Neural => unreachable!("neural half handled by caller"),
+        config::NeuralHalf::Dynarmic => {
             #[cfg(feature = "dynarmic")]
             return Ok(ambe::open_dynarmic());
             #[cfg(not(feature = "dynarmic"))]
             anyhow::bail!("dynarmic requires the 'dynarmic' feature")
         }
-        config::NeuralDecoder::ThumbDV => {
+        config::NeuralHalf::ThumbDV => {
             #[cfg(feature = "thumbdv")]
             {
                 let tdc = config.thumbdv.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("neural_decoder = thumbdv requires [vocoder.thumbdv]")
+                    anyhow::anyhow!("[vocoder.neural] decoder = thumbdv requires [vocoder.thumbdv]")
                 })?;
                 return Ok(ambe::open_thumbdv(&tdc.serial_port, tdc.serial_baud)?);
             }
             #[cfg(not(feature = "thumbdv"))]
             anyhow::bail!("thumbdv requires the 'thumbdv' feature")
         }
-        config::NeuralDecoder::Ambeserver => {
+        config::NeuralHalf::Ambeserver => {
             let asc = config.ambeserver.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("neural_decoder = ambeserver requires [vocoder.ambeserver]")
+                anyhow::anyhow!(
+                    "[vocoder.neural] decoder = ambeserver requires [vocoder.ambeserver]"
+                )
             })?;
             let port = asc.port.unwrap_or(2460);
             let addr = resolve_socket_addr(&asc.host, port).await?;
@@ -102,12 +108,21 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
         }
         #[cfg(feature = "neural")]
         VocoderBackend::Neural => {
-            let path = config
-                .model_path
+            let nc = config
+                .neural
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("neural backend requires [vocoder.neural]"))?;
+            let encoder_path = nc
+                .encoder_model_path
                 .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("neural backend requires model_path"))?;
-            let decoder = make_neural_decoder(config).await?;
-            Ok(ambe::open_neural_with_decoder(path, decoder)?)
+                .ok_or_else(|| anyhow::anyhow!("[vocoder.neural] encoder_model_path required"))?;
+            let decoder = match nc.decoder {
+                config::NeuralHalf::Neural => {
+                    anyhow::bail!("neural decoder not yet implemented")
+                }
+                half => make_neural_half(half, config).await?,
+            };
+            Ok(ambe::open_neural_with_decoder(encoder_path, decoder)?)
         }
         #[cfg(not(feature = "neural"))]
         VocoderBackend::Neural => {
