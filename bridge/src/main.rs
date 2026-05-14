@@ -112,17 +112,33 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .neural
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("neural backend requires [vocoder.neural]"))?;
-            let encoder_path = nc
-                .encoder_model_path
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("[vocoder.neural] encoder_model_path required"))?;
-            let decoder = match nc.decoder {
+            let decoder: Box<dyn ambe::Vocoder> = match nc.decoder {
                 config::NeuralHalf::Neural => {
-                    anyhow::bail!("neural decoder not yet implemented")
+                    let path = nc.decoder_model_path.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "[vocoder.neural] decoder_model_path required when decoder = \"neural\""
+                        )
+                    })?;
+                    ambe::open_neural_decoder(path)?
                 }
                 half => make_neural_half(half, config).await?,
             };
-            Ok(ambe::open_neural_with_decoder(encoder_path, decoder)?)
+            match nc.encoder {
+                config::NeuralHalf::Neural => {
+                    let path = nc.encoder_model_path.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "[vocoder.neural] encoder_model_path required when encoder = \"neural\""
+                        )
+                    })?;
+                    Ok(ambe::open_neural_with_decoder(path, decoder)?)
+                }
+                _ => {
+                    anyhow::bail!(
+                        "[vocoder.neural] non-neural encoder with neural decoder not supported; \
+                         use a dedicated backend instead"
+                    )
+                }
+            }
         }
         #[cfg(not(feature = "neural"))]
         VocoderBackend::Neural => {

@@ -402,6 +402,8 @@ pub(crate) struct NeuralVocoderConfig {
     pub(crate) decoder: NeuralHalf,
     /// ONNX model path; required when `encoder = "neural"`.
     pub(crate) encoder_model_path: Option<std::path::PathBuf>,
+    /// ONNX model path; required when `decoder = "neural"`.
+    pub(crate) decoder_model_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
