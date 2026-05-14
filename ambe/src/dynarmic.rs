@@ -44,6 +44,7 @@ pub(crate) struct DynarmicVocoder {
 
 impl DynarmicVocoder {
     pub(crate) fn new() -> Self {
+        drop(lock());
         Self {
             in_db: dsp::dB::UNITY,
             out_db: dsp::dB::UNITY,
