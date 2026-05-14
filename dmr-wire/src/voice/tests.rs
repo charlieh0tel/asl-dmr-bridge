@@ -1,3 +1,8 @@
+use std::sync::Arc;
+use std::sync::Mutex;
+
+use dsp::biquad::pre_encode_voice_8khz;
+
 use super::ptt::PttMachine;
 use super::ptt::PttState;
 use super::*;
@@ -7,6 +12,7 @@ use dmr_types::AmbeFrame;
 use dmr_types::ColorCode;
 use dmr_types::DmrId;
 use dmr_types::PCM_SAMPLES;
+use dmr_types::PcmFrame;
 use dmr_types::SubscriberId;
 use dmr_types::Talkgroup;
 use tokio::time::Instant;
@@ -29,6 +35,25 @@ impl Vocoder for StubVocoder {
 /// Encodes by panicking, simulating an FFI-side panic in a real
 /// vocoder.  Used to exercise the fatal-vocoder cancel path.
 struct PanickingVocoder;
+
+/// Records every PCM frame passed to `encode` for post-hoc inspection.
+struct SpyVocoder {
+    recorded: Arc<Mutex<Vec<PcmFrame>>>,
+}
+
+impl Vocoder for SpyVocoder {
+    fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, ambe::VocoderError> {
+        self.recorded.lock().unwrap().push(*pcm);
+        Ok([0u8; AMBE_FRAME_SIZE])
+    }
+    fn decode(&mut self, _ambe: Option<&AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
+        Ok([0i16; VOICE_SAMPLES])
+    }
+    fn reset(&mut self) {}
+    fn set_gain(&mut self, _in_db: dsp::dB, _out_db: dsp::dB) -> Result<(), ambe::VocoderError> {
+        Ok(())
+    }
+}
 
 impl Vocoder for PanickingVocoder {
     fn encode(&mut self, _pcm: &PcmFrame) -> Result<AmbeFrame, ambe::VocoderError> {
@@ -901,6 +926,138 @@ async fn tx_network_reset_drops_active_call() {
     assert_eq!(restarted.frame_type, FrameType::DataSync);
     assert_eq!(restarted.dtype_vseq, DATA_TYPE_VOICE_HEADER);
     assert_ne!(restarted.stream_id, hdr.stream_id);
+}
+
+// --- Pre-encode filter integration tests ---
+
+/// Continuous-phase sine wave as an AudioFrame starting at `frame_idx * VOICE_SAMPLES`.
+fn sine_frame(freq: f32, frame_idx: usize) -> AudioFrame {
+    let fs = 8000.0_f32;
+    let amp = 20000.0_f32;
+    let mut samples = [0i16; VOICE_SAMPLES];
+    let offset = frame_idx * VOICE_SAMPLES;
+    for (i, s) in samples.iter_mut().enumerate() {
+        let t = (offset + i) as f32 / fs;
+        *s = (amp * (std::f32::consts::TAU * freq * t).sin()) as i16;
+    }
+    AudioFrame {
+        keyup: true,
+        samples: Some(samples),
+        dmr_stream_id: None,
+    }
+}
+
+fn pcm_rms(frames: &[PcmFrame]) -> f32 {
+    let n = frames.len() * VOICE_SAMPLES;
+    let sum_sq: f64 = frames
+        .iter()
+        .flat_map(|f| f.iter().copied())
+        .map(|s| (s as f64) * (s as f64))
+        .sum();
+    ((sum_sq / n as f64) as f32).sqrt()
+}
+
+/// Build a machine with `pre_encode_filter = true` and a spy vocoder,
+/// drive 30 frames of a sine at `freq`, and return the RMS of the
+/// settled tail (last 9 encode inputs = 3 bursts).
+async fn measure_filtered_rms(freq: f32) -> f32 {
+    let recorded: Arc<Mutex<Vec<PcmFrame>>> = Arc::new(Mutex::new(Vec::new()));
+    let (audio_tx, _audio_rx) = mpsc::channel(64);
+    let (dmrd_voice_out, _dmrd_voice_rx) = mpsc::channel(64);
+    let (dmrd_control_out, _dmrd_control_rx) = mpsc::unbounded_channel();
+    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
+    let mut m = PttMachine::new(
+        test_voice_config(),
+        PttDiagnostics::default(),
+        PttPolicy {
+            pre_encode_filter: true,
+        },
+        Box::new(SpyVocoder {
+            recorded: recorded.clone(),
+        }),
+        audio_tx,
+        dmrd_voice_out,
+        dmrd_control_out,
+        metadata_tx,
+        None,
+        None,
+        CancellationToken::new(),
+    );
+    for i in 0..30 {
+        m.on_audio(&sine_frame(freq, i)).await;
+    }
+    let guard = recorded.lock().unwrap();
+    // Last 9 frames = 3 settled bursts; encode is awaited inline so
+    // guard is fully populated by the time on_audio returns.
+    let tail: Vec<PcmFrame> = guard[guard.len() - 9..].to_vec();
+    pcm_rms(&tail)
+}
+
+#[tokio::test]
+async fn pre_encode_filter_attenuates_sub_100hz() {
+    // Verify the filter is wired into the encode path: 100 Hz input
+    // (well below the 250 Hz HP cutoff) must be >10x attenuated
+    // relative to 1 kHz midband.
+    let rms_100 = measure_filtered_rms(100.0).await;
+    let rms_1k = measure_filtered_rms(1000.0).await;
+    let ratio = rms_100 / rms_1k;
+    assert!(
+        ratio < 0.1,
+        "100 Hz / 1 kHz ratio {ratio:.3} >= 0.1; filter may not be applied"
+    );
+}
+
+#[tokio::test]
+async fn pre_encode_filter_output_matches_direct_filter() {
+    // Drive FRAMES_PER_BURST frames through the machine and a reference
+    // filter in parallel; assert sample-exact agreement.  Detects dropped
+    // or reordered samples in the encode path that the RMS test would miss.
+    let recorded: Arc<Mutex<Vec<PcmFrame>>> = Arc::new(Mutex::new(Vec::new()));
+    let (audio_tx, _audio_rx) = mpsc::channel(16);
+    let (dmrd_voice_out, _dmrd_voice_rx) = mpsc::channel(16);
+    let (dmrd_control_out, _dmrd_control_rx) = mpsc::unbounded_channel();
+    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
+    let mut m = PttMachine::new(
+        test_voice_config(),
+        PttDiagnostics::default(),
+        PttPolicy {
+            pre_encode_filter: true,
+        },
+        Box::new(SpyVocoder {
+            recorded: recorded.clone(),
+        }),
+        audio_tx,
+        dmrd_voice_out,
+        dmrd_control_out,
+        metadata_tx,
+        None,
+        None,
+        CancellationToken::new(),
+    );
+
+    // Reference filter: fresh construction matches the machine's reset-on-tx-start.
+    let mut ref_filter = pre_encode_voice_8khz();
+    let mut expected: Vec<PcmFrame> = Vec::new();
+    for i in 0..FRAMES_PER_BURST {
+        let frame = sine_frame(440.0, i);
+        let mut ref_pcm = frame.samples.unwrap();
+        ref_filter.process_pcm(&mut ref_pcm);
+        expected.push(ref_pcm);
+        m.on_audio(&frame).await;
+    }
+
+    let spy = recorded.lock().unwrap();
+    assert_eq!(
+        spy.len(),
+        FRAMES_PER_BURST,
+        "expected {FRAMES_PER_BURST} encoded frames"
+    );
+    for (i, (got, want)) in spy.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(
+            got, want,
+            "frame {i}: spy output differs from reference filter"
+        );
+    }
 }
 
 #[tokio::test]
