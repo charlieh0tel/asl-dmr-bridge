@@ -72,3 +72,7 @@ required-features = ["neural"]
 [[example]]
 name = "cross_loopback"
 required-features = ["dynarmic", "thumbdv", "neural"]
+
+[[example]]
+name = "roundtrip"
+required-features = ["neural"]

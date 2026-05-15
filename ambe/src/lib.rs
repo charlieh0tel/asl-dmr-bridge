@@ -178,6 +178,15 @@ pub fn open_neural_with_decoder(
     )?))
 }
 
+/// Extract the 9 VQ field indices from a channel-coded AMBE+2 frame.
+/// Inverts the scatter/channel-encode step so any encoder's wire output
+/// can be compared against neural logit heads.  Index order matches
+/// `FIELDS_DMR_3600X2450` (b0..b8).
+#[cfg(feature = "neural")]
+pub fn ambe_to_vq(frame: &dmr_types::AmbeFrame) -> [i64; 9] {
+    neural::frame_to_vq(frame)
+}
+
 /// Diagnostic handle around the neural encoder that exposes the
 /// raw 9-int VQ row instead of channel-coded bytes.  Used by parity
 /// harnesses comparing tract output against a PT-canonical reference.
