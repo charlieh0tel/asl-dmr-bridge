@@ -35,6 +35,7 @@ use dmr_events::CallsignLookup;
 use dmr_subscriber::Subscribers;
 use dsp::agc::Agc;
 use dsp::agc::AgcParams;
+use dsp::limiter::Limiter;
 
 const PASSWORD_ENV: &str = "BRANDMEISTER_PASSWORD";
 const API_KEY_ENV: &str = "BRANDMEISTER_API_KEY";
@@ -249,6 +250,19 @@ fn spawn_signal_handler(cancel: CancellationToken) {
 /// Build an `Agc` for one direction from its config block, or return
 /// `None` when disabled.  Logs the chosen state once at startup so
 /// the operator sees both directions in the boot log.
+fn build_direction_limiter(cfg: &config::LimiterConfig, direction: &str) -> Option<Limiter> {
+    if cfg.enabled {
+        info!(
+            ceiling_dbfs = cfg.ceiling_dbfs,
+            "limiter enabled ({direction})"
+        );
+        Some(Limiter::new(cfg.ceiling_dbfs))
+    } else {
+        info!("limiter disabled ({direction})");
+        None
+    }
+}
+
 fn build_direction_agc(cfg: &config::AgcConfig, direction: &str) -> Option<Agc> {
     if cfg.enabled {
         info!(
@@ -340,6 +354,8 @@ async fn async_main() -> anyhow::Result<()> {
 
     let dmr_to_fm_agc = build_direction_agc(&config.agc.dmr_to_fm, "DMR -> FM");
     let fm_to_dmr_agc = build_direction_agc(&config.agc.fm_to_dmr, "FM -> DMR");
+    let dmr_to_fm_limiter = build_direction_limiter(&config.limiter.dmr_to_fm, "DMR -> FM");
+    let fm_to_dmr_limiter = build_direction_limiter(&config.limiter.fm_to_dmr, "FM -> DMR");
 
     // Optional callsign-lookup wired into voice_task: enriches USRP
     // TEXT call metadata with `call`/`name` fields when an inbound
@@ -599,6 +615,7 @@ async fn async_main() -> anyhow::Result<()> {
             remote_addr,
             byte_swap,
             fm_to_dmr_agc,
+            fm_to_dmr_limiter,
             cancel_for_rx.clone(),
         )
         .await;
@@ -617,6 +634,7 @@ async fn async_main() -> anyhow::Result<()> {
             tg,
             byte_swap,
             dmr_to_fm_agc,
+            dmr_to_fm_limiter,
             pcm_record_dir,
             cancel_for_tx.clone(),
         )

@@ -27,6 +27,7 @@ use usrp_wire::VOICE_FRAME_INTERVAL;
 use dsp::agc::Agc;
 use dsp::levels::LevelAccumulator;
 use dsp::levels::fmt_dbfs;
+use dsp::limiter::Limiter;
 use pcm_utils::wav::WavRecorder;
 
 /// Receive USRP packets from the socket, strip the wire-only fields
@@ -49,6 +50,7 @@ pub(crate) async fn rx_task(
     remote: SocketAddr,
     byte_swap: bool,
     mut agc: Option<Agc>,
+    limiter: Option<Limiter>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     let mut buf = [0u8; PACKET_SIZE + RECV_SLACK];
@@ -88,6 +90,11 @@ pub(crate) async fn rx_task(
                             } else {
                                 finalize_fm_in_agc_call(Some(agc_state), &mut had_voice_in_call);
                             }
+                        }
+                        if frame.keyup && let Some(buf) = samples.as_mut()
+                            && let Some(lim) = limiter.as_ref()
+                        {
+                            lim.process(buf);
                         }
                         let audio = AudioFrame {
                             keyup: frame.keyup,
@@ -141,6 +148,7 @@ pub(crate) async fn tx_task(
     talkgroup: u32,
     byte_swap: bool,
     mut agc: Option<Agc>,
+    limiter: Option<Limiter>,
     pcm_record_dir: Option<PathBuf>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
@@ -260,6 +268,11 @@ pub(crate) async fn tx_task(
                     } else if let Some(buf) = samples.as_mut() {
                         agc_state.process(buf);
                     }
+                }
+                if audio.keyup && let Some(buf) = samples.as_mut()
+                    && let Some(lim) = limiter.as_ref()
+                {
+                    lim.process(buf);
                 }
 
                 // Per-call AGC-out diagnostics: open a WAV on the
@@ -459,6 +472,7 @@ mod tests {
             tx,
             sender_addr,
             false,
+            None,
             None,
             cancel.clone(),
         ));

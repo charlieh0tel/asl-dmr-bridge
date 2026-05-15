@@ -152,6 +152,18 @@ keepalive_missed_limit = 3
 # noise_gate_dbfs = -50.0       # default
 
 
+# Per-direction brick-wall peak limiter applied after AGC.  Scales
+# the frame down so the peak equals `ceiling_dbfs` exactly; no-op
+# when the frame is already within bounds.
+[limiter.dmr_to_fm]
+# enabled = false               # default
+# ceiling_dbfs = -1.0           # default; 1 dB below full scale
+
+[limiter.fm_to_dmr]
+# enabled = false               # default
+# ceiling_dbfs = -1.0           # default
+
+
 # Per-call summary lines + cumulative-counter heartbeat.
 [stats]
 # Heartbeat period.  "0s" disables the heartbeat (per-call lines

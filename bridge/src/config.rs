@@ -124,6 +124,10 @@ pub(crate) struct Config {
     /// chip-side `vocoder.gain_*_db`).
     #[serde(default)]
     pub(crate) gain: GainConfig,
+    /// Per-direction brick-wall peak limiter applied after AGC.
+    /// Both directions off by default.
+    #[serde(default)]
+    pub(crate) limiter: LimiterSection,
 }
 
 /// Static dB gain knobs, applied per direction.  Defaults 0 dB
@@ -191,6 +195,36 @@ impl Default for AgcSection {
             },
         }
     }
+}
+
+/// Per-direction brick-wall peak limiter.  `enabled = false` (default)
+/// skips processing entirely.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct LimiterConfig {
+    pub(crate) enabled: bool,
+    /// Hard ceiling in dBFS (negative).  Frames whose peak exceeds this
+    /// are scaled down so the peak equals the ceiling exactly.
+    pub(crate) ceiling_dbfs: f32,
+}
+
+impl Default for LimiterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ceiling_dbfs: -1.0,
+        }
+    }
+}
+
+/// Both limiter directions, configured independently.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct LimiterSection {
+    /// Limiter on the DMR -> FM (vocoder-decoded PCM out to USRP) path.
+    pub(crate) dmr_to_fm: LimiterConfig,
+    /// Limiter on the FM -> DMR (USRP PCM in to vocoder) path.
+    pub(crate) fm_to_dmr: LimiterConfig,
 }
 
 /// Per-call + heartbeat stats logging.  All fields optional; section
@@ -515,6 +549,7 @@ pub(crate) struct RuntimeConfig {
     pub(crate) diagnostics: DiagnosticsConfig,
     pub(crate) encode_filter: EncodeFilterConfig,
     pub(crate) gain: GainConfig,
+    pub(crate) limiter: LimiterSection,
 }
 
 /// Diagnostic capture knobs.  All optional, off by default.
@@ -614,6 +649,7 @@ impl Config {
             diagnostics,
             encode_filter,
             gain,
+            limiter,
         } = self;
         RuntimeConfig {
             peer,
@@ -639,6 +675,7 @@ impl Config {
             diagnostics,
             encode_filter,
             gain,
+            limiter,
         }
     }
 }

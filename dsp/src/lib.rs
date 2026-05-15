@@ -4,6 +4,7 @@ pub mod agc;
 pub mod biquad;
 mod db;
 pub mod levels;
+pub mod limiter;
 
 // Carve-out from the no-re-export rule: `dB` lives at the crate
 // root since callers use it everywhere.
