@@ -380,4 +380,18 @@ mod tests {
             prop_assert_eq!(recovered, ambe_d);
         }
     }
+
+    #[test]
+    fn to_source_bits_silence_frame() {
+        // Silence frame: b0=124 (0b1111100), b1..b8=0.
+        // b0 scatters to mbelib positions [0,1,2,3,37,38,39];
+        // 124 = MSB-first 1111100, so positions [0,1,2,3,37] are set.
+        // Packed into 7 bytes MSB-first:
+        //   byte 0 bits 0-7:  1111_0000 = 0xF0
+        //   bytes 1-3:        all zero
+        //   byte 4 bits 32-39: bit 37 => position 2 => 0b0000_0100 = 0x04
+        //   bytes 5-6:        all zero
+        let expected: [u8; RAW_BYTES] = [0xF0, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00];
+        assert_eq!(to_source_bits(&crate::SILENCE_FRAME), expected);
+    }
 }
