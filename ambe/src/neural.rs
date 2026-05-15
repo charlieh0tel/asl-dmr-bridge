@@ -292,7 +292,15 @@ impl Vocoder for NeuralVocoder {
 
     fn reset(&mut self) {
         self.decoder.reset();
+        // Pre-fill with silence instead of clearing so the first encode()
+        // call produces real AMBE immediately.  An empty buffer causes 7
+        // frames (~140 ms) of silence-sentinel output; when the downstream
+        // decoder has stale state (dynarmic reset is a no-op), those sentinels
+        // replay the previous call's audio.  Silence past-context is neutral
+        // and the model adapts within a frame or two.
         self.samples.clear();
+        self.samples
+            .extend(std::iter::repeat_n(0i16, self.buffer_cap));
     }
 
     fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
@@ -740,6 +748,68 @@ mod tests {
         for (i, &v) in vq[1..].iter().enumerate() {
             assert_eq!(v, 0, "b{}", i + 1);
         }
+    }
+
+    /// After `reset()`, the first `encode_vq` call must return `Some(vq)`
+    /// immediately (no warm-up delay) and the VQ must match direct inference
+    /// on the expected silence-prefilled buffer state.
+    #[test]
+    fn reset_prefills_buffer_yields_vq_immediately() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fixture = manifest.join("tests").join("fixtures").join("aug50");
+        let model_path = fixture.join("model.onnx");
+        let wav_path = fixture.join("parity_input.wav");
+        if !model_path.exists() || !wav_path.exists() {
+            eprintln!(
+                "reset_prefills_buffer_yields_vq_immediately: fixtures missing ({} or {}); skipping",
+                model_path.display(),
+                wav_path.display(),
+            );
+            return;
+        }
+
+        let bytes = std::fs::read(&wav_path).unwrap();
+        assert!(bytes.len() > 44, "WAV too short");
+        let pcm: Vec<i16> = bytes[44..]
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        assert!(pcm.len() >= PCM_SAMPLES, "fixture has no complete frames");
+        let mut frame = [0i16; PCM_SAMPLES];
+        frame.copy_from_slice(&pcm[..PCM_SAMPLES]);
+
+        let mut vocoder = NeuralVocoder::open(&model_path).expect("open neural");
+
+        // Fresh vocoder: first frame is in warm-up.
+        assert_eq!(
+            vocoder.encode_vq(&frame).expect("encode_vq fresh"),
+            None,
+            "fresh vocoder should return None on first frame",
+        );
+
+        // After reset: buffer is pre-filled; first frame produces a VQ.
+        vocoder.reset();
+        let post_reset_vq = vocoder
+            .encode_vq(&frame)
+            .expect("encode_vq post-reset")
+            .expect("post-reset encode_vq must return Some on first frame");
+
+        // Verify VQ matches direct inference on the expected buffer state.
+        // reset() leaves [0 × buffer_cap]; one encode_vq trims the oldest
+        // PCM_SAMPLES from the front: [0 × (buffer_cap - PCM_SAMPLES), frame].
+        let mut reference = NeuralVocoder::open(&model_path).expect("open reference");
+        let buffer_cap = reference.buffer_cap;
+        reference.samples.clear();
+        reference
+            .samples
+            .extend(std::iter::repeat_n(0i16, buffer_cap - PCM_SAMPLES));
+        reference.samples.extend(frame.iter().copied());
+        let ref_vq = reference.run_inference().expect("reference run_inference");
+
+        assert_eq!(
+            post_reset_vq, ref_vq,
+            "post-reset VQ mismatch: streaming={post_reset_vq:?} reference={ref_vq:?}",
+        );
     }
 
     /// Streaming buffer must yield the same slice the model would see
