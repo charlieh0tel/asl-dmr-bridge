@@ -4,7 +4,9 @@ use ambe::Vocoder;
 use anyhow::Context;
 use clap::Parser;
 use clap::ValueEnum;
+use dmr_types::AmbeFrame;
 use dmr_types::PCM_SAMPLES;
+use dmr_types::PcmFrame;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Enc {
@@ -36,7 +38,7 @@ struct Args {
     /// ONNX model file (required for encoder=neural).
     #[arg(long)]
     encoder_model_path: Option<PathBuf>,
-    /// Directory containing frame_model.onnx + step_model.onnx (required for decoder=neural).
+    /// Directory containing decoder_frame.onnx + decoder_step.onnx (required for decoder=neural).
     #[arg(long)]
     decoder_model_dir: Option<PathBuf>,
     /// Serial port shared by thumbdv encoder and/or decoder.
@@ -45,6 +47,34 @@ struct Args {
     /// Print per-frame VQ indices as JSONL to stdout.
     #[arg(long)]
     dump_vq: bool,
+}
+
+enum DecoderHandle {
+    Neural(Box<ambe::NeuralDecoderBench>),
+    Other(Box<dyn Vocoder>),
+}
+
+impl DecoderHandle {
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
+        match self {
+            Self::Neural(b) => b.decode(ambe),
+            Self::Other(v) => v.decode(ambe),
+        }
+    }
+
+    fn print_timing(&self) {
+        if let Self::Neural(b) = self {
+            let t = b.timing();
+            eprintln!(
+                "frame_model:     {:6} us/frame  ({} frames)",
+                t.frame_model_us, t.frames
+            );
+            eprintln!(
+                "step_model x{:<3}: {:6} us/frame",
+                t.step_stride, t.step_model_us
+            );
+        }
+    }
 }
 
 fn open_encoder(args: &Args) -> anyhow::Result<Box<dyn Vocoder>> {
@@ -63,20 +93,31 @@ fn open_encoder(args: &Args) -> anyhow::Result<Box<dyn Vocoder>> {
     Ok(v)
 }
 
-fn open_decoder(args: &Args) -> anyhow::Result<Box<dyn Vocoder>> {
-    let mut v: Box<dyn Vocoder> = match args.decoder {
+fn open_decoder(args: &Args) -> anyhow::Result<DecoderHandle> {
+    match args.decoder {
         Dec::Neural => {
             let dir = args
                 .decoder_model_dir
                 .as_ref()
                 .context("--decoder-model-dir required for decoder=neural")?;
-            ambe::open_neural_decoder(&dir.join("frame_model.onnx"), &dir.join("step_model.onnx"))?
+            let mut b = ambe::NeuralDecoderBench::open(
+                &dir.join("decoder_frame.onnx"),
+                &dir.join("decoder_step.onnx"),
+            )?;
+            b.reset();
+            Ok(DecoderHandle::Neural(Box::new(b)))
         }
-        Dec::Dynarmic => ambe::open_dynarmic(),
-        Dec::Thumbdv => open_thumbdv(args)?,
-    };
-    v.reset();
-    Ok(v)
+        Dec::Dynarmic => {
+            let mut v = ambe::open_dynarmic();
+            v.reset();
+            Ok(DecoderHandle::Other(v))
+        }
+        Dec::Thumbdv => {
+            let mut v = open_thumbdv(args)?;
+            v.reset();
+            Ok(DecoderHandle::Other(v))
+        }
+    }
 }
 
 fn open_thumbdv(args: &Args) -> anyhow::Result<Box<dyn Vocoder>> {
@@ -144,5 +185,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     writer.finalize().context("finalize WAV")?;
+    decoder.print_timing();
     Ok(())
 }

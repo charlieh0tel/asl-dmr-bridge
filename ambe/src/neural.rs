@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::str::FromStr;
+use std::time::Instant;
 
 use tracing::info;
 use tract_onnx::pb;
@@ -325,6 +326,28 @@ pub(crate) fn frame_to_vq(frame: &AmbeFrame) -> [i64; 9] {
     vq
 }
 
+/// Run the step model once with silence inputs and return the number of
+/// µ-law samples it produces per call (1 for step-1, 16 for step-16, etc.).
+fn probe_step_stride(
+    plan: &TypedRunnableModel<TypedModel>,
+    mu_silence: i64,
+) -> Result<usize, VocoderError> {
+    let mu = tract_ndarray::arr1(&[mu_silence]).into_tensor();
+    let cond = tract_ndarray::Array2::<f32>::zeros((1, 128)).into_tensor();
+    let h = tract_ndarray::Array3::<f32>::zeros((1, 1, 256)).into_tensor();
+    let out = plan
+        .run(tvec![mu.into(), cond.into(), h.into()])
+        .map_err(|e| init_err(format!("step model probe: {e}")))?;
+    let stride = out[0]
+        .as_slice::<i64>()
+        .map_err(|e| init_err(format!("step model probe output: {e}")))?
+        .len();
+    if stride == 0 {
+        return Err(init_err("step model probe returned empty mu output".into()));
+    }
+    Ok(stride)
+}
+
 /// µ-law decode: 8-bit code 0..=255 → i16 PCM.
 /// Code 128 = silence (~0), 255 = max positive, 0 = max negative.
 fn ulaw_decode(code: i64) -> i16 {
@@ -360,10 +383,19 @@ pub(crate) struct NeuralDecoderVocoder {
     /// Frame conditioning model.  Input: bits_window [1,5,9] int64.
     /// Output: cond [1,128] float32.  Called once per 20 ms frame.
     frame_plan: TypedRunnableModel<TypedModel>,
-    /// Per-sample autoregressive step model.  Called 160x per frame.
+    /// Per-sample (or per-chunk) autoregressive step model.
     /// Inputs: prev_mu [1] int64, cond [1,128] float32, h_in [1,1,256] float32.
-    /// Outputs: next_mu [1] int64, h_out [1,1,256] float32.
+    /// Outputs: mu_out [step_stride] int64, h_out [1,1,256] float32.
+    /// Called PCM_SAMPLES/step_stride times per frame.
     step_plan: TypedRunnableModel<TypedModel>,
+    /// Samples produced per step model call (1 for step-1, 16 for step-16, etc.).
+    step_stride: usize,
+    /// Cumulative wall-time spent in the frame model (ns).
+    frame_ns: u64,
+    /// Cumulative wall-time spent in all step model calls per frame (ns).
+    step_ns: u64,
+    /// Number of frames that have been timed.
+    frames_timed: u64,
     /// Incoming frames waiting for 2-frame lookahead (fires when len >= 3).
     pending: VecDeque<[i64; 9]>,
     /// Last 2 decoded frames for left-edge context, oldest first.
@@ -415,14 +447,26 @@ impl NeuralDecoderVocoder {
             .map_err(|e| init_err(format!("optimize {}: {e}", step_model_path.display())))?
             .into_runnable()
             .map_err(|e| init_err(format!("runnable {}: {e}", step_model_path.display())))?;
+
+        let step_stride = probe_step_stride(&step_plan, mu_silence)?;
+        if !PCM_SAMPLES.is_multiple_of(step_stride) {
+            return Err(init_err(format!(
+                "step_stride {step_stride} does not divide PCM_SAMPLES {PCM_SAMPLES}"
+            )));
+        }
         info!(
             path = %step_model_path.display(),
+            step_stride,
             "neural decoder step model loaded"
         );
 
         Ok(Self {
             frame_plan,
             step_plan,
+            step_stride,
+            frame_ns: 0,
+            step_ns: 0,
+            frames_timed: 0,
             pending: VecDeque::new(),
             history: VecDeque::new(),
             prev_mu: mu_silence,
@@ -438,16 +482,19 @@ impl NeuralDecoderVocoder {
         let bits_tensor = tract_ndarray::Array3::from_shape_vec((1usize, 5, 9), bits_data)
             .map_err(|e| VocoderError::Decode(format!("bits_window shape: {e}")))?
             .into_tensor();
+        let t_frame = Instant::now();
         let frame_out = self
             .frame_plan
             .run(tvec![bits_tensor.into()])
             .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?;
+        self.frame_ns += t_frame.elapsed().as_nanos() as u64;
         let cond_val = frame_out.into_iter().next().unwrap();
 
-        // Run step model 160x to produce one PCM frame.
+        // Run step model PCM_SAMPLES/step_stride times to produce one PCM frame.
         let mut prev_mu = self.prev_mu;
         let mut out = [0i16; PCM_SAMPLES];
-        for sample in out.iter_mut() {
+        let t_step = Instant::now();
+        for chunk in out.chunks_exact_mut(self.step_stride) {
             let mu_tensor = tract_ndarray::arr1(&[prev_mu]).into_tensor();
             let h_tensor = self.h.clone().into_tensor();
             let step_out = self
@@ -455,9 +502,9 @@ impl NeuralDecoderVocoder {
                 .run(tvec![mu_tensor.into(), cond_val.clone(), h_tensor.into()])
                 .map_err(|e| VocoderError::Decode(format!("step inference: {e}")))?;
 
-            prev_mu = step_out[0]
+            let mu_slice = step_out[0]
                 .as_slice::<i64>()
-                .map_err(|e| VocoderError::Decode(format!("next_mu: {e}")))?[0];
+                .map_err(|e| VocoderError::Decode(format!("mu_out: {e}")))?;
             let h_slice = step_out[1]
                 .as_slice::<f32>()
                 .map_err(|e| VocoderError::Decode(format!("h_out: {e}")))?;
@@ -465,11 +512,28 @@ impl NeuralDecoderVocoder {
                 .as_slice_mut()
                 .expect("h contiguous")
                 .copy_from_slice(h_slice);
-            *sample = ulaw_decode(prev_mu);
+            for (s, &mu) in chunk.iter_mut().zip(mu_slice.iter()) {
+                *s = ulaw_decode(mu);
+            }
+            prev_mu = *mu_slice.last().expect("mu_slice non-empty");
         }
+        self.step_ns += t_step.elapsed().as_nanos() as u64;
+        self.frames_timed += 1;
         self.prev_mu = prev_mu;
         self.out_db.apply(&mut out);
         Ok(out)
+    }
+
+    /// Average frame model and step model cost per decoded frame (µs each),
+    /// plus the number of timed frames and the step stride.
+    pub(crate) fn timing_us(&self) -> (u64, u64, u64, usize) {
+        let f = self.frames_timed.max(1);
+        (
+            self.frame_ns / f / 1000,
+            self.step_ns / f / 1000,
+            self.frames_timed,
+            self.step_stride,
+        )
     }
 }
 

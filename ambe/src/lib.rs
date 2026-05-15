@@ -178,6 +178,63 @@ pub fn open_neural_with_decoder(
     )?))
 }
 
+/// Per-frame timing breakdown for the neural decoder.
+#[cfg(feature = "neural")]
+pub struct DecoderTimingUs {
+    /// Number of frames timed.
+    pub frames: u64,
+    /// Average frame model cost per frame (µs).
+    pub frame_model_us: u64,
+    /// Average combined step model cost per frame (µs).
+    pub step_model_us: u64,
+    /// Samples produced per step model call (1, 16, ...).
+    pub step_stride: usize,
+}
+
+/// Diagnostic wrapper around the neural decoder that exposes per-frame
+/// timing for the frame model and step model separately.
+#[cfg(feature = "neural")]
+pub struct NeuralDecoderBench(neural::NeuralDecoderVocoder);
+
+#[cfg(feature = "neural")]
+impl NeuralDecoderBench {
+    pub fn open(
+        frame_model_path: &std::path::Path,
+        step_model_path: &std::path::Path,
+    ) -> Result<Self, VocoderError> {
+        Ok(Self(neural::NeuralDecoderVocoder::open(
+            frame_model_path,
+            step_model_path,
+        )?))
+    }
+
+    pub fn timing(&self) -> DecoderTimingUs {
+        let (frame_us, step_us, frames, stride) = self.0.timing_us();
+        DecoderTimingUs {
+            frames,
+            frame_model_us: frame_us,
+            step_model_us: step_us,
+            step_stride: stride,
+        }
+    }
+}
+
+#[cfg(feature = "neural")]
+impl Vocoder for NeuralDecoderBench {
+    fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
+        self.0.encode(pcm)
+    }
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
+        self.0.decode(ambe)
+    }
+    fn reset(&mut self) {
+        self.0.reset();
+    }
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        self.0.set_gain(in_db, out_db)
+    }
+}
+
 /// Extract the 9 VQ field indices from a channel-coded AMBE+2 frame.
 /// Inverts the scatter/channel-encode step so any encoder's wire output
 /// can be compared against neural logit heads.  Index order matches
