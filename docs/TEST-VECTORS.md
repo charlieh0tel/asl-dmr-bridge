@@ -195,8 +195,7 @@ These are low-priority until a real use case or capture surfaces:
 
 1. Re-add the `dmr_data = hex::encode(pkt.dmr_data)` field to the
    `RX header` / `RX terminator` log lines in `dmr-wire/src/voice.rs`.
-2. Run the bridge with `RUST_LOG=info cargo run --features mbelib
-   config.toml |& grep dmr_data | tee /tmp/l`.
+2. Run the bridge with `RUST_LOG=info cargo run --bin asl-dmr-bridge -- config.toml |& grep dmr_data | tee /tmp/l`.
 3. Extract `(src_id, dst_id, dmr_data)` tuples from the log.
 4. Add them to `BM_CAPTURES` in `dmr-wire/src/bptc.rs` tests.
 5. Revert the log change.

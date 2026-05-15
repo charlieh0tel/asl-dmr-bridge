@@ -7,19 +7,18 @@ example in `asl-dmr-bridge`.
 ## Build
 
 ```
-cargo build --release --example ambe_bits2wav -p asl-dmr-bridge \
-    [--features thumbdv] [--features mbelib]
+cargo build --release --example ambe_bits2wav -p asl-dmr-bridge [--features thumbdv]
 ```
 
 Binary at `target/release/examples/ambe_bits2wav`.  Default features
-include only the `ambeserver` backend; add `thumbdv` for direct
-serial, `mbelib` for the software decoder.
+include only the `ambeserver` backend; add `thumbdv` for direct serial.
 
 ## Invoke
 
 ```
-ambe_bits2wav --input bits.bin --output audio.wav \
-    [--backend ambeserver|thumbdv|mbelib] \
+cargo run --release --example ambe_bits2wav [--features thumbdv] -- \
+    --input bits.bin --output audio.wav \
+    [--backend ambeserver|thumbdv] \
     [--ambeserver host:port] [--serial path] [--baud rate] \
     [--gain-in dB] [--gain-out dB] \
     [--no-decode] [--quiet]
@@ -33,7 +32,6 @@ shared with `dv3000_capture`.
 |--------------|--------------------------|------------------------|
 | `ambeserver` | `--ambeserver host:port` | `127.0.0.1:2460`       |
 | `thumbdv`    | `--serial`, `--baud`     | `/dev/ttyUSB0`, 460800 |
-| `mbelib`     | none                     | --                     |
 
 `--no-decode` skips the backend round trip and writes the 9-byte
 channel-coded stream to `--output` instead of a WAV.

@@ -42,12 +42,13 @@ sync) shows up as garbled or empty playback.
    ```
 
 2. Pick whichever vocoder backend you're testing (`thumbdv`,
-   `ambeserver`, or `mbelib` -- though `mbelib` cannot encode, so
-   the parrot test is meaningful only for hardware backends).
+   `ambeserver`, `dynarmic`, or `neural`).  All of these can encode;
+   the parrot test exercises the full round-trip.
 
-3. Start the bridge in one terminal:
+3. Start the bridge in one terminal (add whichever features your vocoder
+   needs -- `thumbdv`, `dynarmic`, `neural`, or combinations):
    ```
-   cargo run --release -p asl-dmr-bridge --features mbelib,thumbdv -- config.toml
+   cargo run --release --bin asl-dmr-bridge --features thumbdv -- config.toml
    ```
    Wait for `authenticated with master` in the bridge log.
 
@@ -67,8 +68,7 @@ To send a recorded voice clip instead of the synthetic tone, set
 "check one two three" sample lives in the repo:
 
 ```
-PARROT_TEST_INPUT=data/check123-s16le-8000-c1.raw \
-  cargo run --example parrot_test
+PARROT_TEST_INPUT=data/check123-s16le-8000-c1.raw cargo run --example parrot_test
 ```
 
 When `PARROT_TEST_INPUT` is set, the duration argument is ignored and
