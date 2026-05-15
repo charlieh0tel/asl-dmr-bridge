@@ -9,20 +9,47 @@ fn main() {
     let vendor = PathBuf::from("vendor/md380_vocoder_dynarmic");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
 
+    // ambe/dynarmic-sys -> ambe -> workspace root
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let workspace_root = manifest_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+
+    // Pre-clone dynarmic into target/dynarmic-src from outside the workspace.
+    // cmake's FetchContent git clone runs with the cmake source dir as CWD,
+    // which is inside the workspace; git then discovers the workspace .git and
+    // uses its object store as an alternate, producing "invalid object" errors.
+    // By pre-cloning from the workspace parent we avoid that contamination, and
+    // FETCHCONTENT_SOURCE_DIR_DYNARMIC tells cmake to use our clone directly,
+    // skipping its own git operations for dynarmic entirely.
+    let dynarmic_src = ensure_dynarmic_src(&workspace_root);
+
     let mut config = cmake::Config::new(&vendor);
     config
         // dynarmic's robin-map external declares cmake_minimum_required(VERSION 2.x),
         // which cmake 4.x rejects.  Override the policy floor to keep cmake 4 happy
         // without touching upstream.
         .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5")
-        // Skip FetchContent git-fetch update steps.  cmake's FetchContent runs
-        // git fetch during every incremental build; when the build tree sits
-        // inside the workspace git repo, git tries to load the workspace
-        // .gitmodules as a config blob from the dynarmic clone's object store,
-        // fails, and aborts the build.  The dynarmic source is already cloned
-        // at the pinned commit, so updates are not needed at build time.
+        // Skip FetchContent git-fetch update steps for dynarmic's sub-deps
+        // (mcl, fmt, etc.).  The sub-dep sources are already cloned on first
+        // build; updates are not needed at incremental-build time.
         .define("FETCHCONTENT_UPDATES_DISCONNECTED", "ON")
+        // Use the pre-cloned dynarmic source; cmake skips its own git operations
+        // for dynarmic (no clone, no checkout, no fetch).
+        .define("FETCHCONTENT_SOURCE_DIR_DYNARMIC", &dynarmic_src)
         .build_target("md380_vocoder");
+
+    // Prevent cmake's git clones of dynarmic's sub-dependencies (mcl, fmt,
+    // etc.) from discovering the workspace .git.  Those clones run from within
+    // the cmake build directory, which sits inside the workspace; without this
+    // ceiling, git traverses up to the workspace root, finds .git, and uses
+    // the workspace object store as an alternate -- causing "invalid object"
+    // errors.  Setting the ceiling to the workspace root stops git before it
+    // reaches .git.
+    config.env("GIT_CEILING_DIRECTORIES", &workspace_root);
 
     // Ubuntu 22.04 ships xxd 8.2 (vim-common), which lacks `-n NAME`.
     // The flag arrived in vim 9.0.  Install a shim that emulates it.
@@ -79,6 +106,39 @@ fn main() {
     println!("cargo:rerun-if-changed=vendor/md380_vocoder_dynarmic/md380_vocoder.cpp");
     println!("cargo:rerun-if-changed=vendor/md380_vocoder_dynarmic/md380_vocoder.h");
     println!("cargo:rerun-if-changed=vendor/md380_vocoder_dynarmic/CMakeLists.txt");
+}
+
+/// Clone dynarmic into `workspace_root/target/dynarmic-src` if not already
+/// present.  The clone runs with CWD set to the workspace parent so git
+/// starts outside the workspace and cannot discover the workspace .git.
+/// Returns the path to the cloned source tree.
+fn ensure_dynarmic_src(workspace_root: &Path) -> PathBuf {
+    let src_dir = workspace_root.join("target/dynarmic-src");
+    if src_dir.join(".git").exists() {
+        return src_dir;
+    }
+    // A partial clone (no .git) would cause git clone to fail; remove it.
+    if src_dir.exists() {
+        std::fs::remove_dir_all(&src_dir).expect("remove partial dynarmic-src");
+    }
+    let workspace_parent = workspace_root
+        .parent()
+        .expect("workspace root has a parent directory");
+    let status = Command::new("git")
+        .current_dir(workspace_parent)
+        .args([
+            "clone",
+            "--depth=1",
+            "https://github.com/yuzu-mirror/dynarmic.git",
+            src_dir.to_str().expect("valid UTF-8 path"),
+        ])
+        .status()
+        .expect("failed to spawn git clone for dynarmic");
+    assert!(
+        status.success(),
+        "git clone of dynarmic into target/dynarmic-src failed"
+    );
+    src_dir
 }
 
 /// Verify all system prerequisites before invoking cmake.
