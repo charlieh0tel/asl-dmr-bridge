@@ -90,6 +90,12 @@ type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
 /// instead of per-frame compensation).
 const GAP_BOUNDARY_PACKETS: u8 = 3;
 
+/// A single encode or decode call that takes longer than this
+/// will be logged at WARN level.  Even moderate overruns accumulate
+/// into audible gaps because tx_task resets its pacing anchor on
+/// each late frame.
+const TRANSCODE_BUDGET: Duration = Duration::from_millis(20);
+
 pub(crate) struct RxCall {
     pub(crate) stream_id: u32,
     src_id: dmr_types::SubscriberId,
@@ -472,6 +478,13 @@ impl PttMachine {
                 Ok(encoded) => {
                     ambe[i] = encoded;
                     transcode_times[i] = t0.elapsed();
+                    if transcode_times[i] > TRANSCODE_BUDGET {
+                        warn!(
+                            stream_id = tx.stream_id,
+                            elapsed_ms = transcode_times[i].as_millis(),
+                            "fm_to_dmr encode over 20ms budget"
+                        );
+                    }
                     self.diag.record_tx_ambe(&encoded);
                 }
                 Err(e) => {
@@ -771,8 +784,17 @@ impl PttMachine {
                 let mut rx_acc = std::mem::take(&mut self.diag.rx_levels);
                 for _ in 0..gap_frames {
                     let permit = permits.next().expect("reserved gap-fill permit");
+                    let t0 = Instant::now();
                     match self.decode(None).await {
                         Ok(pcm) => {
+                            let elapsed = t0.elapsed();
+                            if elapsed > TRANSCODE_BUDGET {
+                                warn!(
+                                    stream_id = pkt.stream_id,
+                                    elapsed_ms = elapsed.as_millis(),
+                                    "dmr_to_fm gap decode over 20ms budget"
+                                );
+                            }
                             super::diagnostics::record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
                             permit.send(make_voice_frame(pcm, pkt.stream_id));
                         }
@@ -787,7 +809,15 @@ impl PttMachine {
                     let t0 = Instant::now();
                     match self.decode(Some(*ambe)).await {
                         Ok(pcm) => {
-                            self.stats.voice_frame(CallDirection::DmrToFm, t0.elapsed());
+                            let elapsed = t0.elapsed();
+                            if elapsed > TRANSCODE_BUDGET {
+                                warn!(
+                                    stream_id = pkt.stream_id,
+                                    elapsed_ms = elapsed.as_millis(),
+                                    "dmr_to_fm decode over 20ms budget"
+                                );
+                            }
+                            self.stats.voice_frame(CallDirection::DmrToFm, elapsed);
                             super::diagnostics::record_pcm(&mut rx_rec, &mut rx_acc, &pcm, "rx");
                             permit.send(make_voice_frame(pcm, pkt.stream_id));
                         }
