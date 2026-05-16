@@ -1,0 +1,72 @@
+{
+  "gru_hidden": 256,
+  "gru_input_size": 136,
+  "sample_embed_dim": 8,
+  "cond_dim": 128,
+  "mu_channels": 256,
+  "mu_silence": 128,
+  "samples_per_frame": 160,
+  "dual_fc_hidden": 256,
+  "shapes": {
+    "sample_embed": [
+      256,
+      8
+    ],
+    "W_ir": [
+      256,
+      136
+    ],
+    "W_iz": [
+      256,
+      136
+    ],
+    "W_in": [
+      256,
+      136
+    ],
+    "W_hr": [
+      256,
+      256
+    ],
+    "W_hz": [
+      256,
+      256
+    ],
+    "W_hn": [
+      256,
+      256
+    ],
+    "b_ir": [
+      256
+    ],
+    "b_iz": [
+      256
+    ],
+    "b_in": [
+      256
+    ],
+    "b_hr": [
+      256
+    ],
+    "b_hz": [
+      256
+    ],
+    "b_hn": [
+      256
+    ],
+    "fc1_weight": [
+      256,
+      256
+    ],
+    "fc1_bias": [
+      256
+    ],
+    "fc2_weight": [
+      256,
+      256
+    ],
+    "fc2_bias": [
+      256
+    ]
+  }
+}

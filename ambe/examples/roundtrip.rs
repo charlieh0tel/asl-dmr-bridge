@@ -18,6 +18,7 @@ enum Enc {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Dec {
     Neural,
+    NativeGru,
     Dynarmic,
     Thumbdv,
 }
@@ -41,6 +42,9 @@ struct Args {
     /// Directory containing decoder_frame.onnx + decoder_step.onnx (required for decoder=neural).
     #[arg(long)]
     decoder_model_dir: Option<PathBuf>,
+    /// Directory containing flat-binary GRU weight files (required for decoder=native-gru).
+    #[arg(long)]
+    decoder_weights_dir: Option<PathBuf>,
     /// Serial port shared by thumbdv encoder and/or decoder.
     #[arg(long)]
     serial_port: Option<String>,
@@ -106,6 +110,20 @@ fn open_decoder(args: &Args) -> anyhow::Result<DecoderHandle> {
             )?;
             b.reset();
             Ok(DecoderHandle::Neural(Box::new(b)))
+        }
+        Dec::NativeGru => {
+            let model_dir = args
+                .decoder_model_dir
+                .as_ref()
+                .context("--decoder-model-dir required for decoder=native-gru")?;
+            let weights_dir = args
+                .decoder_weights_dir
+                .as_ref()
+                .context("--decoder-weights-dir required for decoder=native-gru")?;
+            let mut v =
+                ambe::open_native_gru_decoder(&model_dir.join("decoder_frame.onnx"), weights_dir)?;
+            v.reset();
+            Ok(DecoderHandle::Other(v))
         }
         Dec::Dynarmic => {
             let mut v = ambe::open_dynarmic();

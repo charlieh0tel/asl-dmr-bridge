@@ -80,7 +80,7 @@ pub(crate) enum ConfigError {
 
     #[cfg(feature = "neural")]
     #[error(
-        "[vocoder.neural] encoder and decoder cannot both be non-neural; \
+        "[vocoder.neural] encoder_backend and decoder_backend cannot both be non-neural; \
          use a dedicated backend instead"
     )]
     NeuralBothNonNeural,
@@ -402,9 +402,8 @@ pub(crate) struct AmbeserverConfig {
     pub(crate) port: Option<u16>,
 }
 
-/// One direction of the neural vocoder: neural ONNX or a hardware/software
-/// passthrough backend.  Used for both encoder and decoder selection in
-/// `[vocoder.neural]`.
+/// Encoder/decoder backend for one direction of the neural vocoder
+/// (`[vocoder.neural]`).
 #[cfg(feature = "neural")]
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -416,13 +415,43 @@ pub(crate) enum NeuralHalf {
     Ambeserver,
 }
 
+/// Step kernel for the neural decoder (`[vocoder.neural.decoder]`).
 #[cfg(feature = "neural")]
-fn default_neural_encoder() -> NeuralHalf {
+#[derive(Debug, Deserialize, Clone, Copy, Default)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NeuralDecoderStep {
+    /// Native Rust GRU kernel (default); requires `weights_dir`.
+    #[default]
+    NativeGru,
+    /// ONNX step model via tract; requires `split_dir` to contain
+    /// `decoder_step.onnx`.
+    Onnx,
+}
+
+/// Neural decoder sub-configuration (`[vocoder.neural.decoder]`).
+/// Required when `decoder_backend = "neural"`.
+#[cfg(feature = "neural")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NeuralDecoderConfig {
+    /// Step kernel; defaults to `native_gru`.
+    #[serde(default)]
+    pub(crate) step: NeuralDecoderStep,
+    /// Directory containing `decoder_frame.onnx` (always required); also
+    /// needs `decoder_step.onnx` when `step = "onnx"`.
+    pub(crate) split_dir: std::path::PathBuf,
+    /// Directory containing flat-binary GRU weight files (`W_ir.bin`, etc.);
+    /// required when `step = "native_gru"` (the default).
+    pub(crate) weights_dir: Option<std::path::PathBuf>,
+}
+
+#[cfg(feature = "neural")]
+fn default_neural_encoder_backend() -> NeuralHalf {
     NeuralHalf::Neural
 }
 
 #[cfg(feature = "neural")]
-fn default_neural_decoder() -> NeuralHalf {
+fn default_neural_decoder_backend() -> NeuralHalf {
     NeuralHalf::Dynarmic
 }
 
@@ -434,16 +463,15 @@ fn default_neural_decoder() -> NeuralHalf {
 #[serde(deny_unknown_fields)]
 pub(crate) struct NeuralVocoderConfig {
     /// Encoder backend; defaults to `neural`.
-    #[serde(default = "default_neural_encoder")]
-    pub(crate) encoder: NeuralHalf,
+    #[serde(default = "default_neural_encoder_backend")]
+    pub(crate) encoder_backend: NeuralHalf,
     /// Decoder backend; defaults to `dynarmic`.
-    #[serde(default = "default_neural_decoder")]
-    pub(crate) decoder: NeuralHalf,
-    /// ONNX model path; required when `encoder = "neural"`.
+    #[serde(default = "default_neural_decoder_backend")]
+    pub(crate) decoder_backend: NeuralHalf,
+    /// ONNX model path; required when `encoder_backend = "neural"`.
     pub(crate) encoder_model_path: Option<std::path::PathBuf>,
-    /// Directory containing `decoder_frame.onnx` and `decoder_step.onnx`;
-    /// required when `decoder = "neural"`.
-    pub(crate) decoder_split_dir: Option<std::path::PathBuf>,
+    /// Decoder sub-config; required when `decoder_backend = "neural"`.
+    pub(crate) decoder: Option<NeuralDecoderConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -620,8 +648,8 @@ impl Config {
         #[cfg(feature = "neural")]
         if let VocoderBackend::Neural = self.vocoder.backend
             && let Some(nc) = &self.vocoder.neural
-            && !matches!(nc.encoder, NeuralHalf::Neural)
-            && !matches!(nc.decoder, NeuralHalf::Neural)
+            && !matches!(nc.encoder_backend, NeuralHalf::Neural)
+            && !matches!(nc.decoder_backend, NeuralHalf::Neural)
         {
             return Err(ConfigError::NeuralBothNonNeural);
         }

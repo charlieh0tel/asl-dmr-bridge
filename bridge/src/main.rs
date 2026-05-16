@@ -113,25 +113,40 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                 .neural
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("neural backend requires [vocoder.neural]"))?;
-            let decoder: Box<dyn ambe::Vocoder> = match nc.decoder {
+            let decoder: Box<dyn ambe::Vocoder> = match nc.decoder_backend {
                 config::NeuralHalf::Neural => {
-                    let dir = nc.decoder_split_dir.as_deref().ok_or_else(|| {
+                    let dc = nc.decoder.as_ref().ok_or_else(|| {
                         anyhow::anyhow!(
-                            "[vocoder.neural] decoder_split_dir required when decoder = \"neural\""
+                            "decoder_backend = \"neural\" requires [vocoder.neural.decoder]"
                         )
                     })?;
-                    ambe::open_neural_decoder(
-                        &dir.join("decoder_frame.onnx"),
-                        &dir.join("decoder_step.onnx"),
-                    )?
+                    match dc.step {
+                        config::NeuralDecoderStep::NativeGru => {
+                            let weights_dir = dc.weights_dir.as_deref().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "[vocoder.neural.decoder] weights_dir required \
+                                     when step = \"native_gru\""
+                                )
+                            })?;
+                            ambe::open_native_gru_decoder(
+                                &dc.split_dir.join("decoder_frame.onnx"),
+                                weights_dir,
+                            )?
+                        }
+                        config::NeuralDecoderStep::Onnx => ambe::open_neural_decoder(
+                            &dc.split_dir.join("decoder_frame.onnx"),
+                            &dc.split_dir.join("decoder_step.onnx"),
+                        )?,
+                    }
                 }
                 half => make_neural_half(half, config).await?,
             };
-            match nc.encoder {
+            match nc.encoder_backend {
                 config::NeuralHalf::Neural => {
                     let path = nc.encoder_model_path.as_deref().ok_or_else(|| {
                         anyhow::anyhow!(
-                            "[vocoder.neural] encoder_model_path required when encoder = \"neural\""
+                            "[vocoder.neural] encoder_model_path required \
+                             when encoder_backend = \"neural\""
                         )
                     })?;
                     Ok(ambe::open_neural_with_decoder(path, decoder)?)

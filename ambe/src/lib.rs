@@ -4,6 +4,8 @@ pub mod cli;
 #[cfg(feature = "dynarmic")]
 pub(crate) mod dynarmic;
 #[cfg(feature = "neural")]
+pub(crate) mod gru;
+#[cfg(feature = "neural")]
 pub(crate) mod neural;
 #[cfg(feature = "thumbdv")]
 pub(crate) mod thumbdv;
@@ -163,6 +165,21 @@ pub fn open_neural_decoder(
     Ok(Box::new(neural::NeuralDecoderVocoder::open(
         frame_model_path,
         step_model_path,
+    )?))
+}
+
+/// Construct a native-Rust GRU decoder.  The tract frame-conditioning
+/// model (`frame_model_path`) is loaded from ONNX; all 160-sample-per-
+/// frame GRU steps run in native Rust from binary weight files in
+/// `weights_dir`.  Decode only; encode returns `Unsupported`.
+#[cfg(feature = "neural")]
+pub fn open_native_gru_decoder(
+    frame_model_path: &std::path::Path,
+    weights_dir: &std::path::Path,
+) -> Result<Box<dyn Vocoder>, VocoderError> {
+    Ok(Box::new(gru::NativeGruDecoder::open(
+        frame_model_path,
+        weights_dir,
     )?))
 }
 

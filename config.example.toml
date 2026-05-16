@@ -69,12 +69,17 @@ serial_port = "/dev/ttyUSB0"
 # port = 2460                   # default
 
 # Neural vocoder; required when backend = "neural".
-# At least one of encoder/decoder must be "neural".
+# At least one of encoder_backend/decoder_backend must be "neural".
 # [vocoder.neural]
-# encoder = "neural"            # default; neural | dynarmic | thumbdv | ambeserver
-# decoder = "dynarmic"          # default; neural | dynarmic | thumbdv | ambeserver
-# encoder_model_path = "/usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx"
-# decoder_split_dir = "/usr/share/asl-dmr-bridge/models/decoder-d4-split"
+# encoder_backend = "neural"    # default; neural | dynarmic | thumbdv | ambeserver
+# decoder_backend = "dynarmic"  # default; neural | dynarmic | thumbdv | ambeserver
+# encoder_model_path = "/usr/share/asl-dmr-bridge/models/aug50.onnx"
+#
+# Neural decoder sub-config; required when decoder_backend = "neural".
+# [vocoder.neural.decoder]
+# step = "native_gru"           # default; native_gru | onnx
+# split_dir = "/usr/share/asl-dmr-bridge/models"   # frame.onnx (+ step.onnx if onnx)
+# weights_dir = "/usr/share/asl-dmr-bridge/models" # required for native_gru (default)
 
 
 # DMR call routing.
