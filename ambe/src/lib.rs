@@ -274,6 +274,50 @@ impl Vocoder for NeuralDecoderBench {
     }
 }
 
+/// Diagnostic wrapper around the native GRU decoder that exposes per-frame
+/// timing for the frame model and GRU step kernel separately.
+#[cfg(feature = "neural")]
+pub struct NativeGruDecoderBench(gru::NativeGruDecoder);
+
+#[cfg(feature = "neural")]
+impl NativeGruDecoderBench {
+    pub fn open(
+        frame_model_path: &std::path::Path,
+        weights_dir: &std::path::Path,
+    ) -> Result<Self, VocoderError> {
+        Ok(Self(gru::NativeGruDecoder::open(
+            frame_model_path,
+            weights_dir,
+        )?))
+    }
+
+    pub fn timing(&self) -> DecoderTimingUs {
+        let (frame_us, step_us, frames) = self.0.timing_us();
+        DecoderTimingUs {
+            frames,
+            frame_model_us: frame_us,
+            step_model_us: step_us,
+            step_stride: 1,
+        }
+    }
+}
+
+#[cfg(feature = "neural")]
+impl Vocoder for NativeGruDecoderBench {
+    fn encode(&mut self, pcm: &PcmFrame) -> Result<AmbeFrame, VocoderError> {
+        self.0.encode(pcm)
+    }
+    fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
+        self.0.decode(ambe)
+    }
+    fn reset(&mut self) {
+        self.0.reset();
+    }
+    fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
+        self.0.set_gain(in_db, out_db)
+    }
+}
+
 /// Extract the 9 VQ field indices from a channel-coded AMBE+2 frame.
 /// Inverts the scatter/channel-encode step so any encoder's wire output
 /// can be compared against neural logit heads.  Index order matches

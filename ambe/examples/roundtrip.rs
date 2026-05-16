@@ -53,6 +53,7 @@ struct Args {
 
 enum DecoderHandle {
     Neural(Box<ambe::NeuralDecoderBench>),
+    NativeGru(Box<ambe::NativeGruDecoderBench>),
     Other(Box<dyn Vocoder>),
 }
 
@@ -60,21 +61,28 @@ impl DecoderHandle {
     fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, ambe::VocoderError> {
         match self {
             Self::Neural(b) => b.decode(ambe),
+            Self::NativeGru(b) => b.decode(ambe),
             Self::Other(v) => v.decode(ambe),
         }
     }
 
     fn print_timing(&self) {
-        if let Self::Neural(b) = self {
-            let t = b.timing();
+        let t = match self {
+            Self::Neural(b) => Some((b.timing(), false)),
+            Self::NativeGru(b) => Some((b.timing(), true)),
+            Self::Other(_) => None,
+        };
+        if let Some((t, is_native)) = t {
+            let step_label = if is_native {
+                "gru_step x160:".to_string()
+            } else {
+                format!("step_model x{:>3}:", t.step_stride)
+            };
             eprintln!(
-                "frame_model:     {:6} us/frame  ({} frames)",
+                "frame_model:    {:6} us/frame  ({} frames)",
                 t.frame_model_us, t.frames
             );
-            eprintln!(
-                "step_model x{:<3}: {:6} us/frame",
-                t.step_stride, t.step_model_us
-            );
+            eprintln!("{:<16}{:6} us/frame", step_label, t.step_model_us);
         }
     }
 }
@@ -117,9 +125,12 @@ fn open_decoder(args: &Args) -> anyhow::Result<DecoderHandle> {
                         args.neural.decoder_weights_dir.as_ref().context(
                             "--decoder-weights-dir required for decoder-step=native-gru",
                         )?;
-                    let mut v = ambe::open_native_gru_decoder_from_dirs(dir, weights_dir)?;
-                    v.reset();
-                    Ok(DecoderHandle::Other(v))
+                    let mut b = ambe::NativeGruDecoderBench::open(
+                        &dir.join("decoder_frame.onnx"),
+                        weights_dir,
+                    )?;
+                    b.reset();
+                    Ok(DecoderHandle::NativeGru(Box::new(b)))
                 }
             }
         }

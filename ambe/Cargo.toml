@@ -27,6 +27,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tract-onnx = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+faer = "0.24.0"
 
 [dev-dependencies]
 anyhow.workspace = true

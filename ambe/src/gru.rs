@@ -2,7 +2,7 @@
 //! `NativeGruDecoder` vocoder that replaces the ONNX step model with
 //! this kernel while keeping the tract frame-conditioning model.
 //!
-//! Weight layout (all f32 LE, row-major):
+//! Weight layout (all f32 LE, row-major on disk):
 //!   sample_embed  [256,  8]
 //!   W_ir/iz/in    [256, 136]  GRU input weights  (r, z, n gates)
 //!   W_hr/hz/hn    [256, 256]  GRU hidden weights (r, z, n gates)
@@ -17,6 +17,11 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::time::Instant;
 
+use faer::Accum;
+use faer::Mat;
+use faer::MatMut;
+use faer::MatRef;
+use faer::Par;
 use tracing::info;
 use tract_onnx::prelude::Framework;
 use tract_onnx::prelude::InferenceModelExt;
@@ -40,18 +45,20 @@ const COND_DIM: usize = 128;
 const MU_SILENCE: u8 = 128;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
-/// weight directory.  Held in `Box` to avoid stack overflow on large arrays.
+/// weight directory.  Weight matrices are stored as column-major
+/// `faer::Mat<f32>` (transposed from the row-major on-disk layout);
+/// SIMD dispatch is handled automatically by faer's pulp backend.
 pub(crate) struct GruWeights {
     /// [256, 8] µ-law embedding lookup table.
     sample_embed: Box<[[f32; EMBED_DIM]; MU_CHANNELS]>,
     /// [256, 136] GRU input weights for r, z, n gates.
-    w_ir: Box<[[f32; INPUT]; HIDDEN]>,
-    w_iz: Box<[[f32; INPUT]; HIDDEN]>,
-    w_in: Box<[[f32; INPUT]; HIDDEN]>,
+    w_ir: Mat<f32>,
+    w_iz: Mat<f32>,
+    w_in: Mat<f32>,
     /// [256, 256] GRU hidden weights for r, z, n gates.
-    w_hr: Box<[[f32; HIDDEN]; HIDDEN]>,
-    w_hz: Box<[[f32; HIDDEN]; HIDDEN]>,
-    w_hn: Box<[[f32; HIDDEN]; HIDDEN]>,
+    w_hr: Mat<f32>,
+    w_hz: Mat<f32>,
+    w_hn: Mat<f32>,
     /// [256] GRU biases: input and hidden, for r, z, n.
     b_ir: [f32; HIDDEN],
     b_iz: [f32; HIDDEN],
@@ -60,9 +67,9 @@ pub(crate) struct GruWeights {
     b_hz: [f32; HIDDEN],
     b_hn: [f32; HIDDEN],
     /// [256, 256] dual-FC layer weights and biases.
-    fc1_weight: Box<[[f32; HIDDEN]; HIDDEN]>,
+    fc1_weight: Mat<f32>,
     fc1_bias: [f32; HIDDEN],
-    fc2_weight: Box<[[f32; HIDDEN]; HIDDEN]>,
+    fc2_weight: Mat<f32>,
     fc2_bias: [f32; HIDDEN],
 }
 
@@ -70,22 +77,22 @@ impl GruWeights {
     pub(crate) fn load(dir: &Path) -> Result<Self, VocoderError> {
         validate_meta(dir)?;
         Ok(Self {
-            sample_embed: load_matrix_256x(dir, "sample_embed.bin")?,
-            w_ir: load_matrix_256x(dir, "W_ir.bin")?,
-            w_iz: load_matrix_256x(dir, "W_iz.bin")?,
-            w_in: load_matrix_256x(dir, "W_in.bin")?,
-            w_hr: load_matrix_256x(dir, "W_hr.bin")?,
-            w_hz: load_matrix_256x(dir, "W_hz.bin")?,
-            w_hn: load_matrix_256x(dir, "W_hn.bin")?,
+            sample_embed: load_embed(dir, "sample_embed.bin")?,
+            w_ir: load_matrix_faer(dir, "W_ir.bin", HIDDEN, INPUT)?,
+            w_iz: load_matrix_faer(dir, "W_iz.bin", HIDDEN, INPUT)?,
+            w_in: load_matrix_faer(dir, "W_in.bin", HIDDEN, INPUT)?,
+            w_hr: load_matrix_faer(dir, "W_hr.bin", HIDDEN, HIDDEN)?,
+            w_hz: load_matrix_faer(dir, "W_hz.bin", HIDDEN, HIDDEN)?,
+            w_hn: load_matrix_faer(dir, "W_hn.bin", HIDDEN, HIDDEN)?,
             b_ir: load_bias(dir, "b_ir.bin")?,
             b_iz: load_bias(dir, "b_iz.bin")?,
             b_in: load_bias(dir, "b_in.bin")?,
             b_hr: load_bias(dir, "b_hr.bin")?,
             b_hz: load_bias(dir, "b_hz.bin")?,
             b_hn: load_bias(dir, "b_hn.bin")?,
-            fc1_weight: load_matrix_256x(dir, "fc1_weight.bin")?,
+            fc1_weight: load_matrix_faer(dir, "fc1_weight.bin", HIDDEN, HIDDEN)?,
             fc1_bias: load_bias(dir, "fc1_bias.bin")?,
-            fc2_weight: load_matrix_256x(dir, "fc2_weight.bin")?,
+            fc2_weight: load_matrix_faer(dir, "fc2_weight.bin", HIDDEN, HIDDEN)?,
             fc2_bias: load_bias(dir, "fc2_bias.bin")?,
         })
     }
@@ -115,8 +122,8 @@ pub(crate) fn gru_step(
     // r gate
     let mut wr_x = [0f32; HIDDEN];
     let mut whr_h = [0f32; HIDDEN];
-    gemv_rect(&w.w_ir, &x, &mut wr_x);
-    gemv_sq(&w.w_hr, h, &mut whr_h);
+    faer_gemv(&w.w_ir, &x, &mut wr_x);
+    faer_gemv(&w.w_hr, h, &mut whr_h);
     let mut r = [0f32; HIDDEN];
     for i in 0..HIDDEN {
         r[i] = sigmoid(wr_x[i] + w.b_ir[i] + whr_h[i] + w.b_hr[i]);
@@ -125,8 +132,8 @@ pub(crate) fn gru_step(
     // z gate
     let mut wz_x = [0f32; HIDDEN];
     let mut whz_h = [0f32; HIDDEN];
-    gemv_rect(&w.w_iz, &x, &mut wz_x);
-    gemv_sq(&w.w_hz, h, &mut whz_h);
+    faer_gemv(&w.w_iz, &x, &mut wz_x);
+    faer_gemv(&w.w_hz, h, &mut whz_h);
     let mut z = [0f32; HIDDEN];
     for i in 0..HIDDEN {
         z[i] = sigmoid(wz_x[i] + w.b_iz[i] + whz_h[i] + w.b_hz[i]);
@@ -135,8 +142,8 @@ pub(crate) fn gru_step(
     // n gate
     let mut wn_x = [0f32; HIDDEN];
     let mut whn_h = [0f32; HIDDEN];
-    gemv_rect(&w.w_in, &x, &mut wn_x);
-    gemv_sq(&w.w_hn, h, &mut whn_h);
+    faer_gemv(&w.w_in, &x, &mut wn_x);
+    faer_gemv(&w.w_hn, h, &mut whn_h);
     let mut n = [0f32; HIDDEN];
     for i in 0..HIDDEN {
         n[i] = (wn_x[i] + w.b_in[i] + r[i] * (whn_h[i] + w.b_hn[i])).tanh();
@@ -150,14 +157,14 @@ pub(crate) fn gru_step(
 
     // dual FC: a = tanh(fc1 @ h' + fc1_bias)
     let mut a = [0f32; HIDDEN];
-    gemv_sq(&w.fc1_weight, &h_new, &mut a);
+    faer_gemv(&w.fc1_weight, &h_new, &mut a);
     for (v, &b) in a.iter_mut().zip(w.fc1_bias.iter()) {
         *v = (*v + b).tanh();
     }
 
     // logits = fc2 @ a + fc2_bias
     let mut logits = [0f32; HIDDEN];
-    gemv_sq(&w.fc2_weight, &a, &mut logits);
+    faer_gemv(&w.fc2_weight, &a, &mut logits);
     for (v, &b) in logits.iter_mut().zip(w.fc2_bias.iter()) {
         *v += b;
     }
@@ -173,64 +180,22 @@ pub(crate) fn gru_step(
     (next_mu, h_new)
 }
 
-/// Matrix-vector product for a [HIDDEN × INPUT] matrix.
-/// out[i] = sum_j W[i][j] * x[j]
-/// Four independent accumulators let LLVM vectorize without fast-math.
-/// Both N=136 (INPUT) and N=256 (HIDDEN) are divisible by 4, so the tail
-/// loop is compile-time dead for those instantiations.
-#[inline(always)]
-fn dot4<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
-    let (mut s0, mut s1, mut s2, mut s3) = (0f32, 0f32, 0f32, 0f32);
-    let chunks = N / 4;
-    for i in 0..chunks {
-        let j = i * 4;
-        s0 += a[j] * b[j];
-        s1 += a[j + 1] * b[j + 1];
-        s2 += a[j + 2] * b[j + 2];
-        s3 += a[j + 3] * b[j + 3];
-    }
-    let mut tail = 0f32;
-    for i in (chunks * 4)..N {
-        tail += a[i] * b[i];
-    }
-    s0 + s1 + s2 + s3 + tail
-}
-
-/// Same arithmetic as `dot4`, compiled with AVX2+FMA (256-bit ymm registers).
-/// `dot4` is inlined so the full loop body gets the wider ISA.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2,fma")]
-unsafe fn dot4_avx2<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
-    dot4(a, b)
-}
-
-fn gemv_rect(w: &[[f32; INPUT]; HIDDEN], x: &[f32; INPUT], out: &mut [f32; HIDDEN]) {
-    #[cfg(target_arch = "x86_64")]
-    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-        for (o, row) in out.iter_mut().zip(w.iter()) {
-            // SAFETY: avx2 and fma presence confirmed above.
-            *o = unsafe { dot4_avx2(row, x) };
-        }
-        return;
-    }
-    for (o, row) in out.iter_mut().zip(w.iter()) {
-        *o = dot4(row, x);
-    }
-}
-
-/// Matrix-vector product for a [HIDDEN × HIDDEN] matrix.
-fn gemv_sq(w: &[[f32; HIDDEN]; HIDDEN], x: &[f32; HIDDEN], out: &mut [f32; HIDDEN]) {
-    #[cfg(target_arch = "x86_64")]
-    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-        for (o, row) in out.iter_mut().zip(w.iter()) {
-            // SAFETY: avx2 and fma presence confirmed above.
-            *o = unsafe { dot4_avx2(row, x) };
-        }
-        return;
-    }
-    for (o, row) in out.iter_mut().zip(w.iter()) {
-        *o = dot4(row, x);
-    }
+/// Matrix-vector product: out = W * x, written into `out`.
+/// faer handles SIMD dispatch (AVX2+FMA on x86-64, NEON on aarch64)
+/// via its pulp backend at runtime.
+fn faer_gemv(w: &Mat<f32>, x: &[f32], out: &mut [f32]) {
+    let nrows = w.nrows();
+    let ncols = w.ncols();
+    let x_ref = MatRef::<f32>::from_column_major_slice(x, ncols, 1);
+    let out_mut = MatMut::<f32>::from_column_major_slice_mut(out, nrows, 1);
+    faer::linalg::matmul::matmul(
+        out_mut,
+        Accum::Replace,
+        w.as_ref(),
+        x_ref,
+        1.0_f32,
+        Par::Seq,
+    );
 }
 
 #[inline(always)]
@@ -376,7 +341,6 @@ impl NativeGruDecoder {
         Ok(out)
     }
 
-    #[expect(dead_code, reason = "will be wired into roundtrip/bench when needed")]
     pub(crate) fn timing_us(&self) -> (u64, u64, u64) {
         let f = self.frames_timed.max(1);
         (
@@ -433,15 +397,15 @@ impl Vocoder for NativeGruDecoder {
 
 // -- Weight file loading helpers --
 
-/// Load a [256 × COLS] matrix from a raw f32 LE binary file.
-fn load_matrix_256x<const COLS: usize>(
+/// Load a [MU_CHANNELS × EMBED_DIM] lookup table from a raw f32 LE binary file.
+fn load_embed(
     dir: &Path,
     name: &str,
-) -> Result<Box<[[f32; COLS]; MU_CHANNELS]>, VocoderError> {
+) -> Result<Box<[[f32; EMBED_DIM]; MU_CHANNELS]>, VocoderError> {
     let path = dir.join(name);
     let bytes = std::fs::read(&path)
         .map_err(|e| VocoderError::Init(format!("read {}: {e}", path.display())))?;
-    let expected = MU_CHANNELS * COLS * 4;
+    let expected = MU_CHANNELS * EMBED_DIM * 4;
     if bytes.len() != expected {
         return Err(VocoderError::Init(format!(
             "{}: expected {expected} bytes, got {}",
@@ -449,13 +413,40 @@ fn load_matrix_256x<const COLS: usize>(
             bytes.len()
         )));
     }
-    let mut mat = Box::new([[0f32; COLS]; MU_CHANNELS]);
+    let mut mat = Box::new([[0f32; EMBED_DIM]; MU_CHANNELS]);
     for (i, row) in mat.iter_mut().enumerate() {
         for (j, v) in row.iter_mut().enumerate() {
-            let off = (i * COLS + j) * 4;
+            let off = (i * EMBED_DIM + j) * 4;
             *v = f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
         }
     }
+    Ok(mat)
+}
+
+/// Load a [nrows × ncols] weight matrix from a row-major f32 LE binary file
+/// into a column-major `faer::Mat<f32>`.  The transpose at load time lets
+/// faer's pulp GEMV kernel access columns contiguously.
+fn load_matrix_faer(
+    dir: &Path,
+    name: &str,
+    nrows: usize,
+    ncols: usize,
+) -> Result<Mat<f32>, VocoderError> {
+    let path = dir.join(name);
+    let bytes = std::fs::read(&path)
+        .map_err(|e| VocoderError::Init(format!("read {}: {e}", path.display())))?;
+    let expected = nrows * ncols * 4;
+    if bytes.len() != expected {
+        return Err(VocoderError::Init(format!(
+            "{}: expected {expected} bytes, got {}",
+            name,
+            bytes.len()
+        )));
+    }
+    let mat = Mat::<f32>::from_fn(nrows, ncols, |i, j| {
+        let off = (i * ncols + j) * 4;
+        f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
+    });
     Ok(mat)
 }
 
