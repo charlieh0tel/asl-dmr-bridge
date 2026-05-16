@@ -175,16 +175,34 @@ pub(crate) fn gru_step(
 
 /// Matrix-vector product for a [HIDDEN × INPUT] matrix.
 /// out[i] = sum_j W[i][j] * x[j]
+fn dot4<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
+    let (mut s0, mut s1, mut s2, mut s3) = (0f32, 0f32, 0f32, 0f32);
+    let chunks = N / 4;
+    for i in 0..chunks {
+        let j = i * 4;
+        s0 += a[j] * b[j];
+        s1 += a[j + 1] * b[j + 1];
+        s2 += a[j + 2] * b[j + 2];
+        s3 += a[j + 3] * b[j + 3];
+    }
+    // Tail: compile-time dead for N divisible by 4 (INPUT=136, HIDDEN=256).
+    let mut tail = 0f32;
+    for i in (chunks * 4)..N {
+        tail += a[i] * b[i];
+    }
+    s0 + s1 + s2 + s3 + tail
+}
+
 fn gemv_rect(w: &[[f32; INPUT]; HIDDEN], x: &[f32; INPUT], out: &mut [f32; HIDDEN]) {
-    for (i, row) in w.iter().enumerate() {
-        out[i] = row.iter().zip(x.iter()).map(|(&a, &b)| a * b).sum();
+    for (o, row) in out.iter_mut().zip(w.iter()) {
+        *o = dot4(row, x);
     }
 }
 
 /// Matrix-vector product for a [HIDDEN × HIDDEN] matrix.
 fn gemv_sq(w: &[[f32; HIDDEN]; HIDDEN], x: &[f32; HIDDEN], out: &mut [f32; HIDDEN]) {
-    for (i, row) in w.iter().enumerate() {
-        out[i] = row.iter().zip(x.iter()).map(|(&a, &b)| a * b).sum();
+    for (o, row) in out.iter_mut().zip(w.iter()) {
+        *o = dot4(row, x);
     }
 }
 
