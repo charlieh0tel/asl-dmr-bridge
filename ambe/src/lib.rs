@@ -183,6 +183,28 @@ pub fn open_native_gru_decoder(
     )?))
 }
 
+/// Like `open_neural_decoder`, but derives the two model paths from a
+/// directory that contains `decoder_frame.onnx` and `decoder_step.onnx`.
+#[cfg(feature = "neural")]
+pub fn open_neural_decoder_from_dir(
+    dir: &std::path::Path,
+) -> Result<Box<dyn Vocoder>, VocoderError> {
+    open_neural_decoder(
+        &dir.join("decoder_frame.onnx"),
+        &dir.join("decoder_step.onnx"),
+    )
+}
+
+/// Like `open_native_gru_decoder`, but derives the frame model path from
+/// `model_dir` (expecting `decoder_frame.onnx` there).
+#[cfg(feature = "neural")]
+pub fn open_native_gru_decoder_from_dirs(
+    model_dir: &std::path::Path,
+    weights_dir: &std::path::Path,
+) -> Result<Box<dyn Vocoder>, VocoderError> {
+    open_native_gru_decoder(&model_dir.join("decoder_frame.onnx"), weights_dir)
+}
+
 /// Like `open_neural`, but the caller supplies the decoder backend.
 /// Encode is always neural; decode goes to whatever `decoder` does.
 #[cfg(feature = "neural")]

@@ -1,12 +1,15 @@
-//! Convert AMBE+2 source bits to PCM via channel-encode + chip
-//! decode, writing an 8 kHz mono int16 WAV.
+//! Convert AMBE+2 source bits to PCM via channel-encode + decode,
+//! writing an 8 kHz mono int16 WAV.
 //!
 //! Input: concatenated 7-byte frames, each 49 source bits packed
 //! MSB-first in mbelib `ambe_d[]` order; low 7 bits of byte 6
-//! zero-padded.  One frame per 20 ms.
+//! zero-padded.  One frame per 20 ms.  This is the format written
+//! by the bridge diagnostic recorder (`dmr_to_fm_decode_in_*.bin`).
 //!
-//! Backend selection (`--backend ambeserver|thumbdv|mbelib`) and
-//! per-backend connection options come from `ambe::cli`.
+//! Backend selection:
+//!   chip (default): `--backend ambeserver|thumbdv|dynarmic`
+//!   neural ONNX:    `--backend onnx --decoder-model-dir <dir>`
+//!   native GRU:     `--backend native-gru --decoder-model-dir <dir> --decoder-weights-dir <dir>`
 //!
 //! `--no-decode` skips the round trip and writes the 9-byte
 //! channel-coded stream to `--output` instead of a WAV.
@@ -23,12 +26,24 @@ use ambe::voice_channel::RAW_BYTES;
 use ambe::voice_channel::channel_encode;
 use ambe::voice_channel::permute_mbelib_to_chip;
 use clap::Parser;
+use clap::ValueEnum;
 
 const PCM_SAMPLE_RATE: u32 = 8000;
 const PCM_SAMPLES_PER_FRAME: usize = 160;
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Backend {
+    /// Chip backends (dynarmic, thumbdv, ambeserver) selected by --chip-backend.
+    #[default]
+    Chip,
+    /// Neural ONNX step decoder (requires --decoder-model-dir).
+    Onnx,
+    /// Native Rust GRU decoder (requires --decoder-model-dir and --decoder-weights-dir).
+    NativeGru,
+}
+
 #[derive(Parser)]
-#[command(about = "Convert AMBE+2 source bits to PCM WAV via chip channel-decode")]
+#[command(about = "Convert AMBE+2 source bits (bridge .bin format) to PCM WAV")]
 struct Args {
     /// Input file: concatenated 7-byte AMBE+2 source-bit frames.
     #[arg(long)]
@@ -42,8 +57,19 @@ struct Args {
     /// Suppress progress messages on stderr.
     #[arg(long)]
     quiet: bool,
+    /// Decoder backend.
+    #[arg(long, default_value = "chip")]
+    decoder: Backend,
+    /// Directory containing decoder_frame.onnx + decoder_step.onnx
+    /// (required for --backend onnx or native-gru).
+    #[arg(long)]
+    decoder_model_dir: Option<PathBuf>,
+    /// Directory containing flat-binary GRU weight files
+    /// (required for --backend native-gru).
+    #[arg(long)]
+    decoder_weights_dir: Option<PathBuf>,
     #[command(flatten)]
-    backend: ChipBackendArgs,
+    chip_backend: ChipBackendArgs,
 }
 
 /// 44-byte canonical PCM WAV header for mono int16 at 8 kHz.
@@ -69,6 +95,40 @@ fn write_wav(path: &PathBuf, pcm: &[i16]) -> std::io::Result<()> {
     Ok(())
 }
 
+fn open_vocoder(args: &Args) -> Result<Box<dyn ambe::Vocoder>, String> {
+    match args.decoder {
+        Backend::Chip => args
+            .chip_backend
+            .open_vocoder()
+            .map_err(|e| format!("open chip backend: {e}")),
+        #[cfg(feature = "neural")]
+        Backend::Onnx => {
+            let dir = args
+                .decoder_model_dir
+                .as_deref()
+                .ok_or("--decoder-model-dir required for --decoder onnx")?;
+            ambe::open_neural_decoder_from_dir(dir).map_err(|e| format!("open onnx decoder: {e}"))
+        }
+        #[cfg(feature = "neural")]
+        Backend::NativeGru => {
+            let model_dir = args
+                .decoder_model_dir
+                .as_deref()
+                .ok_or("--decoder-model-dir required for --decoder native-gru")?;
+            let weights_dir = args
+                .decoder_weights_dir
+                .as_deref()
+                .ok_or("--decoder-weights-dir required for --decoder native-gru")?;
+            ambe::open_native_gru_decoder_from_dirs(model_dir, weights_dir)
+                .map_err(|e| format!("open native-gru decoder: {e}"))
+        }
+        #[cfg(not(feature = "neural"))]
+        Backend::Onnx | Backend::NativeGru => {
+            Err("neural backends require --features neural".into())
+        }
+    }
+}
+
 fn run(args: &Args) -> Result<(), String> {
     let mut bits_bytes = Vec::new();
     File::open(&args.input)
@@ -89,16 +149,17 @@ fn run(args: &Args) -> Result<(), String> {
         );
     }
 
-    let mut coded = Vec::with_capacity(n_frames * CODED_BYTES);
-    for i in 0..n_frames {
-        let mut mbelib_packed = [0u8; RAW_BYTES];
-        mbelib_packed.copy_from_slice(&bits_bytes[i * RAW_BYTES..(i + 1) * RAW_BYTES]);
-        let chip_packed = permute_mbelib_to_chip(&mbelib_packed);
-        let cw = channel_encode(&chip_packed);
-        coded.extend_from_slice(&cw);
-    }
+    let frames: Vec<[u8; CODED_BYTES]> = bits_bytes
+        .chunks_exact(RAW_BYTES)
+        .map(|chunk| {
+            let mut mbelib_packed = [0u8; RAW_BYTES];
+            mbelib_packed.copy_from_slice(chunk);
+            channel_encode(&permute_mbelib_to_chip(&mbelib_packed))
+        })
+        .collect();
 
     if args.no_decode {
+        let coded: Vec<u8> = frames.iter().flat_map(|f| f.iter().copied()).collect();
         File::create(&args.output)
             .and_then(|mut f| f.write_all(&coded))
             .map_err(|e| format!("write {}: {e}", args.output.display()))?;
@@ -112,20 +173,13 @@ fn run(args: &Args) -> Result<(), String> {
         return Ok(());
     }
 
-    let mut vocoder = args
-        .backend
-        .open_vocoder()
-        .map_err(|e| format!("open backend: {e}"))?;
-    if !args.quiet {
-        eprintln!("backend: {:?}", args.backend.backend);
-    }
+    let mut vocoder = open_vocoder(args)?;
+    vocoder.reset();
 
     let mut pcm = Vec::with_capacity(n_frames * PCM_SAMPLES_PER_FRAME);
-    for i in 0..n_frames {
-        let mut frame = [0u8; CODED_BYTES];
-        frame.copy_from_slice(&coded[i * CODED_BYTES..(i + 1) * CODED_BYTES]);
+    for (i, frame) in frames.iter().enumerate() {
         let samples = vocoder
-            .decode(Some(&frame))
+            .decode(Some(frame))
             .map_err(|e| format!("decode frame {i}: {e}"))?;
         pcm.extend_from_slice(&samples);
         if !args.quiet && (i + 1) % 200 == 0 {

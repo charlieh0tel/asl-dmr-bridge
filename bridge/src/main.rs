@@ -128,15 +128,11 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                                      when step = \"native_gru\""
                                 )
                             })?;
-                            ambe::open_native_gru_decoder(
-                                &dc.split_dir.join("decoder_frame.onnx"),
-                                weights_dir,
-                            )?
+                            ambe::open_native_gru_decoder_from_dirs(&dc.split_dir, weights_dir)?
                         }
-                        config::NeuralDecoderStep::Onnx => ambe::open_neural_decoder(
-                            &dc.split_dir.join("decoder_frame.onnx"),
-                            &dc.split_dir.join("decoder_step.onnx"),
-                        )?,
+                        config::NeuralDecoderStep::Onnx => {
+                            ambe::open_neural_decoder_from_dir(&dc.split_dir)?
+                        }
                     }
                 }
                 half => make_neural_half(half, config).await?,

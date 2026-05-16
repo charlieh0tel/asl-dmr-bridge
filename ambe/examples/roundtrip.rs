@@ -120,8 +120,7 @@ fn open_decoder(args: &Args) -> anyhow::Result<DecoderHandle> {
                 .decoder_weights_dir
                 .as_ref()
                 .context("--decoder-weights-dir required for decoder=native-gru")?;
-            let mut v =
-                ambe::open_native_gru_decoder(&model_dir.join("decoder_frame.onnx"), weights_dir)?;
+            let mut v = ambe::open_native_gru_decoder_from_dirs(model_dir, weights_dir)?;
             v.reset();
             Ok(DecoderHandle::Other(v))
         }
