@@ -73,7 +73,7 @@ serial_port = "/dev/ttyUSB0"
 # [vocoder.neural]
 # encoder_backend = "neural"    # default; neural | dynarmic | thumbdv | ambeserver
 # decoder_backend = "dynarmic"  # default; neural | dynarmic | thumbdv | ambeserver
-# encoder_model_path = "/usr/share/asl-dmr-bridge/models/aug50.onnx"
+# encoder_model_path = "/usr/share/asl-dmr-bridge/models/aug52-2026-05-15.onnx"
 #
 # Neural decoder sub-config; required when decoder_backend = "neural".
 # [vocoder.neural.decoder]

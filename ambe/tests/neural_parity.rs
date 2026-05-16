@@ -1,11 +1,7 @@
-//! Frame-by-frame bit-equality test for the aug50 ONNX bundle.
+//! Frame-by-frame bit-equality tests for neural encoder ONNX bundles.
 //! Reads `model.onnx`, `parity_input.wav`, and
-//! `parity_expected_49bit.bin` from `tests/fixtures/aug50/`.
-//! `$NEURAL_FIXTURE_DIR` overrides for ad-hoc bundles.
-//!
-//! Pass criterion: 100% of bits match the PT-canonical reference.
-//! If a future bundle drifts, lower the threshold deliberately and
-//! note why instead of accepting silent regression.
+//! `parity_expected_49bit.bin` from the named fixture directory.
+//! `$NEURAL_FIXTURE_DIR` overrides the fixture path for ad-hoc bundles.
 
 use std::env;
 use std::fs;
@@ -20,15 +16,13 @@ use ambe::voice_channel::unpack_msb_first;
 use dmr_types::PCM_SAMPLES;
 use tract_onnx::prelude::Framework;
 
-const PASS_THRESHOLD: f64 = 1.0;
-
 struct FixturePaths {
     model: PathBuf,
     wav: PathBuf,
     expected_bin: PathBuf,
 }
 
-fn fixture_paths() -> FixturePaths {
+fn fixture_paths(bundle: &str) -> FixturePaths {
     if let Some(p) = env::var_os("NEURAL_FIXTURE_DIR") {
         let dir = PathBuf::from(p);
         return FixturePaths {
@@ -38,7 +32,7 @@ fn fixture_paths() -> FixturePaths {
         };
     }
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fixture = manifest.join("tests").join("fixtures").join("aug50");
+    let fixture = manifest.join("tests").join("fixtures").join(bundle);
     FixturePaths {
         model: fixture.join("model.onnx"),
         wav: fixture.join("parity_input.wav"),
@@ -76,9 +70,8 @@ fn read_wav_pcm(path: &Path) -> Vec<i16> {
         .collect()
 }
 
-#[test]
-fn aug50_bit_parity() {
-    let paths = fixture_paths();
+fn run_parity(bundle: &str, pass_threshold: f64) {
+    let paths = fixture_paths(bundle);
     if !paths.model.exists() {
         eprintln!(
             "neural_parity: model missing at {}; skipping",
@@ -115,11 +108,8 @@ fn aug50_bit_parity() {
         frame.copy_from_slice(&pcm[f * PCM_SAMPLES..(f + 1) * PCM_SAMPLES]);
         let coded = v.encode(&frame).expect("encode");
         if f < warmup {
-            // Harness emits zeros during warm-up; expected fixture
-            // skips these.
             continue;
         }
-        // Recover 49 bits in mbelib `ambe_d[]` order.
         let chip_packed = channel_decode(&coded);
         let mbelib_packed = permute_chip_to_mbelib(&chip_packed);
         let actual_bits = unpack_msb_first(&mbelib_packed);
@@ -140,13 +130,23 @@ fn aug50_bit_parity() {
 
     let match_rate = matching_bits as f64 / total_bits as f64;
     eprintln!(
-        "neural_parity: {matching_bits}/{total_bits} bits match ({:.4}%)",
+        "neural_parity {bundle}: {matching_bits}/{total_bits} bits match ({:.4}%)",
         match_rate * 100.0
     );
     assert!(
-        match_rate >= PASS_THRESHOLD,
-        "neural_parity match rate {:.4}% < {:.1}%",
+        match_rate >= pass_threshold,
+        "neural_parity {bundle} match rate {:.4}% < {:.1}%",
         match_rate * 100.0,
-        PASS_THRESHOLD * 100.0,
+        pass_threshold * 100.0,
     );
+}
+
+#[test]
+fn aug50_bit_parity() {
+    run_parity("aug50", 1.0);
+}
+
+#[test]
+fn aug52_bit_parity() {
+    run_parity("aug52", 1.0);
 }

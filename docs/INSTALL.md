@@ -20,7 +20,7 @@ BRANDMEISTER_PASSWORD=...
 BRANDMEISTER_API_KEY=...
 ```
 
-Two ONNX models ship under `/usr/share/asl-dmr-bridge/models/`:
-the default `aug50-2026-05-06.onnx` and the prior
-`dmr50-2026-05-04.onnx` for rollback.  Switching is a config-edit
-+ restart.
+Three ONNX encoder models ship under `/usr/share/asl-dmr-bridge/models/`:
+the default `aug52-2026-05-15.onnx` (±12 dB gain augmentation),
+`aug50-2026-05-06.onnx` for rollback, and `dmr50-2026-05-04.onnx`.
+Switching is a config-edit + restart.

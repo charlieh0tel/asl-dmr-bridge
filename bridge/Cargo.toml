@@ -91,6 +91,7 @@ assets = [
     ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "0644"],
     ["../models/dmr50.onnx", "usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx", "0644"],
     ["../models/aug50.onnx", "usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx", "0644"],
+    ["../models/aug52.onnx", "usr/share/asl-dmr-bridge/models/aug52-2026-05-15.onnx", "0644"],
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",
