@@ -7,9 +7,9 @@
 //! by the bridge diagnostic recorder (`dmr_to_fm_decode_in_*.bin`).
 //!
 //! Backend selection:
-//!   chip (default): `--backend ambeserver|thumbdv|dynarmic`
-//!   neural ONNX:    `--backend onnx --decoder-model-dir <dir>`
-//!   native GRU:     `--backend native-gru --decoder-model-dir <dir> --decoder-weights-dir <dir>`
+//!   chip (default): `--decoder chip` (ambeserver or thumbdv via --chip-backend args)
+//!   neural ONNX:    `--decoder neural --decoder-model-dir <dir>`
+//!   native GRU:     `--decoder neural --decoder-step native-gru --decoder-model-dir <dir> --decoder-weights-dir <dir>`
 //!
 //! `--no-decode` skips the round trip and writes the 9-byte
 //! channel-coded stream to `--output` instead of a WAV.
@@ -21,6 +21,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use ambe::cli::ChipBackendArgs;
+use ambe::cli::NeuralDecoderArgs;
+use ambe::cli::NeuralDecoderStep;
 use ambe::voice_channel::CODED_BYTES;
 use ambe::voice_channel::RAW_BYTES;
 use ambe::voice_channel::channel_encode;
@@ -33,13 +35,11 @@ const PCM_SAMPLES_PER_FRAME: usize = 160;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Backend {
-    /// Chip backends (dynarmic, thumbdv, ambeserver) selected by --chip-backend.
+    /// Chip backends (ambeserver, thumbdv) selected by --chip-backend args.
     #[default]
     Chip,
-    /// Neural ONNX step decoder (requires --decoder-model-dir).
-    Onnx,
-    /// Native Rust GRU decoder (requires --decoder-model-dir and --decoder-weights-dir).
-    NativeGru,
+    /// Neural decoder; use --decoder-step to select onnx (default) or native-gru.
+    Neural,
 }
 
 #[derive(Parser)]
@@ -60,16 +60,10 @@ struct Args {
     /// Decoder backend.
     #[arg(long, default_value = "chip")]
     decoder: Backend,
-    /// Directory containing decoder_frame.onnx + decoder_step.onnx
-    /// (required for --backend onnx or native-gru).
-    #[arg(long)]
-    decoder_model_dir: Option<PathBuf>,
-    /// Directory containing flat-binary GRU weight files
-    /// (required for --backend native-gru).
-    #[arg(long)]
-    decoder_weights_dir: Option<PathBuf>,
     #[command(flatten)]
     chip_backend: ChipBackendArgs,
+    #[command(flatten)]
+    neural: NeuralDecoderArgs,
 }
 
 /// 44-byte canonical PCM WAV header for mono int16 at 8 kHz.
@@ -102,30 +96,27 @@ fn open_vocoder(args: &Args) -> Result<Box<dyn ambe::Vocoder>, String> {
             .open_vocoder()
             .map_err(|e| format!("open chip backend: {e}")),
         #[cfg(feature = "neural")]
-        Backend::Onnx => {
+        Backend::Neural => {
             let dir = args
+                .neural
                 .decoder_model_dir
                 .as_deref()
-                .ok_or("--decoder-model-dir required for --decoder onnx")?;
-            ambe::open_neural_decoder_from_dir(dir).map_err(|e| format!("open onnx decoder: {e}"))
-        }
-        #[cfg(feature = "neural")]
-        Backend::NativeGru => {
-            let model_dir = args
-                .decoder_model_dir
-                .as_deref()
-                .ok_or("--decoder-model-dir required for --decoder native-gru")?;
-            let weights_dir = args
-                .decoder_weights_dir
-                .as_deref()
-                .ok_or("--decoder-weights-dir required for --decoder native-gru")?;
-            ambe::open_native_gru_decoder_from_dirs(model_dir, weights_dir)
-                .map_err(|e| format!("open native-gru decoder: {e}"))
+                .ok_or("--decoder-model-dir required for --decoder neural")?;
+            match args.neural.decoder_step {
+                NeuralDecoderStep::Onnx => ambe::open_neural_decoder_from_dir(dir)
+                    .map_err(|e| format!("open onnx decoder: {e}")),
+                NeuralDecoderStep::NativeGru => {
+                    let weights_dir =
+                        args.neural.decoder_weights_dir.as_deref().ok_or(
+                            "--decoder-weights-dir required for --decoder-step native-gru",
+                        )?;
+                    ambe::open_native_gru_decoder_from_dirs(dir, weights_dir)
+                        .map_err(|e| format!("open native-gru decoder: {e}"))
+                }
+            }
         }
         #[cfg(not(feature = "neural"))]
-        Backend::Onnx | Backend::NativeGru => {
-            Err("neural backends require --features neural".into())
-        }
+        Backend::Neural => Err("neural backend requires --features neural".into()),
     }
 }
 

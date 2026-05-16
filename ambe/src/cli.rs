@@ -1,9 +1,13 @@
-//! Shared `clap` args for selecting and opening a chip backend.
+//! Shared `clap` args for selecting and opening vocoder backends.
 //!
 //! `ChipBackendArgs` is `#[derive(Args)]` so callers can flatten it
 //! into their own clap-derive struct and get a consistent
 //! `--backend / --ambeserver / --serial / --baud / --gain-in /
 //! --gain-out` surface across tools.
+//!
+//! `NeuralDecoderArgs` covers the two neural decoder variants (ONNX step
+//! and native GRU step) along with the model/weight paths they require.
+//! Flatten it when a tool accepts `--decoder neural`.
 //!
 //! Two factory methods cover the two consumer shapes:
 //! - `open_vocoder()` for tools doing routine PCM <-> AMBE+2 transcode
@@ -14,6 +18,7 @@
 //!   no encode path).
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use clap::Args;
 use clap::ValueEnum;
@@ -22,6 +27,32 @@ use crate::Vocoder;
 use crate::VocoderError;
 use crate::ambeserver::AmbeServerClient;
 use crate::chip::ChipClient;
+
+/// Which step implementation to use inside the neural decoder.
+/// Matches the `step` key in `[vocoder.neural.decoder]` config.
+#[derive(ValueEnum, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NeuralDecoderStep {
+    /// ONNX step model (default).
+    #[default]
+    Onnx,
+    /// Native Rust GRU step (requires --decoder-weights-dir).
+    NativeGru,
+}
+
+/// Clap args for the neural decoder half of a vocoder.
+/// Flatten into any tool that accepts `--decoder neural`.
+#[derive(Args, Clone, Debug)]
+pub struct NeuralDecoderArgs {
+    /// Neural step implementation (onnx or native-gru).
+    #[arg(long, value_enum, default_value_t)]
+    pub decoder_step: NeuralDecoderStep,
+    /// Directory containing decoder_frame.onnx (and decoder_step.onnx when step = onnx).
+    #[arg(long)]
+    pub decoder_model_dir: Option<PathBuf>,
+    /// Directory with flat-binary GRU weight files (required when step = native-gru).
+    #[arg(long)]
+    pub decoder_weights_dir: Option<PathBuf>,
+}
 
 const DEFAULT_AMBESERVER: &str = "127.0.0.1:2460";
 const DEFAULT_SERIAL: &str = "/dev/ttyUSB0";

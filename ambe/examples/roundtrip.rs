@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
 use ambe::Vocoder;
+use ambe::cli::NeuralDecoderArgs;
+use ambe::cli::NeuralDecoderStep;
 use anyhow::Context;
 use clap::Parser;
 use clap::ValueEnum;
@@ -9,16 +11,16 @@ use dmr_types::PCM_SAMPLES;
 use dmr_types::PcmFrame;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum Enc {
+enum Encoder {
     Neural,
     Dynarmic,
     Thumbdv,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum Dec {
+enum Decoder {
+    /// Neural decoder (use --decoder-step to select onnx or native-gru).
     Neural,
-    NativeGru,
     Dynarmic,
     Thumbdv,
 }
@@ -27,9 +29,9 @@ enum Dec {
 #[command(about = "Round-trip a WAV file through an encoder-decoder pair")]
 struct Args {
     #[arg(long, value_enum)]
-    encoder: Enc,
+    encoder: Encoder,
     #[arg(long, value_enum)]
-    decoder: Dec,
+    decoder: Decoder,
     /// Input WAV (8 kHz mono i16).
     #[arg(long = "in")]
     input: PathBuf,
@@ -39,18 +41,14 @@ struct Args {
     /// ONNX model file (required for encoder=neural).
     #[arg(long)]
     encoder_model_path: Option<PathBuf>,
-    /// Directory containing decoder_frame.onnx + decoder_step.onnx (required for decoder=neural).
-    #[arg(long)]
-    decoder_model_dir: Option<PathBuf>,
-    /// Directory containing flat-binary GRU weight files (required for decoder=native-gru).
-    #[arg(long)]
-    decoder_weights_dir: Option<PathBuf>,
     /// Serial port shared by thumbdv encoder and/or decoder.
     #[arg(long)]
     serial_port: Option<String>,
     /// Print per-frame VQ indices as JSONL to stdout.
     #[arg(long)]
     dump_vq: bool,
+    #[command(flatten)]
+    neural: NeuralDecoderArgs,
 }
 
 enum DecoderHandle {
@@ -83,15 +81,15 @@ impl DecoderHandle {
 
 fn open_encoder(args: &Args) -> anyhow::Result<Box<dyn Vocoder>> {
     let mut v: Box<dyn Vocoder> = match args.encoder {
-        Enc::Neural => {
+        Encoder::Neural => {
             let path = args
                 .encoder_model_path
                 .as_ref()
                 .context("--encoder-model-path required for encoder=neural")?;
             ambe::open_neural(path)?
         }
-        Enc::Dynarmic => ambe::open_dynarmic(),
-        Enc::Thumbdv => open_thumbdv(args)?,
+        Encoder::Dynarmic => ambe::open_dynarmic(),
+        Encoder::Thumbdv => open_thumbdv(args)?,
     };
     v.reset();
     Ok(v)
@@ -99,37 +97,38 @@ fn open_encoder(args: &Args) -> anyhow::Result<Box<dyn Vocoder>> {
 
 fn open_decoder(args: &Args) -> anyhow::Result<DecoderHandle> {
     match args.decoder {
-        Dec::Neural => {
+        Decoder::Neural => {
             let dir = args
+                .neural
                 .decoder_model_dir
                 .as_ref()
                 .context("--decoder-model-dir required for decoder=neural")?;
-            let mut b = ambe::NeuralDecoderBench::open(
-                &dir.join("decoder_frame.onnx"),
-                &dir.join("decoder_step.onnx"),
-            )?;
-            b.reset();
-            Ok(DecoderHandle::Neural(Box::new(b)))
+            match args.neural.decoder_step {
+                NeuralDecoderStep::Onnx => {
+                    let mut b = ambe::NeuralDecoderBench::open(
+                        &dir.join("decoder_frame.onnx"),
+                        &dir.join("decoder_step.onnx"),
+                    )?;
+                    b.reset();
+                    Ok(DecoderHandle::Neural(Box::new(b)))
+                }
+                NeuralDecoderStep::NativeGru => {
+                    let weights_dir =
+                        args.neural.decoder_weights_dir.as_ref().context(
+                            "--decoder-weights-dir required for decoder-step=native-gru",
+                        )?;
+                    let mut v = ambe::open_native_gru_decoder_from_dirs(dir, weights_dir)?;
+                    v.reset();
+                    Ok(DecoderHandle::Other(v))
+                }
+            }
         }
-        Dec::NativeGru => {
-            let model_dir = args
-                .decoder_model_dir
-                .as_ref()
-                .context("--decoder-model-dir required for decoder=native-gru")?;
-            let weights_dir = args
-                .decoder_weights_dir
-                .as_ref()
-                .context("--decoder-weights-dir required for decoder=native-gru")?;
-            let mut v = ambe::open_native_gru_decoder_from_dirs(model_dir, weights_dir)?;
-            v.reset();
-            Ok(DecoderHandle::Other(v))
-        }
-        Dec::Dynarmic => {
+        Decoder::Dynarmic => {
             let mut v = ambe::open_dynarmic();
             v.reset();
             Ok(DecoderHandle::Other(v))
         }
-        Dec::Thumbdv => {
+        Decoder::Thumbdv => {
             let mut v = open_thumbdv(args)?;
             v.reset();
             Ok(DecoderHandle::Other(v))
