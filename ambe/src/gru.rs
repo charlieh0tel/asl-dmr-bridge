@@ -175,6 +175,10 @@ pub(crate) fn gru_step(
 
 /// Matrix-vector product for a [HIDDEN × INPUT] matrix.
 /// out[i] = sum_j W[i][j] * x[j]
+/// Four independent accumulators let LLVM vectorize without fast-math.
+/// Both N=136 (INPUT) and N=256 (HIDDEN) are divisible by 4, so the tail
+/// loop is compile-time dead for those instantiations.
+#[inline(always)]
 fn dot4<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
     let (mut s0, mut s1, mut s2, mut s3) = (0f32, 0f32, 0f32, 0f32);
     let chunks = N / 4;
@@ -185,7 +189,6 @@ fn dot4<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
         s2 += a[j + 2] * b[j + 2];
         s3 += a[j + 3] * b[j + 3];
     }
-    // Tail: compile-time dead for N divisible by 4 (INPUT=136, HIDDEN=256).
     let mut tail = 0f32;
     for i in (chunks * 4)..N {
         tail += a[i] * b[i];
@@ -193,7 +196,23 @@ fn dot4<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
     s0 + s1 + s2 + s3 + tail
 }
 
+/// Same arithmetic as `dot4`, compiled with AVX2+FMA (256-bit ymm registers).
+/// `dot4` is inlined so the full loop body gets the wider ISA.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+unsafe fn dot4_avx2<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
+    dot4(a, b)
+}
+
 fn gemv_rect(w: &[[f32; INPUT]; HIDDEN], x: &[f32; INPUT], out: &mut [f32; HIDDEN]) {
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+        for (o, row) in out.iter_mut().zip(w.iter()) {
+            // SAFETY: avx2 and fma presence confirmed above.
+            *o = unsafe { dot4_avx2(row, x) };
+        }
+        return;
+    }
     for (o, row) in out.iter_mut().zip(w.iter()) {
         *o = dot4(row, x);
     }
@@ -201,6 +220,14 @@ fn gemv_rect(w: &[[f32; INPUT]; HIDDEN], x: &[f32; INPUT], out: &mut [f32; HIDDE
 
 /// Matrix-vector product for a [HIDDEN × HIDDEN] matrix.
 fn gemv_sq(w: &[[f32; HIDDEN]; HIDDEN], x: &[f32; HIDDEN], out: &mut [f32; HIDDEN]) {
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+        for (o, row) in out.iter_mut().zip(w.iter()) {
+            // SAFETY: avx2 and fma presence confirmed above.
+            *o = unsafe { dot4_avx2(row, x) };
+        }
+        return;
+    }
     for (o, row) in out.iter_mut().zip(w.iter()) {
         *o = dot4(row, x);
     }
