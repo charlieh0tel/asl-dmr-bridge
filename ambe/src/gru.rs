@@ -578,48 +578,38 @@ mod tests {
         }
     }
 
-    /// Parity test: native GRU must produce the same µ-law sequence as
-    /// the step-1 ONNX model over 500 consecutive steps from the same
-    /// initial state.  Skips if the oracle model or weights aren't present.
-    #[test]
-    fn gru_step_matches_onnx_oracle() {
-        let nambe = std::path::Path::new("/home/ch/src/nambe/runs");
-        let step_model = nambe.join("decoder-d4-split/decoder_step.onnx");
-        let weights_dir = nambe.join("decoder-d4-weights");
+    /// Run the step-1 ONNX oracle against the native GRU for 500 steps.
+    /// Returns false and prints a skip message if either path is absent.
+    fn run_onnx_oracle(label: &str, step_model: &Path, weights_dir: &Path) -> bool {
         if !step_model.exists() || !weights_dir.exists() {
-            eprintln!("gru_step_matches_onnx_oracle: fixtures absent; skipping");
-            return;
+            eprintln!("{label}: fixtures absent; skipping");
+            return false;
         }
 
-        let weights = GruWeights::load(&weights_dir).expect("load weights");
+        let weights = GruWeights::load(weights_dir).expect("load weights");
         let hidden = weights.hidden;
         let mut scratch = GruScratch::new(hidden);
 
         let onnx = tract_onnx::onnx();
         let step_plan = onnx
-            .model_for_path(&step_model)
+            .model_for_path(step_model)
             .expect("load step model")
             .into_optimized()
             .expect("optimize")
             .into_runnable()
             .expect("runnable");
 
-        // Shared initial state: silence mu, zero hidden.
         let mut h_native = vec![0f32; hidden];
         let mut h_onnx = tract_ndarray::Array3::<f32>::zeros((1, 1, hidden));
         let mut prev_mu_native: u8 = MU_SILENCE;
         let mut prev_mu_onnx: i64 = i64::from(MU_SILENCE);
-        // Fixed conditioning: all zeros (arbitrary but reproducible).
         let cond = [0f32; COND_DIM];
-
         let mut max_h_err = 0f32;
 
         for step in 0..500usize {
-            // Native GRU step.
             let next_native =
                 gru_step(prev_mu_native, &cond, &mut h_native, &weights, &mut scratch);
 
-            // ONNX step-1 model: inputs are prev_mu [1] i64, cond [1,128] f32, h [1,1,H] f32.
             let mu_t = tract_ndarray::arr1(&[prev_mu_onnx]).into_tensor();
             let cond_t = tract_ndarray::Array2::from_shape_vec((1, COND_DIM), cond.to_vec())
                 .unwrap()
@@ -636,7 +626,7 @@ mod tests {
 
             assert_eq!(
                 next_native, next_onnx,
-                "step {step}: native={next_native} onnx={next_onnx}"
+                "{label} step {step}: native={next_native} onnx={next_onnx}"
             );
 
             let step_h_err = h_native
@@ -652,7 +642,34 @@ mod tests {
             prev_mu_onnx = i64::from(next_onnx);
         }
 
-        eprintln!("max h error over 500 steps: {max_h_err:.2e}");
-        assert!(max_h_err < 1e-4, "max h error {max_h_err:.2e} exceeds 1e-4");
+        eprintln!("{label}: max h error over 500 steps: {max_h_err:.2e}");
+        assert!(
+            max_h_err < 1e-4,
+            "{label}: max h error {max_h_err:.2e} exceeds 1e-4"
+        );
+        true
+    }
+
+    /// Parity oracle for h256 weights (nambe dev path; skips if absent).
+    #[test]
+    fn gru_step_matches_onnx_oracle_h256() {
+        let nambe = std::path::Path::new("/home/ch/src/nambe/runs");
+        run_onnx_oracle(
+            "h256",
+            &nambe.join("decoder-d4-split/decoder_step.onnx"),
+            &nambe.join("decoder-d4-weights"),
+        );
+    }
+
+    /// Parity oracle for h96 weights (committed to models/; always runs).
+    #[test]
+    fn gru_step_matches_onnx_oracle_h96() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let weights_dir = manifest.join("../models/decoder-d5-h96-weights");
+        let step_model = weights_dir.join("decoder_step.onnx");
+        assert!(
+            run_onnx_oracle("h96", &step_model, &weights_dir),
+            "h96 oracle fixtures missing"
+        );
     }
 }
