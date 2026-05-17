@@ -362,6 +362,10 @@ impl NativeGruDecoder {
         let mut cond = [0f32; COND_DIM];
         cond.copy_from_slice(cond_slice);
 
+        if self.frames_timed == 0 {
+            eprintln!("cond[:4] = {:?}", &cond[..4]);
+        }
+
         // Native GRU: 160 steps
         let t_step = Instant::now();
         let mut out = [0i16; PCM_SAMPLES];
