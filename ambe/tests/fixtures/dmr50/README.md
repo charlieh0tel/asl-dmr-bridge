@@ -17,7 +17,7 @@ deterministic ground truth for the deployment graph.
   frame. Computed via PT-canonical.
 - **`README.md`** -- this file.
 
-The ONNX model itself lives at workspace-root `models/dmr50.onnx`
+The ONNX model itself lives at workspace-root `models/encoder-dmr50.onnx`
 (the same file the .deb ships under
 `/usr/share/asl-dmr-bridge/models/`).  The parity test resolves the
 model from there; the WAV + expected bits stay here.

@@ -89,9 +89,9 @@ assets = [
     ["../packaging/asl-dmr-bridge-update-subscribers", "usr/lib/asl-dmr-bridge/update-subscribers", "0755"],
     ["../packaging/asl-dmr-bridge.tmpfiles", "usr/lib/tmpfiles.d/asl-dmr-bridge.conf", "0644"],
     ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "0644"],
-    ["../models/dmr50.onnx", "usr/share/asl-dmr-bridge/models/dmr50-2026-05-04.onnx", "0644"],
-    ["../models/aug50.onnx", "usr/share/asl-dmr-bridge/models/aug50-2026-05-06.onnx", "0644"],
-    ["../models/aug52.onnx", "usr/share/asl-dmr-bridge/models/aug52-2026-05-15.onnx", "0644"],
+    ["../models/encoder-dmr50.onnx", "usr/share/asl-dmr-bridge/models/encoder-dmr50-2026-05-04.onnx", "0644"],
+    ["../models/encoder-aug50.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug50-2026-05-06.onnx", "0644"],
+    ["../models/encoder-aug52.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug52-2026-05-15.onnx", "0644"],
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",
