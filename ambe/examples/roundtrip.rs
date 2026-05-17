@@ -113,9 +113,10 @@ fn open_decoder(args: &Args) -> anyhow::Result<DecoderHandle> {
                 .context("--decoder-model-dir required for decoder=neural")?;
             match args.neural.decoder_step {
                 NeuralDecoderStep::Onnx => {
+                    let step_dir = args.neural.decoder_weights_dir.as_deref().unwrap_or(dir);
                     let mut b = ambe::NeuralDecoderBench::open(
                         &dir.join("decoder_frame.onnx"),
-                        &dir.join("decoder_step.onnx"),
+                        &step_dir.join("decoder_step.onnx"),
                     )?;
                     b.reset();
                     Ok(DecoderHandle::Neural(Box::new(b)))
