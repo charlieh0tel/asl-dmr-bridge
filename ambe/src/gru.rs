@@ -661,6 +661,18 @@ mod tests {
         );
     }
 
+    /// Parity oracle for h128 weights (committed to models/; always runs).
+    #[test]
+    fn gru_step_matches_onnx_oracle_h128() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let weights_dir = manifest.join("../models/decoder-d5-h128-weights");
+        let step_model = weights_dir.join("decoder_step.onnx");
+        assert!(
+            run_onnx_oracle("h128", &step_model, &weights_dir),
+            "h128 oracle fixtures missing"
+        );
+    }
+
     /// Parity oracle for h96 weights (committed to models/; always runs).
     #[test]
     fn gru_step_matches_onnx_oracle_h96() {
