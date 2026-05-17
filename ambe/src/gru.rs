@@ -2,15 +2,17 @@
 //! `NativeGruDecoder` vocoder that replaces the ONNX step model with
 //! this kernel while keeping the tract frame-conditioning model.
 //!
-//! Weight layout (all f32 LE, row-major on disk):
+//! Weight layout (all f32 LE, row-major on disk).  Dimensions that
+//! vary with the model variant are written as `H` (gru_hidden from
+//! meta.json); fixed dimensions are literal:
 //!   sample_embed  [256,  8]
-//!   W_ir/iz/in    [256, 136]  GRU input weights  (r, z, n gates)
-//!   W_hr/hz/hn    [256, 256]  GRU hidden weights (r, z, n gates)
-//!   b_ir/iz/in    [256]       GRU input biases
-//!   b_hr/hz/hn    [256]       GRU hidden biases
-//!   fc1_weight    [256, 256]  dual-FC layer 1 weight
-//!   fc1_bias      [256]
-//!   fc2_weight    [256, 256]  dual-FC layer 2 weight
+//!   W_ir/iz/in    [H, 136]  GRU input weights  (r, z, n gates)
+//!   W_hr/hz/hn    [H,   H]  GRU hidden weights (r, z, n gates)
+//!   b_ir/iz/in    [H]       GRU input biases
+//!   b_hr/hz/hn    [H]       GRU hidden biases
+//!   fc1_weight    [H,   H]  dual-FC layer 1 weight
+//!   fc1_bias      [H]
+//!   fc2_weight    [256,  H] dual-FC layer 2 weight (output always 256)
 //!   fc2_bias      [256]
 
 use std::collections::VecDeque;
@@ -37,69 +39,113 @@ use dmr_types::AmbeFrame;
 use dmr_types::PCM_SAMPLES;
 use dmr_types::PcmFrame;
 
-const HIDDEN: usize = 256;
-const INPUT: usize = 136; // embed(8) + cond(128)
+// Fixed dimensions shared by all model variants.
+const INPUT: usize = 136; // EMBED_DIM(8) + COND_DIM(128)
 const MU_CHANNELS: usize = 256;
 const EMBED_DIM: usize = 8;
 const COND_DIM: usize = 128;
 const MU_SILENCE: u8 = 128;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
-/// weight directory.  Weight matrices are stored as column-major
-/// `faer::Mat<f32>` (transposed from the row-major on-disk layout);
-/// SIMD dispatch is handled automatically by faer's pulp backend.
+/// weight directory.  `hidden` is read from `meta.json` and may be
+/// 256, 128, or 64 depending on the model variant.
+///
+/// Weight matrices are stored as column-major `faer::Mat<f32>` (transposed
+/// from the row-major on-disk layout); SIMD dispatch is handled by faer.
 pub(crate) struct GruWeights {
+    /// GRU hidden dimension for this model variant.
+    pub(crate) hidden: usize,
     /// [256, 8] µ-law embedding lookup table.
     sample_embed: Box<[[f32; EMBED_DIM]; MU_CHANNELS]>,
-    /// [256, 136] GRU input weights for r, z, n gates.
+    /// [H, 136] GRU input weights for r, z, n gates.
     w_ir: Mat<f32>,
     w_iz: Mat<f32>,
     w_in: Mat<f32>,
-    /// [256, 256] GRU hidden weights for r, z, n gates.
+    /// [H, H] GRU hidden weights for r, z, n gates.
     w_hr: Mat<f32>,
     w_hz: Mat<f32>,
     w_hn: Mat<f32>,
-    /// [256] GRU biases: input and hidden, for r, z, n.
-    b_ir: [f32; HIDDEN],
-    b_iz: [f32; HIDDEN],
-    b_in: [f32; HIDDEN],
-    b_hr: [f32; HIDDEN],
-    b_hz: [f32; HIDDEN],
-    b_hn: [f32; HIDDEN],
-    /// [256, 256] dual-FC layer weights and biases.
+    /// [H] GRU biases: input and hidden, for r, z, n.
+    b_ir: Box<[f32]>,
+    b_iz: Box<[f32]>,
+    b_in: Box<[f32]>,
+    b_hr: Box<[f32]>,
+    b_hz: Box<[f32]>,
+    b_hn: Box<[f32]>,
+    /// [H, H] dual-FC layer 1; [256, H] dual-FC layer 2.
     fc1_weight: Mat<f32>,
-    fc1_bias: [f32; HIDDEN],
+    fc1_bias: Box<[f32]>,
+    /// fc2 output is always MU_CHANNELS=256 regardless of hidden size.
     fc2_weight: Mat<f32>,
-    fc2_bias: [f32; HIDDEN],
+    fc2_bias: Box<[f32]>,
 }
 
 impl GruWeights {
     pub(crate) fn load(dir: &Path) -> Result<Self, VocoderError> {
-        validate_meta(dir)?;
+        let hidden = read_meta(dir)?;
         Ok(Self {
+            hidden,
             sample_embed: load_embed(dir, "sample_embed.bin")?,
-            w_ir: load_matrix_faer(dir, "W_ir.bin", HIDDEN, INPUT)?,
-            w_iz: load_matrix_faer(dir, "W_iz.bin", HIDDEN, INPUT)?,
-            w_in: load_matrix_faer(dir, "W_in.bin", HIDDEN, INPUT)?,
-            w_hr: load_matrix_faer(dir, "W_hr.bin", HIDDEN, HIDDEN)?,
-            w_hz: load_matrix_faer(dir, "W_hz.bin", HIDDEN, HIDDEN)?,
-            w_hn: load_matrix_faer(dir, "W_hn.bin", HIDDEN, HIDDEN)?,
-            b_ir: load_bias(dir, "b_ir.bin")?,
-            b_iz: load_bias(dir, "b_iz.bin")?,
-            b_in: load_bias(dir, "b_in.bin")?,
-            b_hr: load_bias(dir, "b_hr.bin")?,
-            b_hz: load_bias(dir, "b_hz.bin")?,
-            b_hn: load_bias(dir, "b_hn.bin")?,
-            fc1_weight: load_matrix_faer(dir, "fc1_weight.bin", HIDDEN, HIDDEN)?,
-            fc1_bias: load_bias(dir, "fc1_bias.bin")?,
-            fc2_weight: load_matrix_faer(dir, "fc2_weight.bin", HIDDEN, HIDDEN)?,
-            fc2_bias: load_bias(dir, "fc2_bias.bin")?,
+            w_ir: load_matrix_faer(dir, "W_ir.bin", hidden, INPUT)?,
+            w_iz: load_matrix_faer(dir, "W_iz.bin", hidden, INPUT)?,
+            w_in: load_matrix_faer(dir, "W_in.bin", hidden, INPUT)?,
+            w_hr: load_matrix_faer(dir, "W_hr.bin", hidden, hidden)?,
+            w_hz: load_matrix_faer(dir, "W_hz.bin", hidden, hidden)?,
+            w_hn: load_matrix_faer(dir, "W_hn.bin", hidden, hidden)?,
+            b_ir: load_bias(dir, "b_ir.bin", hidden)?,
+            b_iz: load_bias(dir, "b_iz.bin", hidden)?,
+            b_in: load_bias(dir, "b_in.bin", hidden)?,
+            b_hr: load_bias(dir, "b_hr.bin", hidden)?,
+            b_hz: load_bias(dir, "b_hz.bin", hidden)?,
+            b_hn: load_bias(dir, "b_hn.bin", hidden)?,
+            fc1_weight: load_matrix_faer(dir, "fc1_weight.bin", hidden, hidden)?,
+            fc1_bias: load_bias(dir, "fc1_bias.bin", hidden)?,
+            fc2_weight: load_matrix_faer(dir, "fc2_weight.bin", MU_CHANNELS, hidden)?,
+            fc2_bias: load_bias(dir, "fc2_bias.bin", MU_CHANNELS)?,
         })
     }
 }
 
+/// Pre-allocated scratch buffers for `gru_step`.  Owned by
+/// `NativeGruDecoder` so the hot loop makes zero heap allocations.
+pub(crate) struct GruScratch {
+    x: Box<[f32]>,      // INPUT
+    wr_x: Box<[f32]>,   // hidden
+    whr_h: Box<[f32]>,  // hidden
+    r: Box<[f32]>,      // hidden
+    wz_x: Box<[f32]>,   // hidden
+    whz_h: Box<[f32]>,  // hidden
+    z: Box<[f32]>,      // hidden
+    wn_x: Box<[f32]>,   // hidden
+    whn_h: Box<[f32]>,  // hidden
+    n: Box<[f32]>,      // hidden
+    a: Box<[f32]>,      // hidden
+    logits: Box<[f32]>, // MU_CHANNELS
+}
+
+impl GruScratch {
+    fn new(hidden: usize) -> Self {
+        let h = || vec![0f32; hidden].into_boxed_slice();
+        Self {
+            x: vec![0f32; INPUT].into_boxed_slice(),
+            wr_x: h(),
+            whr_h: h(),
+            r: h(),
+            wz_x: h(),
+            whz_h: h(),
+            z: h(),
+            wn_x: h(),
+            whn_h: h(),
+            n: h(),
+            a: h(),
+            logits: vec![0f32; MU_CHANNELS].into_boxed_slice(),
+        }
+    }
+}
+
 /// GRU + FC step: given the previous µ-law code, frame conditioning
-/// vector, and hidden state, produce the next µ-law code and new state.
+/// vector, and hidden state, produce the next µ-law code.  `h` is
+/// updated in-place; `s` is a scratch workspace (no heap allocation).
 ///
 /// PyTorch GRU convention:
 ///   r = sigmoid(W_ir @ x + b_ir + W_hr @ h + b_hr)
@@ -110,74 +156,62 @@ impl GruWeights {
 ///   next_mu = argmax(fc2 @ a + fc2_bias)
 pub(crate) fn gru_step(
     prev_mu: u8,
-    cond: &[f32; COND_DIM],
-    h: &[f32; HIDDEN],
+    cond: &[f32],
+    h: &mut [f32],
     w: &GruWeights,
-) -> (u8, [f32; HIDDEN]) {
-    // Build input: concat(embed[prev_mu], cond) -> [136]
-    let mut x = [0f32; INPUT];
-    x[..EMBED_DIM].copy_from_slice(&w.sample_embed[usize::from(prev_mu)]);
-    x[EMBED_DIM..].copy_from_slice(cond);
+    s: &mut GruScratch,
+) -> u8 {
+    let hidden = w.hidden;
+
+    // Build input: concat(embed[prev_mu], cond) -> [INPUT]
+    s.x[..EMBED_DIM].copy_from_slice(&w.sample_embed[usize::from(prev_mu)]);
+    s.x[EMBED_DIM..].copy_from_slice(cond);
 
     // r gate
-    let mut wr_x = [0f32; HIDDEN];
-    let mut whr_h = [0f32; HIDDEN];
-    faer_gemv(&w.w_ir, &x, &mut wr_x);
-    faer_gemv(&w.w_hr, h, &mut whr_h);
-    let mut r = [0f32; HIDDEN];
-    for i in 0..HIDDEN {
-        r[i] = sigmoid(wr_x[i] + w.b_ir[i] + whr_h[i] + w.b_hr[i]);
+    faer_gemv(&w.w_ir, &s.x, &mut s.wr_x);
+    faer_gemv(&w.w_hr, h, &mut s.whr_h);
+    for i in 0..hidden {
+        s.r[i] = sigmoid(s.wr_x[i] + w.b_ir[i] + s.whr_h[i] + w.b_hr[i]);
     }
 
     // z gate
-    let mut wz_x = [0f32; HIDDEN];
-    let mut whz_h = [0f32; HIDDEN];
-    faer_gemv(&w.w_iz, &x, &mut wz_x);
-    faer_gemv(&w.w_hz, h, &mut whz_h);
-    let mut z = [0f32; HIDDEN];
-    for i in 0..HIDDEN {
-        z[i] = sigmoid(wz_x[i] + w.b_iz[i] + whz_h[i] + w.b_hz[i]);
+    faer_gemv(&w.w_iz, &s.x, &mut s.wz_x);
+    faer_gemv(&w.w_hz, h, &mut s.whz_h);
+    for i in 0..hidden {
+        s.z[i] = sigmoid(s.wz_x[i] + w.b_iz[i] + s.whz_h[i] + w.b_hz[i]);
     }
 
     // n gate
-    let mut wn_x = [0f32; HIDDEN];
-    let mut whn_h = [0f32; HIDDEN];
-    faer_gemv(&w.w_in, &x, &mut wn_x);
-    faer_gemv(&w.w_hn, h, &mut whn_h);
-    let mut n = [0f32; HIDDEN];
-    for i in 0..HIDDEN {
-        n[i] = (wn_x[i] + w.b_in[i] + r[i] * (whn_h[i] + w.b_hn[i])).tanh();
+    faer_gemv(&w.w_in, &s.x, &mut s.wn_x);
+    faer_gemv(&w.w_hn, h, &mut s.whn_h);
+    for i in 0..hidden {
+        s.n[i] = (s.wn_x[i] + w.b_in[i] + s.r[i] * (s.whn_h[i] + w.b_hn[i])).tanh();
     }
 
-    // h' = (1 - z) * n + z * h
-    let mut h_new = [0f32; HIDDEN];
-    for i in 0..HIDDEN {
-        h_new[i] = (1.0 - z[i]) * n[i] + z[i] * h[i];
+    // h' = (1 - z) * n + z * h  (written back into h in-place)
+    for ((h_i, &z_i), &n_i) in h.iter_mut().zip(s.z.iter()).zip(s.n.iter()) {
+        *h_i = (1.0 - z_i) * n_i + z_i * *h_i;
     }
 
     // dual FC: a = tanh(fc1 @ h' + fc1_bias)
-    let mut a = [0f32; HIDDEN];
-    faer_gemv(&w.fc1_weight, &h_new, &mut a);
-    for (v, &b) in a.iter_mut().zip(w.fc1_bias.iter()) {
+    faer_gemv(&w.fc1_weight, h, &mut s.a);
+    for (v, &b) in s.a.iter_mut().zip(w.fc1_bias.iter()) {
         *v = (*v + b).tanh();
     }
 
-    // logits = fc2 @ a + fc2_bias
-    let mut logits = [0f32; HIDDEN];
-    faer_gemv(&w.fc2_weight, &a, &mut logits);
-    for (v, &b) in logits.iter_mut().zip(w.fc2_bias.iter()) {
+    // logits = fc2 @ a + fc2_bias  (fc2 is [MU_CHANNELS × hidden])
+    faer_gemv(&w.fc2_weight, &s.a, &mut s.logits);
+    for (v, &b) in s.logits.iter_mut().zip(w.fc2_bias.iter()) {
         *v += b;
     }
 
     // next_mu = argmax(logits)
-    let next_mu = logits
+    s.logits
         .iter()
         .enumerate()
         .max_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(i, _)| i as u8)
-        .unwrap_or(MU_SILENCE);
-
-    (next_mu, h_new)
+        .unwrap_or(MU_SILENCE)
 }
 
 /// Matrix-vector product: out = W * x, written into `out`.
@@ -232,7 +266,8 @@ pub(crate) struct NativeGruDecoder {
     pending: VecDeque<[i64; 9]>,
     history: VecDeque<[i64; 9]>,
     prev_mu: u8,
-    h: Box<[f32; HIDDEN]>,
+    h: Box<[f32]>,
+    scratch: GruScratch,
     out_db: dsp::dB,
 }
 
@@ -279,13 +314,16 @@ impl NativeGruDecoder {
         );
 
         let weights = GruWeights::load(weights_dir)?;
+        let hidden = weights.hidden;
         info!(
             dir = %weights_dir.display(),
+            hidden,
             "native GRU decoder: weights loaded"
         );
 
         Ok(Self {
             frame_plan,
+            scratch: GruScratch::new(hidden),
             weights,
             frame_ns: 0,
             step_ns: 0,
@@ -293,7 +331,7 @@ impl NativeGruDecoder {
             pending: VecDeque::new(),
             history: VecDeque::new(),
             prev_mu: MU_SILENCE,
-            h: Box::new([0.0; HIDDEN]),
+            h: vec![0.0; hidden].into_boxed_slice(),
             out_db: dsp::dB::UNITY,
         })
     }
@@ -329,8 +367,13 @@ impl NativeGruDecoder {
         let mut out = [0i16; PCM_SAMPLES];
         let mut prev_mu = self.prev_mu;
         for s in &mut out {
-            let (next_mu, h_new) = gru_step(prev_mu, &cond, &self.h, &self.weights);
-            *self.h = h_new;
+            let next_mu = gru_step(
+                prev_mu,
+                &cond,
+                &mut self.h,
+                &self.weights,
+                &mut self.scratch,
+            );
             *s = ulaw_decode(next_mu);
             prev_mu = next_mu;
         }
@@ -386,7 +429,7 @@ impl Vocoder for NativeGruDecoder {
         self.pending.clear();
         self.history.clear();
         self.prev_mu = MU_SILENCE;
-        *self.h = [0.0; HIDDEN];
+        self.h.fill(0.0);
     }
 
     fn set_gain(&mut self, _in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
@@ -425,7 +468,7 @@ fn load_embed(
 
 /// Load a [nrows × ncols] weight matrix from a row-major f32 LE binary file
 /// into a column-major `faer::Mat<f32>`.  The transpose at load time lets
-/// faer's pulp GEMV kernel access columns contiguously.
+/// faer's GEMV kernel access columns contiguously.
 fn load_matrix_faer(
     dir: &Path,
     name: &str,
@@ -450,12 +493,12 @@ fn load_matrix_faer(
     Ok(mat)
 }
 
-/// Load a [256] bias vector from a raw f32 LE binary file.
-fn load_bias(dir: &Path, name: &str) -> Result<[f32; HIDDEN], VocoderError> {
+/// Load a bias vector of `len` f32 values from a raw f32 LE binary file.
+fn load_bias(dir: &Path, name: &str, len: usize) -> Result<Box<[f32]>, VocoderError> {
     let path = dir.join(name);
     let bytes = std::fs::read(&path)
         .map_err(|e| VocoderError::Init(format!("read {}: {e}", path.display())))?;
-    let expected = HIDDEN * 4;
+    let expected = len * 4;
     if bytes.len() != expected {
         return Err(VocoderError::Init(format!(
             "{}: expected {expected} bytes, got {}",
@@ -463,28 +506,29 @@ fn load_bias(dir: &Path, name: &str) -> Result<[f32; HIDDEN], VocoderError> {
             bytes.len()
         )));
     }
-    let mut v = [0f32; HIDDEN];
-    for (i, x) in v.iter_mut().enumerate() {
-        let off = i * 4;
-        *x = f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
-    }
+    let v: Box<[f32]> = (0..len)
+        .map(|i| f32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap()))
+        .collect();
     Ok(v)
 }
 
-/// Parse `meta.json` from the weights directory and validate it against the
-/// compile-time architecture constants.  Returns an error if the file is
-/// missing, malformed, or contains unexpected values.
-fn validate_meta(dir: &Path) -> Result<(), VocoderError> {
+/// Parse `meta.json` from the weights directory, validate fixed dimensions,
+/// and return `gru_hidden` for runtime sizing.
+fn read_meta(dir: &Path) -> Result<usize, VocoderError> {
     let path = dir.join("meta.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| VocoderError::Init(format!("read {}: {e}", path.display())))?;
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| VocoderError::Init(format!("parse {}: {e}", path.display())))?;
 
+    let read_usize = |key: &str| -> Result<usize, VocoderError> {
+        v[key]
+            .as_u64()
+            .ok_or_else(|| VocoderError::Init(format!("meta.json: missing or non-integer '{key}'")))
+            .map(|n| n as usize)
+    };
     let check = |key: &str, expected: usize| -> Result<(), VocoderError> {
-        let got = v[key].as_u64().ok_or_else(|| {
-            VocoderError::Init(format!("meta.json: missing or non-integer '{key}'"))
-        })? as usize;
+        let got = read_usize(key)?;
         if got != expected {
             return Err(VocoderError::Init(format!(
                 "meta.json: {key}={got}, expected {expected}"
@@ -493,15 +537,22 @@ fn validate_meta(dir: &Path) -> Result<(), VocoderError> {
         Ok(())
     };
 
-    check("gru_hidden", HIDDEN)?;
     check("gru_input_size", INPUT)?;
     check("sample_embed_dim", EMBED_DIM)?;
     check("cond_dim", COND_DIM)?;
     check("mu_channels", MU_CHANNELS)?;
     check("mu_silence", usize::from(MU_SILENCE))?;
     check("samples_per_frame", PCM_SAMPLES)?;
-    check("dual_fc_hidden", HIDDEN)?;
-    Ok(())
+
+    let hidden = read_usize("gru_hidden")?;
+    let dual_fc_hidden = read_usize("dual_fc_hidden")?;
+    if hidden != dual_fc_hidden {
+        return Err(VocoderError::Init(format!(
+            "meta.json: gru_hidden={hidden} != dual_fc_hidden={dual_fc_hidden}"
+        )));
+    }
+
+    Ok(hidden)
 }
 
 fn init_err(msg: String) -> VocoderError {
@@ -541,6 +592,8 @@ mod tests {
         }
 
         let weights = GruWeights::load(&weights_dir).expect("load weights");
+        let hidden = weights.hidden;
+        let mut scratch = GruScratch::new(hidden);
 
         let onnx = tract_onnx::onnx();
         let step_plan = onnx
@@ -552,8 +605,8 @@ mod tests {
             .expect("runnable");
 
         // Shared initial state: silence mu, zero hidden.
-        let mut h_native = [0f32; HIDDEN];
-        let mut h_onnx = tract_ndarray::Array3::<f32>::zeros((1, 1, HIDDEN));
+        let mut h_native = vec![0f32; hidden];
+        let mut h_onnx = tract_ndarray::Array3::<f32>::zeros((1, 1, hidden));
         let mut prev_mu_native: u8 = MU_SILENCE;
         let mut prev_mu_onnx: i64 = i64::from(MU_SILENCE);
         // Fixed conditioning: all zeros (arbitrary but reproducible).
@@ -563,10 +616,10 @@ mod tests {
 
         for step in 0..500usize {
             // Native GRU step.
-            let (next_native, h_new) = gru_step(prev_mu_native, &cond, &h_native, &weights);
-            h_native = h_new;
+            let next_native =
+                gru_step(prev_mu_native, &cond, &mut h_native, &weights, &mut scratch);
 
-            // ONNX step-1 model: inputs are prev_mu [1] i64, cond [1,128] f32, h [1,1,256] f32.
+            // ONNX step-1 model: inputs are prev_mu [1] i64, cond [1,128] f32, h [1,1,H] f32.
             let mu_t = tract_ndarray::arr1(&[prev_mu_onnx]).into_tensor();
             let cond_t = tract_ndarray::Array2::from_shape_vec((1, COND_DIM), cond.to_vec())
                 .unwrap()
@@ -586,7 +639,6 @@ mod tests {
                 "step {step}: native={next_native} onnx={next_onnx}"
             );
 
-            // Track worst-case hidden-state divergence.
             let step_h_err = h_native
                 .iter()
                 .zip(h_onnx_slice.iter())
