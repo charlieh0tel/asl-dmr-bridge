@@ -45,6 +45,9 @@ const MU_CHANNELS: usize = 256;
 const EMBED_DIM: usize = 8;
 const COND_DIM: usize = 128;
 const MU_SILENCE: u8 = 128;
+// AMBE+2 b0 values >= 120 are special frames (erasure 120-123, silence 124,
+// tone 125-127).  All bypass the GRU and output PCM silence.
+const B0_SPECIAL_MIN: i64 = 120;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
 /// weight directory.  `hidden` is read from `meta.json` and may be
@@ -337,6 +340,15 @@ impl NativeGruDecoder {
     }
 
     fn run_frame(&mut self, window: &[[i64; 9]; 5]) -> Result<PcmFrame, VocoderError> {
+        // Special frames (b0 >= 120): erasure, silence, tone.  Bypass the GRU
+        // and return silence; h is preserved so the model recovers on speech.
+        if window[2][0] >= B0_SPECIAL_MIN {
+            self.prev_mu = MU_SILENCE;
+            let mut out = [0i16; PCM_SAMPLES];
+            self.out_db.apply(&mut out);
+            return Ok(out);
+        }
+
         // Frame model: [1,5,9] → cond [1,128]
         let bits_data: Vec<i64> = window.iter().flat_map(|r| r.iter().copied()).collect();
         let bits_tensor = tract_ndarray::Array3::from_shape_vec((1usize, 5, 9), bits_data)
@@ -362,16 +374,11 @@ impl NativeGruDecoder {
         let mut cond = [0f32; COND_DIM];
         cond.copy_from_slice(cond_slice);
 
-        let is_first = self.frames_timed == 0;
-        if is_first {
-            eprintln!("cond[:4] = {:?}", &cond[..4]);
-        }
-
         // Native GRU: 160 steps
         let t_step = Instant::now();
         let mut out = [0i16; PCM_SAMPLES];
         let mut prev_mu = self.prev_mu;
-        for (step, s) in out.iter_mut().enumerate() {
+        for s in out.iter_mut() {
             let next_mu = gru_step(
                 prev_mu,
                 &cond,
@@ -379,9 +386,6 @@ impl NativeGruDecoder {
                 &self.weights,
                 &mut self.scratch,
             );
-            if is_first && step < 4 {
-                eprintln!("step {step}: prev_mu={prev_mu} next_mu={next_mu}");
-            }
             *s = ulaw_decode(next_mu);
             prev_mu = next_mu;
         }
@@ -690,6 +694,111 @@ mod tests {
         assert!(
             run_onnx_oracle("h96", &step_model, &weights_dir),
             "h96 oracle fixtures missing"
+        );
+    }
+
+    /// Long-run oracle with constant silence cond from the frame model.
+    /// Reproduces the regime that causes triangle-wave output in roundtrip:
+    /// bench120s.wav is all-silence so every frame uses the silence cond.
+    /// Zero-cond oracle passes at 500 steps; this test catches limit cycles
+    /// that emerge under constant non-zero cond over many frames (3200 steps
+    /// = 20 frames * 160 steps/frame).
+    #[test]
+    fn gru_step_silence_cond_oracle_h96() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let weights_dir = manifest.join("../models/decoder-d5-h96-weights");
+        let step_model = weights_dir.join("decoder_step.onnx");
+        let frame_model_path = manifest.join("../models/decoder_frame.onnx");
+        if !step_model.exists() || !weights_dir.exists() || !frame_model_path.exists() {
+            eprintln!("gru_step_silence_cond_oracle_h96: fixtures absent; skipping");
+            return;
+        }
+
+        // Derive silence cond: run frame model with 5 silence VQ frames.
+        let silence_vq: [i64; 9] = [124, 16, 1, 52, 4, 18, 14, 12, 1];
+        let window: [[i64; 9]; 5] = [silence_vq; 5];
+        let bits_data: Vec<i64> = window.iter().flat_map(|r| r.iter().copied()).collect();
+        let bits_tensor = tract_ndarray::Array3::from_shape_vec((1usize, 5, 9), bits_data)
+            .unwrap()
+            .into_tensor();
+        let frame_plan = tract_onnx::onnx()
+            .model_for_path(&frame_model_path)
+            .expect("load frame model")
+            .into_optimized()
+            .expect("optimize")
+            .into_runnable()
+            .expect("runnable");
+        let frame_out = frame_plan
+            .run(tvec![bits_tensor.into()])
+            .expect("frame inference");
+        let cond_slice = frame_out[0].as_slice::<f32>().expect("cond output");
+        assert_eq!(cond_slice.len(), COND_DIM);
+        let mut silence_cond = [0f32; COND_DIM];
+        silence_cond.copy_from_slice(cond_slice);
+        eprintln!("silence_cond[:4] = {:?}", &silence_cond[..4]);
+
+        let weights = GruWeights::load(&weights_dir).expect("load weights");
+        let hidden = weights.hidden;
+        let mut scratch = GruScratch::new(hidden);
+        let step_plan = tract_onnx::onnx()
+            .model_for_path(&step_model)
+            .expect("load step model")
+            .into_optimized()
+            .expect("optimize")
+            .into_runnable()
+            .expect("runnable");
+
+        let mut h_native = vec![0f32; hidden];
+        let mut h_onnx = tract_ndarray::Array3::<f32>::zeros((1, 1, hidden));
+        let mut prev_mu_native: u8 = MU_SILENCE;
+        let mut prev_mu_onnx: i64 = i64::from(MU_SILENCE);
+        let mut max_h_err = 0f32;
+
+        for step in 0..3200usize {
+            let next_native = gru_step(
+                prev_mu_native,
+                &silence_cond,
+                &mut h_native,
+                &weights,
+                &mut scratch,
+            );
+
+            let mu_t = tract_ndarray::arr1(&[prev_mu_onnx]).into_tensor();
+            let cond_t =
+                tract_ndarray::Array2::from_shape_vec((1, COND_DIM), silence_cond.to_vec())
+                    .unwrap()
+                    .into_tensor();
+            let h_t = h_onnx.clone().into_tensor();
+            let out = step_plan
+                .run(tvec![mu_t.into(), cond_t.into(), h_t.into()])
+                .expect("onnx step");
+            let mu_onnx_slice = out[0].as_slice::<i64>().expect("mu_out");
+            let h_onnx_slice = out[1].as_slice::<f32>().expect("h_out");
+            let next_onnx = mu_onnx_slice[0] as u8;
+            h_onnx.as_slice_mut().unwrap().copy_from_slice(h_onnx_slice);
+
+            assert_eq!(
+                next_native, next_onnx,
+                "silence_cond step {step}: native={next_native} onnx={next_onnx}"
+            );
+
+            let step_h_err = h_native
+                .iter()
+                .zip(h_onnx_slice.iter())
+                .map(|(&a, &b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            if step_h_err > max_h_err {
+                max_h_err = step_h_err;
+            }
+
+            prev_mu_native = next_native;
+            prev_mu_onnx = i64::from(next_onnx);
+        }
+
+        eprintln!("silence_cond oracle h96: max h error over 3200 steps: {max_h_err:.2e}");
+        assert!(
+            max_h_err < 1e-4,
+            "silence_cond oracle h96: max h error {max_h_err:.2e} exceeds 1e-4"
         );
     }
 }
