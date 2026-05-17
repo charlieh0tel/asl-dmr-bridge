@@ -213,5 +213,7 @@ fn main() -> anyhow::Result<()> {
 
     writer.finalize().context("finalize WAV")?;
     decoder.print_timing();
+    #[cfg(target_arch = "aarch64")]
+    eprintln!("neon: {}", std::arch::is_aarch64_feature_detected!("neon"));
     Ok(())
 }
