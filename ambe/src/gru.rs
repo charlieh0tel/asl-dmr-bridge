@@ -362,7 +362,8 @@ impl NativeGruDecoder {
         let mut cond = [0f32; COND_DIM];
         cond.copy_from_slice(cond_slice);
 
-        if self.frames_timed == 0 {
+        let is_first = self.frames_timed == 0;
+        if is_first {
             eprintln!("cond[:4] = {:?}", &cond[..4]);
         }
 
@@ -370,7 +371,7 @@ impl NativeGruDecoder {
         let t_step = Instant::now();
         let mut out = [0i16; PCM_SAMPLES];
         let mut prev_mu = self.prev_mu;
-        for s in &mut out {
+        for (step, s) in out.iter_mut().enumerate() {
             let next_mu = gru_step(
                 prev_mu,
                 &cond,
@@ -378,6 +379,9 @@ impl NativeGruDecoder {
                 &self.weights,
                 &mut self.scratch,
             );
+            if is_first && step < 4 {
+                eprintln!("step {step}: prev_mu={prev_mu} next_mu={next_mu}");
+            }
             *s = ulaw_decode(next_mu);
             prev_mu = next_mu;
         }
