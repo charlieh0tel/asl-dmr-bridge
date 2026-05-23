@@ -482,6 +482,12 @@ impl Vocoder for NativeGruDecoder {
 
 // -- Weight file loading helpers --
 
+/// Decode 4 bytes (from `chunks_exact(4)`) as a little-endian f32.
+/// Direct index is safe because `chunks_exact` guarantees `b.len() == 4`.
+fn le_f32(b: &[u8]) -> f32 {
+    f32::from_le_bytes([b[0], b[1], b[2], b[3]])
+}
+
 /// Load a [MU_CHANNELS × EMBED_DIM] lookup table from a raw f32 LE binary file.
 fn load_embed(
     dir: &Path,
@@ -499,10 +505,9 @@ fn load_embed(
         )));
     }
     let mut mat = Box::new([[0f32; EMBED_DIM]; MU_CHANNELS]);
-    for (i, row) in mat.iter_mut().enumerate() {
-        for (j, v) in row.iter_mut().enumerate() {
-            let off = (i * EMBED_DIM + j) * 4;
-            *v = f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
+    for (row, row_bytes) in mat.iter_mut().zip(bytes.chunks_exact(EMBED_DIM * 4)) {
+        for (v, chunk) in row.iter_mut().zip(row_bytes.chunks_exact(4)) {
+            *v = le_f32(chunk);
         }
     }
     Ok(mat)
@@ -527,14 +532,9 @@ fn load_input_matrix_split(
             bytes.len()
         )));
     }
-    let embed = Mat::<f32>::from_fn(nrows, EMBED_DIM, |i, j| {
-        let off = (i * INPUT + j) * 4;
-        f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
-    });
-    let cond = Mat::<f32>::from_fn(nrows, COND_DIM, |i, j| {
-        let off = (i * INPUT + EMBED_DIM + j) * 4;
-        f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
-    });
+    let floats: Vec<f32> = bytes.chunks_exact(4).map(le_f32).collect();
+    let embed = Mat::<f32>::from_fn(nrows, EMBED_DIM, |i, j| floats[i * INPUT + j]);
+    let cond = Mat::<f32>::from_fn(nrows, COND_DIM, |i, j| floats[i * INPUT + EMBED_DIM + j]);
     Ok((embed, cond))
 }
 
@@ -558,10 +558,8 @@ fn load_matrix_faer(
             bytes.len()
         )));
     }
-    let mat = Mat::<f32>::from_fn(nrows, ncols, |i, j| {
-        let off = (i * ncols + j) * 4;
-        f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
-    });
+    let floats: Vec<f32> = bytes.chunks_exact(4).map(le_f32).collect();
+    let mat = Mat::<f32>::from_fn(nrows, ncols, |i, j| floats[i * ncols + j]);
     Ok(mat)
 }
 
@@ -578,9 +576,7 @@ fn load_bias(dir: &Path, name: &str, len: usize) -> Result<Box<[f32]>, VocoderEr
             bytes.len()
         )));
     }
-    let v: Box<[f32]> = (0..len)
-        .map(|i| f32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap()))
-        .collect();
+    let v: Box<[f32]> = bytes.chunks_exact(4).map(le_f32).collect();
     Ok(v)
 }
 
