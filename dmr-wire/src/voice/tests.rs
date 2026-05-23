@@ -234,14 +234,14 @@ fn matches_config_call_type_mismatch_rejects() {
     assert!(!matches_config(&pkt, &cfg));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_header_starts_rx() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_dmrd(&header_dmrd(0xAA)).await;
     assert!(matches!(m.state, PttState::Rx(ref rx) if rx.stream_id == 0xAA));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_voice_produces_usrp() {
     // Each of the 3 AMBE codewords in the voice burst feeds StubVocoder,
     // which emits the constant `[1000i16; VOICE_SAMPLES]`.  Asserting
@@ -265,7 +265,7 @@ async fn rx_voice_produces_usrp() {
     assert_eq!(count, 3);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_terminator_enters_hang() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_dmrd(&header_dmrd(0xCC)).await;
@@ -281,7 +281,7 @@ fn expect_call(rx: &mut mpsc::Receiver<MetaEvent>) -> dmr_events::CallMetadata {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_header_uses_callsign_lookup_when_provided() {
     let lookup: CallsignLookup = std::sync::Arc::new(|id| {
         if id.as_u32() == 12345 {
@@ -298,7 +298,7 @@ async fn rx_header_uses_callsign_lookup_when_provided() {
     assert_eq!(meta.name.as_deref(), Some("Test"));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_header_omits_call_name_on_lookup_miss() {
     let lookup: CallsignLookup = std::sync::Arc::new(|_| None);
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, mut metadata_rx) =
@@ -309,7 +309,7 @@ async fn rx_header_omits_call_name_on_lookup_miss() {
     assert!(meta.name.is_none());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_header_emits_call_metadata() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, mut metadata_rx) = make_machine();
     m.on_dmrd(&header_dmrd(0xAA)).await;
@@ -322,7 +322,7 @@ async fn rx_header_emits_call_metadata() {
     assert_eq!(meta.cc.value(), 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_terminator_clears_metadata() {
     // Header emits a populated Call; terminator emits Clear so a
     // downstream consumer that latches knows to clear.
@@ -333,7 +333,7 @@ async fn rx_terminator_clears_metadata() {
     assert!(matches!(metadata_rx.try_recv(), Ok(MetaEvent::Clear)));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_during_rxhang_does_not_double_clear() {
     // Terminator emits Clear and parks the machine in RxHang.
     // A subsequent shutdown while still in RxHang must not emit
@@ -354,7 +354,7 @@ async fn shutdown_during_rxhang_does_not_double_clear() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_stream_change_emits_new_metadata() {
     // Mid-Rx, a voice frame for a new stream_id triggers a fresh
     // metadata emission so the consumer learns about the new
@@ -369,7 +369,7 @@ async fn rx_stream_change_emits_new_metadata() {
     assert_eq!(meta.dmr_id.as_u32(), 67890);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_stream_change_emits_unkey_for_prior_stream() {
     // The audio_tx consumer (usrp::tx_task) keys per-call diagnostic
     // recorders off keyup transitions; a stream change must surface
@@ -394,7 +394,7 @@ async fn rx_stream_change_emits_unkey_for_prior_stream() {
     assert_eq!(next.dmr_stream_id, Some(0x222));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_hang_blocks_tx() {
     let (mut m, _audio_rx, mut dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.state = PttState::RxHang(Instant::now() + Duration::from_secs(10));
@@ -403,7 +403,7 @@ async fn rx_hang_blocks_tx() {
     assert!(dmrd_voice_rx.try_recv().is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_keyup_sends_header() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_audio(&voice_audio()).await;
@@ -439,7 +439,7 @@ fn make_machine_with_callsign(callsign: &str) -> TestMachine {
     (m, audio_rx, dmrd_voice_rx, dmrd_control_rx, metadata_rx)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_with_short_callsign_includes_ta_in_rotation() {
     // Configured callsign fits TA Header (<=7 ASCII chars), so
     // lc_rotation is [voice_lc, ta_header] and superframes
@@ -453,7 +453,7 @@ async fn tx_with_short_callsign_includes_ta_in_rotation() {
     assert_eq!(tx.lc_rotation.len(), 2, "voice + TA expected");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_with_empty_callsign_omits_ta() {
     // No callsign -> no TA -> single-entry rotation, voice LC
     // every superframe (existing behavior preserved).
@@ -466,7 +466,7 @@ async fn tx_with_empty_callsign_omits_ta() {
     assert_eq!(tx.lc_rotation.len(), 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_with_long_callsign_includes_ta_blocks() {
     // 15-char alias -> header + 1 block -> rotation = voice + 2 TA = 3.
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) =
@@ -478,7 +478,7 @@ async fn tx_with_long_callsign_includes_ta_blocks() {
     assert_eq!(tx.lc_rotation.len(), 3, "voice + header + 1 block expected");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_with_oversized_callsign_omits_ta() {
     // >31 chars -> TA encoder returns empty -> voice-only rotation.
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) =
@@ -490,7 +490,7 @@ async fn tx_with_oversized_callsign_omits_ta() {
     assert_eq!(tx.lc_rotation.len(), 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_superframe_idx_advances_on_vseq_wrap() {
     // Send one full superframe worth of audio (6 bursts * 3 PCM
     // frames = 18 frames) and verify superframe_idx incremented.
@@ -511,7 +511,7 @@ async fn tx_superframe_idx_advances_on_vseq_wrap() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_lc_rotation_alternates_across_superframes() {
     // With voice + TA configured (rotation len 2), the embedded
     // LC fragment carried in a given vseq slot must differ
@@ -548,7 +548,7 @@ async fn tx_lc_rotation_alternates_across_superframes() {
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_unkey_sends_terminator() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_audio(&voice_audio()).await;
@@ -562,7 +562,7 @@ async fn tx_unkey_sends_terminator() {
     assert_eq!(dmrd.dtype_vseq, DATA_TYPE_VOICE_TERMINATOR);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_blocked_during_rx() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_dmrd(&header_dmrd(0xDD)).await;
@@ -572,7 +572,7 @@ async fn tx_blocked_during_rx() {
     assert!(dmrd_control_rx.try_recv().is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_blocked_during_tx() {
     let (mut m, mut audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_audio(&voice_audio()).await;
@@ -582,7 +582,7 @@ async fn rx_blocked_during_tx() {
     assert!(audio_rx.try_recv().is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_during_hang_restarts_rx() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.state = PttState::RxHang(Instant::now() + Duration::from_secs(10));
@@ -590,7 +590,7 @@ async fn rx_during_hang_restarts_rx() {
     assert!(matches!(m.state, PttState::Rx(ref rx) if rx.stream_id == 0xFF));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_timeout_emits_unkey_and_enters_hang() {
     // Simulate an Rx state whose last_voice is old enough that
     // the outer select would have fired sleep_until.  Calling
@@ -604,7 +604,7 @@ async fn rx_timeout_emits_unkey_and_enters_hang() {
     assert!(matches!(m.state, PttState::RxHang(_)));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_hang_timeout_returns_to_idle() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.state = PttState::RxHang(Instant::now());
@@ -612,7 +612,7 @@ async fn rx_hang_timeout_returns_to_idle() {
     assert!(matches!(m.state, PttState::Idle));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_timeout_emits_terminator() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_audio(&voice_audio()).await; // enter Tx, emits header
@@ -632,7 +632,7 @@ async fn tx_timeout_emits_terminator() {
     assert!(saw_term, "expected terminator after TX timeout");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn idle_timeout_is_noop() {
     let (mut m, mut audio_rx, mut dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_timeout().await;
@@ -641,7 +641,7 @@ async fn idle_timeout_is_noop() {
     assert!(dmrd_voice_rx.try_recv().is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rx_voice_for_different_stream_switches_stream_id() {
     // Mid-Rx, a voice frame for a new stream_id re-homes Rx onto
     // the new stream rather than dropping or starting a parallel
@@ -655,7 +655,7 @@ async fn rx_voice_for_different_stream_switches_stream_id() {
     assert_eq!(rx.stream_id, 0xAAA2);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unkey_usrp_during_rx_does_not_drop_state() {
     // A stray USRP unkey arriving while we're decoding DMR
     // (Rx) must NOT clobber the call to Idle.  Earlier code
@@ -673,7 +673,7 @@ async fn unkey_usrp_during_rx_does_not_drop_state() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unkey_usrp_during_rxhang_does_not_drop_state() {
     let (mut m, _audio_rx, _dmrd_voice_rx, _dmrd_control_rx, _metadata_rx) = make_machine();
     m.state = PttState::RxHang(Instant::now() + Duration::from_secs(10));
@@ -681,7 +681,7 @@ async fn unkey_usrp_during_rxhang_does_not_drop_state() {
     assert!(matches!(m.state, PttState::RxHang(_)));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn terminator_for_other_stream_keeps_rx() {
     // Terminator with a stream_id different from the current Rx
     // is ignored (no transition to RxHang).
@@ -795,7 +795,7 @@ async fn drain_unbounded_with_idle_timeout<T>(rx: &mut mpsc::UnboundedReceiver<T
     out
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn integration_full_rx_call() {
     let mut rig = Rig::start();
 
@@ -819,7 +819,7 @@ async fn integration_full_rx_call() {
     rig.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn integration_full_tx_call() {
     let mut rig = Rig::start();
 
@@ -860,7 +860,7 @@ async fn integration_full_tx_call() {
     rig.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn integration_shutdown_in_rx_emits_unkey() {
     let mut rig = Rig::start();
 
@@ -884,7 +884,7 @@ async fn integration_shutdown_in_rx_emits_unkey() {
     let _ = tokio::time::timeout(Duration::from_secs(1), rig.handle).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn integration_shutdown_in_tx_emits_terminator() {
     let mut rig = Rig::start();
 
@@ -911,7 +911,7 @@ async fn integration_shutdown_in_tx_emits_terminator() {
     let _ = tokio::time::timeout(Duration::from_secs(1), rig.handle).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tx_network_reset_drops_active_call() {
     let (mut m, _audio_rx, _dmrd_voice_rx, mut dmrd_control_rx, _metadata_rx) = make_machine();
     m.on_audio(&voice_audio()).await;
@@ -993,7 +993,7 @@ async fn measure_filtered_rms(freq: f32) -> f32 {
     pcm_rms(&tail)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_encode_filter_attenuates_sub_100hz() {
     // Verify the filter is wired into the encode path: 100 Hz input
     // (well below the 250 Hz HP cutoff) must be >10x attenuated
@@ -1007,7 +1007,7 @@ async fn pre_encode_filter_attenuates_sub_100hz() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_encode_filter_output_matches_direct_filter() {
     // Drive FRAMES_PER_BURST frames through the machine and a reference
     // filter in parallel; assert sample-exact agreement.  Detects dropped
@@ -1060,7 +1060,7 @@ async fn pre_encode_filter_output_matches_direct_filter() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn integration_network_reset_restarts_tx_with_fresh_header() {
     let mut rig = Rig::start();
 
@@ -1087,7 +1087,7 @@ async fn integration_network_reset_restarts_tx_with_fresh_header() {
     rig.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn vocoder_panic_cancels_voice_task() {
     let cancel = CancellationToken::new();
     let (audio_tx, _audio_rx) = mpsc::channel(16);

@@ -7,7 +7,6 @@
 //! transitions.  Tests construct a `PttMachine` directly and drive
 //! events without spinning up the full select loop.
 
-use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -65,24 +64,9 @@ use super::make_voice_frame;
 use super::matches_config;
 use super::new_stream_id;
 
-/// Shared vocoder handle.
-///
-/// Only one caller (PttMachine's decode/encode methods, from a single
-/// tokio task) ever acquires the lock, so contention is zero in
-/// practice.  The `Arc<Mutex>` wrapping is nevertheless required for
-/// two reasons:
-///
-/// 1. `spawn_blocking` needs a `'static + Send` closure; Arc gives us
-///    shareable ownership we can move into the closure.
-/// 2. If `cancel.cancelled()` wins the select in decode()/encode(),
-///    we return Err and drop the JoinHandle, but the blocking task
-///    keeps running to completion on its cloned Arc.  Without the
-///    Mutex, the detached task and a fresh call could race.
-///
-/// `std::sync::Mutex` (not tokio's async Mutex) is correct here: the
-/// lock is only held inside the spawn_blocking closure, never across
-/// an `.await` point.
-type SharedVocoder = Arc<Mutex<Box<dyn Vocoder>>>;
+/// `std::sync::Mutex` (not tokio's async Mutex): the lock is held only
+/// inside `block_in_place`, never across an `.await` point.
+type SharedVocoder = Mutex<Box<dyn Vocoder>>;
 
 /// Beyond this gap, frame-repeat compensation costs more wire
 /// RTT than the burst budget allows and sounds broken past
@@ -243,7 +227,7 @@ impl PttMachine {
         }
         Self {
             config,
-            vocoder: Arc::new(Mutex::new(vocoder)),
+            vocoder: Mutex::new(vocoder),
             audio_tx,
             dmrd_voice_out,
             dmrd_control_out,
@@ -361,22 +345,29 @@ impl PttMachine {
     /// known-missing slot in the stream (RX seq gap), so the
     /// vocoder advances state and synthesizes compensation.
     async fn decode(&self, ambe: Option<AmbeFrame>) -> Result<PcmFrame, VocoderError> {
-        let v = self.vocoder.clone();
-        let handle = tokio::task::spawn_blocking(move || {
-            v.lock()
-                .expect("vocoder mutex poisoned")
-                .decode(ambe.as_ref())
+        if self.cancel.is_cancelled() {
+            return Err(VocoderError::Decode("cancelled".into()));
+        }
+        let result = tokio::task::block_in_place(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.vocoder
+                    .lock()
+                    .expect("vocoder mutex poisoned")
+                    .decode(ambe.as_ref())
+            }))
         });
-        tokio::select! {
-            biased;
-            _ = self.cancel.cancelled() => Err(VocoderError::Decode("cancelled".into())),
-            result = handle => match result {
-                Ok(r) => r,
-                Err(join_err) => {
-                    self.fatal_vocoder(&format!("decode panic: {join_err}"));
-                    Err(VocoderError::Decode(format!("vocoder task failed: {join_err}")))
+        match result {
+            Ok(r) => {
+                if self.cancel.is_cancelled() {
+                    Err(VocoderError::Decode("cancelled".into()))
+                } else {
+                    r
                 }
-            },
+            }
+            Err(_) => {
+                self.fatal_vocoder("decode panic");
+                Err(VocoderError::Decode("vocoder panic".into()))
+            }
         }
     }
 
@@ -384,20 +375,29 @@ impl PttMachine {
         if let Some(f) = self.pre_encode_filter.as_mut() {
             f.process_pcm(&mut pcm);
         }
-        let v = self.vocoder.clone();
-        let handle = tokio::task::spawn_blocking(move || {
-            v.lock().expect("vocoder mutex poisoned").encode(&pcm)
+        if self.cancel.is_cancelled() {
+            return Err(VocoderError::Encode("cancelled".into()));
+        }
+        let result = tokio::task::block_in_place(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.vocoder
+                    .lock()
+                    .expect("vocoder mutex poisoned")
+                    .encode(&pcm)
+            }))
         });
-        tokio::select! {
-            biased;
-            _ = self.cancel.cancelled() => Err(VocoderError::Encode("cancelled".into())),
-            result = handle => match result {
-                Ok(r) => r,
-                Err(join_err) => {
-                    self.fatal_vocoder(&format!("encode panic: {join_err}"));
-                    Err(VocoderError::Encode(format!("vocoder task failed: {join_err}")))
+        match result {
+            Ok(r) => {
+                if self.cancel.is_cancelled() {
+                    Err(VocoderError::Encode("cancelled".into()))
+                } else {
+                    r
                 }
-            },
+            }
+            Err(_) => {
+                self.fatal_vocoder("encode panic");
+                Err(VocoderError::Encode("vocoder panic".into()))
+            }
         }
     }
 
