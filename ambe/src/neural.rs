@@ -25,6 +25,8 @@ use tract_onnx::prelude::tvec;
 use crate::Vocoder;
 use crate::VocoderError;
 use crate::dynarmic::DynarmicVocoder;
+use crate::gru::COND_DIM;
+use crate::gru::read_meta;
 use crate::gru::ulaw_decode;
 use dmr_types::AmbeFrame;
 use dmr_types::PCM_SAMPLES;
@@ -332,10 +334,11 @@ pub(crate) fn frame_to_vq(frame: &AmbeFrame) -> [i64; 9] {
 fn probe_step_stride(
     plan: &TypedRunnableModel<TypedModel>,
     mu_silence: i64,
+    hidden: usize,
 ) -> Result<usize, VocoderError> {
     let mu = tract_ndarray::arr1(&[mu_silence]).into_tensor();
-    let cond = tract_ndarray::Array2::<f32>::zeros((1, 128)).into_tensor();
-    let h = tract_ndarray::Array3::<f32>::zeros((1, 1, 256)).into_tensor();
+    let cond = tract_ndarray::Array2::<f32>::zeros((1, COND_DIM)).into_tensor();
+    let h = tract_ndarray::Array3::<f32>::zeros((1, 1, hidden)).into_tensor();
     let out = plan
         .run(tvec![mu.into(), cond.into(), h.into()])
         .map_err(|e| init_err(format!("step model probe: {e}")))?;
@@ -376,8 +379,8 @@ pub(crate) struct NeuralDecoderVocoder {
     /// Output: cond [1,128] float32.  Called once per 20 ms frame.
     frame_plan: TypedRunnableModel<TypedModel>,
     /// Per-sample (or per-chunk) autoregressive step model.
-    /// Inputs: prev_mu [1] int64, cond [1,128] float32, h_in [1,1,256] float32.
-    /// Outputs: mu_out [step_stride] int64, h_out [1,1,256] float32.
+    /// Inputs: prev_mu [1] int64, cond [1,COND_DIM] float32, h_in [1,1,H] float32.
+    /// Outputs: mu_out [step_stride] int64, h_out [1,1,H] float32.
     /// Called PCM_SAMPLES/step_stride times per frame.
     step_plan: TypedRunnableModel<TypedModel>,
     /// Samples produced per step model call (1 for step-1, 16 for step-16, etc.).
@@ -393,7 +396,7 @@ pub(crate) struct NeuralDecoderVocoder {
     /// Last 2 decoded frames for left-edge context, oldest first.
     history: VecDeque<[i64; 9]>,
     prev_mu: i64,
-    /// GRU hidden state [1, 1, 256].
+    /// GRU hidden state [1, 1, H]; H read from meta.json at load time.
     h: tract_ndarray::Array3<f32>,
     mu_silence: i64,
     out_db: dsp::dB,
@@ -426,6 +429,11 @@ impl NeuralDecoderVocoder {
             "neural decoder frame model loaded"
         );
 
+        let weights_dir = step_model_path
+            .parent()
+            .ok_or_else(|| init_err("step model path has no parent directory".into()))?;
+        let (hidden, _) = read_meta(weights_dir)?;
+
         let step_proto = onnx
             .proto_model_for_path(step_model_path)
             .map_err(|e| init_err(format!("load {}: {e}", step_model_path.display())))?;
@@ -440,7 +448,7 @@ impl NeuralDecoderVocoder {
             .into_runnable()
             .map_err(|e| init_err(format!("runnable {}: {e}", step_model_path.display())))?;
 
-        let step_stride = probe_step_stride(&step_plan, mu_silence)?;
+        let step_stride = probe_step_stride(&step_plan, mu_silence, hidden)?;
         if !PCM_SAMPLES.is_multiple_of(step_stride) {
             return Err(init_err(format!(
                 "step_stride {step_stride} does not divide PCM_SAMPLES {PCM_SAMPLES}"
@@ -449,6 +457,7 @@ impl NeuralDecoderVocoder {
         info!(
             path = %step_model_path.display(),
             step_stride,
+            hidden,
             "neural decoder step model loaded"
         );
 
@@ -462,7 +471,7 @@ impl NeuralDecoderVocoder {
             pending: VecDeque::new(),
             history: VecDeque::new(),
             prev_mu: mu_silence,
-            h: tract_ndarray::Array3::zeros((1, 1, 256)),
+            h: tract_ndarray::Array3::zeros((1, 1, hidden)),
             mu_silence,
             out_db: dsp::dB::UNITY,
         })

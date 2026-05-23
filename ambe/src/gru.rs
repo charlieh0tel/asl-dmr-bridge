@@ -45,7 +45,7 @@ use dmr_types::PcmFrame;
 const INPUT: usize = 136; // EMBED_DIM(8) + COND_DIM(128)
 const MU_CHANNELS: usize = 256;
 const EMBED_DIM: usize = 8;
-const COND_DIM: usize = 128;
+pub(crate) const COND_DIM: usize = 128;
 const MU_SILENCE: u8 = 128;
 // AMBE+2 b0 values >= 120 are special frames (erasure 120-123, silence 124,
 // tone 125-127).  All bypass the GRU and output PCM silence.
@@ -578,7 +578,7 @@ fn load_bias(dir: &Path, name: &str, len: usize) -> Result<Box<[f32]>, VocoderEr
 
 /// Parse `meta.json` from the weights directory, validate fixed dimensions,
 /// and return `(gru_hidden, dual_fc_hidden)` for runtime sizing.
-fn read_meta(dir: &Path) -> Result<(usize, usize), VocoderError> {
+pub(crate) fn read_meta(dir: &Path) -> Result<(usize, usize), VocoderError> {
     let path = dir.join("meta.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| VocoderError::Init(format!("read {}: {e}", path.display())))?;
