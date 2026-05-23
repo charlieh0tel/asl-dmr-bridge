@@ -25,6 +25,7 @@ use tract_onnx::prelude::tvec;
 use crate::Vocoder;
 use crate::VocoderError;
 use crate::dynarmic::DynarmicVocoder;
+use crate::gru::ulaw_decode;
 use dmr_types::AmbeFrame;
 use dmr_types::PCM_SAMPLES;
 use dmr_types::PcmFrame;
@@ -348,15 +349,6 @@ fn probe_step_stride(
     Ok(stride)
 }
 
-/// µ-law decode: 8-bit code 0..=255 → i16 PCM.
-/// Code 128 = silence (~0), 255 = max positive, 0 = max negative.
-fn ulaw_decode(code: i64) -> i16 {
-    const MU: f32 = 255.0;
-    let y = (code as f32) * 2.0 / 255.0 - 1.0;
-    let x = y.signum() * ((1.0 + MU).powf(y.abs()) - 1.0) / MU;
-    (x * 32768.0).clamp(-32768.0, 32767.0) as i16
-}
-
 fn parse_decoder_meta(proto: &pb::ModelProto) -> Result<i64, VocoderError> {
     let props: HashMap<&str, &str> = proto
         .metadata_props
@@ -515,7 +507,7 @@ impl NeuralDecoderVocoder {
                 .expect("h contiguous")
                 .copy_from_slice(h_slice);
             for (s, &mu) in chunk.iter_mut().zip(mu_slice.iter()) {
-                *s = ulaw_decode(mu);
+                *s = ulaw_decode(mu as u8);
             }
             prev_mu = *mu_slice.last().expect("mu_slice non-empty");
         }
@@ -796,13 +788,6 @@ mod tests {
             }
         }
         assert!(seen.iter().all(|&b| b));
-    }
-
-    #[test]
-    fn ulaw_decode_silence_near_zero() {
-        // Code 128 is the silence code; should decode to near-zero PCM.
-        let pcm = ulaw_decode(128);
-        assert!(pcm.abs() < 10, "code 128 decoded to {pcm}, expected near 0");
     }
 
     #[test]
