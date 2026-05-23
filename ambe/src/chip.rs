@@ -54,9 +54,11 @@ pub trait ChipClient: Send {
 pub(crate) fn build_ambe_for_bits(bits: u8, data: &[u8]) -> Vec<u8> {
     const FIELD_CHANNEL_DATA: u8 = 0x01;
     let payload_len = 1 + 1 + data.len();
+    let payload_len_u16 =
+        u16::try_from(payload_len).expect("payload within DV3000 wire limit (65535 bytes)");
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload_len);
     buf.push(START_BYTE);
-    buf.extend_from_slice(&(payload_len as u16).to_be_bytes());
+    buf.extend_from_slice(&payload_len_u16.to_be_bytes());
     buf.push(TYPE_AMBE);
     buf.push(FIELD_CHANNEL_DATA);
     buf.push(bits);
