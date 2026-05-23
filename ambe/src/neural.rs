@@ -127,6 +127,11 @@ pub(crate) struct NeuralVocoder {
     /// `pcm_input_samples` of `samples`.
     buffer_cap: usize,
     samples: VecDeque<i16>,
+    /// Pre-allocated scratch for PCM -> f32 conversion.  Filled
+    /// in-place each call; cloned into the tensor (tract takes
+    /// ownership of the tensor allocation, so the clone is unavoidable
+    /// in safe Rust).
+    input_scratch: Box<[f32]>,
     decoder: Box<dyn crate::Vocoder>,
     /// Pre-encode gain applied to PCM before it lands in `samples`.
     /// Output gain is the inner decoder's responsibility.
@@ -174,11 +179,13 @@ impl NeuralVocoder {
             "neural model loaded",
         );
 
+        let pcm_input_samples = meta.pcm_input_samples;
         Ok(Self {
             plan,
             meta,
             buffer_cap,
             samples: VecDeque::with_capacity(buffer_cap),
+            input_scratch: vec![0.0f32; pcm_input_samples].into_boxed_slice(),
             decoder,
             in_db: dsp::dB::UNITY,
         })
@@ -188,23 +195,13 @@ impl NeuralVocoder {
     /// the 9 logit heads.  Output order matches FIELDS_DMR_3600X2450
     /// (validated at load).
     fn run_inference(&mut self) -> Result<[u16; 9], VocoderError> {
-        let mut input = Vec::with_capacity(self.meta.pcm_input_samples);
-        input.extend(
-            self.samples
-                .iter()
-                .take(self.meta.pcm_input_samples)
-                .map(|&s| f32::from(s) / 32768.0),
-        );
-        if input.len() != self.meta.pcm_input_samples {
-            return Err(VocoderError::Encode(format!(
-                "buffer slice short: {} samples, expected {}",
-                input.len(),
-                self.meta.pcm_input_samples,
-            )));
+        let n = self.meta.pcm_input_samples;
+        for (dst, &src) in self.input_scratch.iter_mut().zip(self.samples.iter()) {
+            *dst = f32::from(src) / 32768.0;
         }
-
-        let tensor = tract_ndarray::Array2::from_shape_vec((1, self.meta.pcm_input_samples), input)
-            .map_err(|e| VocoderError::Encode(format!("input shape: {e}")))?
+        // to_vec() is unavoidable: tract takes tensor ownership.
+        let tensor = tract_ndarray::Array2::from_shape_vec((1, n), self.input_scratch.to_vec())
+            .expect("input_scratch length matches pcm_input_samples by construction")
             .into_tensor();
         let outputs = self
             .plan
