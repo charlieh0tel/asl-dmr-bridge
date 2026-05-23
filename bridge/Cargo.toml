@@ -92,6 +92,9 @@ assets = [
     ["../models/encoder-dmr50.onnx", "usr/share/asl-dmr-bridge/models/encoder-dmr50-2026-05-04.onnx", "0644"],
     ["../models/encoder-aug50.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug50-2026-05-06.onnx", "0644"],
     ["../models/encoder-aug52.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug52-2026-05-15.onnx", "0644"],
+    ["../models/decoder-d6-h96-weights/decoder_frame.onnx", "usr/share/asl-dmr-bridge/models/decoder-d6-h96-weights/decoder_frame.onnx", "0644"],
+    ["../models/decoder-d6-h96-weights/meta.json", "usr/share/asl-dmr-bridge/models/decoder-d6-h96-weights/meta.json", "0644"],
+    ["../models/decoder-d6-h96-weights/*.bin", "usr/share/asl-dmr-bridge/models/decoder-d6-h96-weights/", "0644"],
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",
