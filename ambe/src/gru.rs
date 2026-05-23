@@ -10,9 +10,9 @@
 //!   W_hr/hz/hn    [H,   H]  GRU hidden weights (r, z, n gates)
 //!   b_ir/iz/in    [H]       GRU input biases
 //!   b_hr/hz/hn    [H]       GRU hidden biases
-//!   fc1_weight    [H,   H]  dual-FC layer 1 weight
-//!   fc1_bias      [H]
-//!   fc2_weight    [256,  H] dual-FC layer 2 weight (output always 256)
+//!   fc1_weight    [FC,  H]  dual-FC layer 1 weight (FC = dual_fc_hidden)
+//!   fc1_bias      [FC]
+//!   fc2_weight    [256, FC] dual-FC layer 2 weight (output always 256)
 //!   fc2_bias      [256]
 
 use std::collections::VecDeque;
@@ -112,9 +112,9 @@ impl GruWeights {
     }
 }
 
-/// Pre-allocated scratch buffers for `gru_step`.  Owned by
+/// Pre-allocated working buffers for `gru_step`.  Owned by
 /// `NativeGruDecoder` so the hot loop makes zero heap allocations.
-pub(crate) struct GruScratch {
+pub(crate) struct GruWorkspace {
     x: Box<[f32]>,      // INPUT
     wr_x: Box<[f32]>,   // hidden
     whr_h: Box<[f32]>,  // hidden
@@ -129,7 +129,7 @@ pub(crate) struct GruScratch {
     logits: Box<[f32]>, // MU_CHANNELS
 }
 
-impl GruScratch {
+impl GruWorkspace {
     fn new(hidden: usize, dual_fc_hidden: usize) -> Self {
         let h = || vec![0f32; hidden].into_boxed_slice();
         Self {
@@ -151,7 +151,7 @@ impl GruScratch {
 
 /// GRU + FC step: given the previous µ-law code, frame conditioning
 /// vector, and hidden state, produce the next µ-law code.  `h` is
-/// updated in-place; `s` is a scratch workspace (no heap allocation).
+/// updated in-place; `s` is a workspace buffer (no heap allocation).
 ///
 /// PyTorch GRU convention:
 ///   r = sigmoid(W_ir @ x + b_ir + W_hr @ h + b_hr)
@@ -165,7 +165,7 @@ pub(crate) fn gru_step(
     cond: &[f32],
     h: &mut [f32],
     w: &GruWeights,
-    s: &mut GruScratch,
+    s: &mut GruWorkspace,
 ) -> u8 {
     let hidden = w.hidden;
 
@@ -273,7 +273,7 @@ pub(crate) struct NativeGruDecoder {
     history: VecDeque<[i64; 9]>,
     prev_mu: u8,
     h: Box<[f32]>,
-    scratch: GruScratch,
+    scratch: GruWorkspace,
     out_db: dsp::dB,
 }
 
@@ -331,7 +331,7 @@ impl NativeGruDecoder {
 
         Ok(Self {
             frame_plan,
-            scratch: GruScratch::new(hidden, dual_fc_hidden),
+            scratch: GruWorkspace::new(hidden, dual_fc_hidden),
             weights,
             frame_ns: 0,
             step_ns: 0,
@@ -590,38 +590,26 @@ mod tests {
         }
     }
 
-    /// Run the step-1 ONNX oracle against the native GRU for 500 steps.
-    /// Returns false and prints a skip message if either path is absent.
-    fn run_onnx_oracle(label: &str, step_model: &Path, weights_dir: &Path) -> bool {
-        if !step_model.exists() || !weights_dir.exists() {
-            eprintln!("{label}: fixtures absent; skipping");
-            return false;
-        }
-
-        let weights = GruWeights::load(weights_dir).expect("load weights");
+    /// Run `steps` GRU steps with constant `cond`, comparing native and ONNX
+    /// outputs at each step.  Asserts native == ONNX; returns max hidden-state
+    /// absolute error.
+    fn run_step_loop(
+        label: &str,
+        step_plan: &TypedRunnableModel<TypedModel>,
+        weights: &GruWeights,
+        workspace: &mut GruWorkspace,
+        cond: &[f32],
+        steps: usize,
+    ) -> f32 {
         let hidden = weights.hidden;
-        let dual_fc_hidden = weights.dual_fc_hidden;
-        let mut scratch = GruScratch::new(hidden, dual_fc_hidden);
-
-        let onnx = tract_onnx::onnx();
-        let step_plan = onnx
-            .model_for_path(step_model)
-            .expect("load step model")
-            .into_optimized()
-            .expect("optimize")
-            .into_runnable()
-            .expect("runnable");
-
         let mut h_native = vec![0f32; hidden];
         let mut h_onnx = tract_ndarray::Array3::<f32>::zeros((1, 1, hidden));
         let mut prev_mu_native: u8 = MU_SILENCE;
         let mut prev_mu_onnx: i64 = i64::from(MU_SILENCE);
-        let cond = [0f32; COND_DIM];
         let mut max_h_err = 0f32;
 
-        for step in 0..500usize {
-            let next_native =
-                gru_step(prev_mu_native, &cond, &mut h_native, &weights, &mut scratch);
+        for step in 0..steps {
+            let next_native = gru_step(prev_mu_native, cond, &mut h_native, weights, workspace);
 
             let mu_t = tract_ndarray::arr1(&[prev_mu_onnx]).into_tensor();
             let cond_t = tract_ndarray::Array2::from_shape_vec((1, COND_DIM), cond.to_vec())
@@ -633,7 +621,6 @@ mod tests {
                 .expect("onnx step");
             let mu_onnx_slice = out[0].as_slice::<i64>().expect("mu_out");
             let h_onnx_slice = out[1].as_slice::<f32>().expect("h_out");
-
             let next_onnx = mu_onnx_slice[0] as u8;
             h_onnx.as_slice_mut().unwrap().copy_from_slice(h_onnx_slice);
 
@@ -655,6 +642,29 @@ mod tests {
             prev_mu_onnx = i64::from(next_onnx);
         }
 
+        max_h_err
+    }
+
+    /// Run the zero-cond ONNX oracle against the native GRU for 500 steps.
+    /// Returns false and prints a skip message if either path is absent.
+    fn run_onnx_oracle(label: &str, step_model: &Path, weights_dir: &Path) -> bool {
+        if !step_model.exists() || !weights_dir.exists() {
+            eprintln!("{label}: fixtures absent; skipping");
+            return false;
+        }
+
+        let weights = GruWeights::load(weights_dir).expect("load weights");
+        let mut workspace = GruWorkspace::new(weights.hidden, weights.dual_fc_hidden);
+        let step_plan = tract_onnx::onnx()
+            .model_for_path(step_model)
+            .expect("load step model")
+            .into_optimized()
+            .expect("optimize")
+            .into_runnable()
+            .expect("runnable");
+
+        let cond = [0f32; COND_DIM];
+        let max_h_err = run_step_loop(label, &step_plan, &weights, &mut workspace, &cond, 500);
         eprintln!("{label}: max h error over 500 steps: {max_h_err:.2e}");
         assert!(
             max_h_err < 1e-4,
@@ -727,9 +737,7 @@ mod tests {
         eprintln!("silence_cond[:4] = {:?}", &silence_cond[..4]);
 
         let weights = GruWeights::load(&weights_dir).expect("load weights");
-        let hidden = weights.hidden;
-        let dual_fc_hidden = weights.dual_fc_hidden;
-        let mut scratch = GruScratch::new(hidden, dual_fc_hidden);
+        let mut workspace = GruWorkspace::new(weights.hidden, weights.dual_fc_hidden);
         let step_plan = tract_onnx::onnx()
             .model_for_path(&step_model)
             .expect("load step model")
@@ -738,53 +746,14 @@ mod tests {
             .into_runnable()
             .expect("runnable");
 
-        let mut h_native = vec![0f32; hidden];
-        let mut h_onnx = tract_ndarray::Array3::<f32>::zeros((1, 1, hidden));
-        let mut prev_mu_native: u8 = MU_SILENCE;
-        let mut prev_mu_onnx: i64 = i64::from(MU_SILENCE);
-        let mut max_h_err = 0f32;
-
-        for step in 0..3200usize {
-            let next_native = gru_step(
-                prev_mu_native,
-                &silence_cond,
-                &mut h_native,
-                &weights,
-                &mut scratch,
-            );
-
-            let mu_t = tract_ndarray::arr1(&[prev_mu_onnx]).into_tensor();
-            let cond_t =
-                tract_ndarray::Array2::from_shape_vec((1, COND_DIM), silence_cond.to_vec())
-                    .unwrap()
-                    .into_tensor();
-            let h_t = h_onnx.clone().into_tensor();
-            let out = step_plan
-                .run(tvec![mu_t.into(), cond_t.into(), h_t.into()])
-                .expect("onnx step");
-            let mu_onnx_slice = out[0].as_slice::<i64>().expect("mu_out");
-            let h_onnx_slice = out[1].as_slice::<f32>().expect("h_out");
-            let next_onnx = mu_onnx_slice[0] as u8;
-            h_onnx.as_slice_mut().unwrap().copy_from_slice(h_onnx_slice);
-
-            assert_eq!(
-                next_native, next_onnx,
-                "silence_cond step {step}: native={next_native} onnx={next_onnx}"
-            );
-
-            let step_h_err = h_native
-                .iter()
-                .zip(h_onnx_slice.iter())
-                .map(|(&a, &b)| (a - b).abs())
-                .fold(0f32, f32::max);
-            if step_h_err > max_h_err {
-                max_h_err = step_h_err;
-            }
-
-            prev_mu_native = next_native;
-            prev_mu_onnx = i64::from(next_onnx);
-        }
-
+        let max_h_err = run_step_loop(
+            "silence_cond h96",
+            &step_plan,
+            &weights,
+            &mut workspace,
+            &silence_cond,
+            3200,
+        );
         eprintln!("silence_cond oracle h96: max h error over 3200 steps: {max_h_err:.2e}");
         assert!(
             max_h_err < 1e-4,
