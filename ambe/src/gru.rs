@@ -6,7 +6,9 @@
 //! vary with the model variant are written as `H` (gru_hidden from
 //! meta.json); fixed dimensions are literal:
 //!   sample_embed  [256,  8]
-//!   W_ir/iz/in    [H, 136]  GRU input weights  (r, z, n gates)
+//!   W_ir/iz/in    [H, 136]  GRU input weights; split at load time into
+//!                            embed-half [H, 8] and cond-half [H, 128]
+//!                            for per-frame cond precomputation.
 //!   W_hr/hz/hn    [H,   H]  GRU hidden weights (r, z, n gates)
 //!   b_ir/iz/in    [H]       GRU input biases
 //!   b_hr/hz/hn    [H]       GRU hidden biases
@@ -62,10 +64,14 @@ pub(crate) struct GruWeights {
     pub(crate) dual_fc_hidden: usize,
     /// [256, 8] µ-law embedding lookup table.
     sample_embed: Box<[[f32; EMBED_DIM]; MU_CHANNELS]>,
-    /// [H, 136] GRU input weights for r, z, n gates.
-    w_ir: Mat<f32>,
-    w_iz: Mat<f32>,
-    w_in: Mat<f32>,
+    /// [H, 8] embed-half of GRU input weights for r, z, n gates.
+    w_ir_e: Mat<f32>,
+    w_iz_e: Mat<f32>,
+    w_in_e: Mat<f32>,
+    /// [H, 128] cond-half of GRU input weights for r, z, n gates.
+    w_ir_c: Mat<f32>,
+    w_iz_c: Mat<f32>,
+    w_in_c: Mat<f32>,
     /// [H, H] GRU hidden weights for r, z, n gates.
     w_hr: Mat<f32>,
     w_hz: Mat<f32>,
@@ -88,13 +94,19 @@ pub(crate) struct GruWeights {
 impl GruWeights {
     pub(crate) fn load(dir: &Path) -> Result<Self, VocoderError> {
         let (hidden, dual_fc_hidden) = read_meta(dir)?;
+        let (w_ir_e, w_ir_c) = load_input_matrix_split(dir, "W_ir.bin", hidden)?;
+        let (w_iz_e, w_iz_c) = load_input_matrix_split(dir, "W_iz.bin", hidden)?;
+        let (w_in_e, w_in_c) = load_input_matrix_split(dir, "W_in.bin", hidden)?;
         Ok(Self {
             hidden,
             dual_fc_hidden,
             sample_embed: load_embed(dir, "sample_embed.bin")?,
-            w_ir: load_matrix_faer(dir, "W_ir.bin", hidden, INPUT)?,
-            w_iz: load_matrix_faer(dir, "W_iz.bin", hidden, INPUT)?,
-            w_in: load_matrix_faer(dir, "W_in.bin", hidden, INPUT)?,
+            w_ir_e,
+            w_ir_c,
+            w_iz_e,
+            w_iz_c,
+            w_in_e,
+            w_in_c,
             w_hr: load_matrix_faer(dir, "W_hr.bin", hidden, hidden)?,
             w_hz: load_matrix_faer(dir, "W_hz.bin", hidden, hidden)?,
             w_hn: load_matrix_faer(dir, "W_hn.bin", hidden, hidden)?,
@@ -115,7 +127,11 @@ impl GruWeights {
 /// Pre-allocated working buffers for `gru_step`.  Owned by
 /// `NativeGruDecoder` so the hot loop makes zero heap allocations.
 pub(crate) struct GruWorkspace {
-    x: Box<[f32]>,      // INPUT
+    /// Precomputed W_i{r,z,n}_c @ cond for the current frame (H each).
+    /// Filled by `precompute_cond`; valid for all 160 steps of the frame.
+    cond_wr: Box<[f32]>,
+    cond_wz: Box<[f32]>,
+    cond_wn: Box<[f32]>,
     wr_x: Box<[f32]>,   // hidden
     whr_h: Box<[f32]>,  // hidden
     r: Box<[f32]>,      // hidden
@@ -125,7 +141,7 @@ pub(crate) struct GruWorkspace {
     wn_x: Box<[f32]>,   // hidden
     whn_h: Box<[f32]>,  // hidden
     n: Box<[f32]>,      // hidden
-    a: Box<[f32]>,      // hidden
+    a: Box<[f32]>,      // dual_fc_hidden
     logits: Box<[f32]>, // MU_CHANNELS
 }
 
@@ -133,7 +149,9 @@ impl GruWorkspace {
     fn new(hidden: usize, dual_fc_hidden: usize) -> Self {
         let h = || vec![0f32; hidden].into_boxed_slice();
         Self {
-            x: vec![0f32; INPUT].into_boxed_slice(),
+            cond_wr: h(),
+            cond_wz: h(),
+            cond_wn: h(),
             wr_x: h(),
             whr_h: h(),
             r: h(),
@@ -149,9 +167,19 @@ impl GruWorkspace {
     }
 }
 
-/// GRU + FC step: given the previous µ-law code, frame conditioning
-/// vector, and hidden state, produce the next µ-law code.  `h` is
-/// updated in-place; `s` is a workspace buffer (no heap allocation).
+/// Precompute the cond contributions to all three GRU input gates.
+/// Must be called once per frame before the `gru_step` loop, whenever
+/// `cond` changes.  Results are cached in `s.cond_wr/wz/wn`.
+pub(crate) fn precompute_cond(cond: &[f32], w: &GruWeights, s: &mut GruWorkspace) {
+    faer_gemv(&w.w_ir_c, cond, &mut s.cond_wr);
+    faer_gemv(&w.w_iz_c, cond, &mut s.cond_wz);
+    faer_gemv(&w.w_in_c, cond, &mut s.cond_wn);
+}
+
+/// GRU + FC step: given the previous µ-law code and hidden state,
+/// produce the next µ-law code.  `h` is updated in-place; `s` is a
+/// workspace buffer (no heap allocation).  Caller must have called
+/// `precompute_cond` for the current frame before entering the loop.
 ///
 /// PyTorch GRU convention:
 ///   r = sigmoid(W_ir @ x + b_ir + W_hr @ h + b_hr)
@@ -160,38 +188,32 @@ impl GruWorkspace {
 ///   h' = (1 - z) * n + z * h
 ///   a  = tanh(fc1 @ h' + fc1_bias)
 ///   next_mu = argmax(fc2 @ a + fc2_bias)
-pub(crate) fn gru_step(
-    prev_mu: u8,
-    cond: &[f32],
-    h: &mut [f32],
-    w: &GruWeights,
-    s: &mut GruWorkspace,
-) -> u8 {
+///
+/// x = concat(embed[prev_mu], cond); the cond part is precomputed
+/// by `precompute_cond`; only the 8-element embed part is computed here.
+pub(crate) fn gru_step(prev_mu: u8, h: &mut [f32], w: &GruWeights, s: &mut GruWorkspace) -> u8 {
     let hidden = w.hidden;
+    let embed = &w.sample_embed[usize::from(prev_mu)];
 
-    // Build input: concat(embed[prev_mu], cond) -> [INPUT]
-    s.x[..EMBED_DIM].copy_from_slice(&w.sample_embed[usize::from(prev_mu)]);
-    s.x[EMBED_DIM..].copy_from_slice(cond);
-
-    // r gate
-    faer_gemv(&w.w_ir, &s.x, &mut s.wr_x);
+    // r gate: W_ir_e @ embed + cond_wr (precomputed) + b_ir + W_hr @ h + b_hr
+    faer_gemv(&w.w_ir_e, embed, &mut s.wr_x);
     faer_gemv(&w.w_hr, h, &mut s.whr_h);
     for i in 0..hidden {
-        s.r[i] = sigmoid(s.wr_x[i] + w.b_ir[i] + s.whr_h[i] + w.b_hr[i]);
+        s.r[i] = sigmoid(s.wr_x[i] + s.cond_wr[i] + w.b_ir[i] + s.whr_h[i] + w.b_hr[i]);
     }
 
     // z gate
-    faer_gemv(&w.w_iz, &s.x, &mut s.wz_x);
+    faer_gemv(&w.w_iz_e, embed, &mut s.wz_x);
     faer_gemv(&w.w_hz, h, &mut s.whz_h);
     for i in 0..hidden {
-        s.z[i] = sigmoid(s.wz_x[i] + w.b_iz[i] + s.whz_h[i] + w.b_hz[i]);
+        s.z[i] = sigmoid(s.wz_x[i] + s.cond_wz[i] + w.b_iz[i] + s.whz_h[i] + w.b_hz[i]);
     }
 
     // n gate
-    faer_gemv(&w.w_in, &s.x, &mut s.wn_x);
+    faer_gemv(&w.w_in_e, embed, &mut s.wn_x);
     faer_gemv(&w.w_hn, h, &mut s.whn_h);
     for i in 0..hidden {
-        s.n[i] = (s.wn_x[i] + w.b_in[i] + s.r[i] * (s.whn_h[i] + w.b_hn[i])).tanh();
+        s.n[i] = (s.wn_x[i] + s.cond_wn[i] + w.b_in[i] + s.r[i] * (s.whn_h[i] + w.b_hn[i])).tanh();
     }
 
     // h' = (1 - z) * n + z * h  (written back into h in-place)
@@ -205,7 +227,7 @@ pub(crate) fn gru_step(
         *v = (*v + b).tanh();
     }
 
-    // logits = fc2 @ a + fc2_bias  (fc2 is [MU_CHANNELS × hidden])
+    // logits = fc2 @ a + fc2_bias
     faer_gemv(&w.fc2_weight, &s.a, &mut s.logits);
     for (v, &b) in s.logits.iter_mut().zip(w.fc2_bias.iter()) {
         *v += b;
@@ -379,18 +401,14 @@ impl NativeGruDecoder {
         let mut cond = [0f32; COND_DIM];
         cond.copy_from_slice(cond_slice);
 
-        // Native GRU: 160 steps
+        // Native GRU: 160 steps.  cond is constant across the frame, so
+        // precompute its gate contributions once before the step loop.
         let t_step = Instant::now();
+        precompute_cond(&cond, &self.weights, &mut self.scratch);
         let mut out = [0i16; PCM_SAMPLES];
         let mut prev_mu = self.prev_mu;
         for s in out.iter_mut() {
-            let next_mu = gru_step(
-                prev_mu,
-                &cond,
-                &mut self.h,
-                &self.weights,
-                &mut self.scratch,
-            );
+            let next_mu = gru_step(prev_mu, &mut self.h, &self.weights, &mut self.scratch);
             *s = ulaw_decode(next_mu);
             prev_mu = next_mu;
         }
@@ -481,6 +499,36 @@ fn load_embed(
         }
     }
     Ok(mat)
+}
+
+/// Read a [nrows × INPUT] weight file and split it into embed [nrows × EMBED_DIM]
+/// and cond [nrows × COND_DIM] halves (columns 0..8 and 8..136 respectively).
+/// Both halves are stored column-major for faer GEMV.
+fn load_input_matrix_split(
+    dir: &Path,
+    name: &str,
+    nrows: usize,
+) -> Result<(Mat<f32>, Mat<f32>), VocoderError> {
+    let path = dir.join(name);
+    let bytes = std::fs::read(&path)
+        .map_err(|e| VocoderError::Init(format!("read {}: {e}", path.display())))?;
+    let expected = nrows * INPUT * 4;
+    if bytes.len() != expected {
+        return Err(VocoderError::Init(format!(
+            "{}: expected {expected} bytes, got {}",
+            name,
+            bytes.len()
+        )));
+    }
+    let embed = Mat::<f32>::from_fn(nrows, EMBED_DIM, |i, j| {
+        let off = (i * INPUT + j) * 4;
+        f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
+    });
+    let cond = Mat::<f32>::from_fn(nrows, COND_DIM, |i, j| {
+        let off = (i * INPUT + EMBED_DIM + j) * 4;
+        f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
+    });
+    Ok((embed, cond))
 }
 
 /// Load a [nrows × ncols] weight matrix from a row-major f32 LE binary file
@@ -608,8 +656,9 @@ mod tests {
         let mut prev_mu_onnx: i64 = i64::from(MU_SILENCE);
         let mut max_h_err = 0f32;
 
+        precompute_cond(cond, weights, workspace);
         for step in 0..steps {
-            let next_native = gru_step(prev_mu_native, cond, &mut h_native, weights, workspace);
+            let next_native = gru_step(prev_mu_native, &mut h_native, weights, workspace);
 
             let mu_t = tract_ndarray::arr1(&[prev_mu_onnx]).into_tensor();
             let cond_t = tract_ndarray::Array2::from_shape_vec((1, COND_DIM), cond.to_vec())
