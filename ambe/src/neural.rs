@@ -488,7 +488,10 @@ impl NeuralDecoderVocoder {
             .run(tvec![bits_tensor.into()])
             .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?;
         self.frame_ns += t_frame.elapsed().as_nanos() as u64;
-        let cond_val = frame_out.into_iter().next().unwrap();
+        let cond_val = frame_out
+            .into_iter()
+            .next()
+            .ok_or_else(|| VocoderError::Decode("frame model returned no outputs".into()))?;
 
         // Run step model PCM_SAMPLES/step_stride times to produce one PCM frame.
         let mut prev_mu = self.prev_mu;
