@@ -234,12 +234,15 @@ pub(crate) fn gru_step(prev_mu: u8, h: &mut [f32], w: &GruWeights, s: &mut GruWo
     }
 
     // next_mu = argmax(logits)
-    s.logits
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(i, _)| i as u8)
-        .unwrap_or(MU_SILENCE)
+    let mut best_i = usize::from(MU_SILENCE);
+    let mut best_v = s.logits[best_i];
+    for (i, &v) in s.logits.iter().enumerate() {
+        if v > best_v {
+            best_v = v;
+            best_i = i;
+        }
+    }
+    best_i as u8
 }
 
 /// Matrix-vector product: out = W * x, written into `out`.
