@@ -329,7 +329,7 @@ impl NativeGruDecoder {
                 .and_then(|s| i64::from_str(s).ok())
                 .unwrap_or(128)
         };
-        if mu_silence_i64 as u8 != MU_SILENCE {
+        if mu_silence_i64 != i64::from(MU_SILENCE) {
             return Err(init_err(format!(
                 "nambe.mu_silence={mu_silence_i64}, expected {MU_SILENCE}"
             )));
