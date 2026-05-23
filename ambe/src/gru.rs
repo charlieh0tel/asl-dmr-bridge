@@ -46,10 +46,10 @@ const INPUT: usize = 136; // EMBED_DIM(8) + COND_DIM(128)
 const MU_CHANNELS: usize = 256;
 const EMBED_DIM: usize = 8;
 pub(crate) const COND_DIM: usize = 128;
-const MU_SILENCE: u8 = 128;
+pub(crate) const MU_SILENCE: u8 = 128;
 // AMBE+2 b0 values >= 120 are special frames (erasure 120-123, silence 124,
 // tone 125-127).  All bypass the GRU and output PCM silence.
-const B0_SPECIAL_MIN: i64 = 120;
+pub(crate) const B0_SPECIAL_MIN: i64 = 120;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
 /// weight directory.  `hidden` is read from `meta.json` and may be
@@ -265,6 +265,13 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
+/// Return a silence PCM frame with output gain applied.
+pub(crate) fn silence_pcm(out_db: dsp::dB) -> PcmFrame {
+    let mut out = [0i16; PCM_SAMPLES];
+    out_db.apply(&mut out);
+    out
+}
+
 /// µ-law decode: 8-bit code 0..=255 → f32 PCM in [-1, 1].
 /// Then scale to i16 range.
 pub(crate) fn ulaw_decode(mu: u8) -> i16 {
@@ -371,9 +378,7 @@ impl NativeGruDecoder {
         // and return silence; h is preserved so the model recovers on speech.
         if window[2][0] >= B0_SPECIAL_MIN {
             self.prev_mu = MU_SILENCE;
-            let mut out = [0i16; PCM_SAMPLES];
-            self.out_db.apply(&mut out);
-            return Ok(out);
+            return Ok(silence_pcm(self.out_db));
         }
 
         // Frame model: [1,5,9] → cond [1,128]

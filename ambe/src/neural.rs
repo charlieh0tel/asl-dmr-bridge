@@ -25,8 +25,10 @@ use tract_onnx::prelude::tvec;
 use crate::Vocoder;
 use crate::VocoderError;
 use crate::dynarmic::DynarmicVocoder;
+use crate::gru::B0_SPECIAL_MIN;
 use crate::gru::COND_DIM;
 use crate::gru::read_meta;
+use crate::gru::silence_pcm;
 use crate::gru::ulaw_decode;
 use dmr_types::AmbeFrame;
 use dmr_types::PCM_SAMPLES;
@@ -478,6 +480,13 @@ impl NeuralDecoderVocoder {
     }
 
     fn run_frame(&mut self, window: &[[i64; 9]; 5]) -> Result<PcmFrame, VocoderError> {
+        // Special frames (b0 >= 120): erasure, silence, tone.  Bypass the step
+        // model and return silence; h is preserved so the model recovers on speech.
+        if window[2][0] >= B0_SPECIAL_MIN {
+            self.prev_mu = self.mu_silence;
+            return Ok(silence_pcm(self.out_db));
+        }
+
         // Run frame model once to get conditioning vector.
         let bits_tensor =
             tract_ndarray::Array3::from_shape_fn((1usize, 5, 9), |(_, i, j)| window[i][j])
