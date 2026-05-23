@@ -55,8 +55,8 @@ pub(crate) const B0_SPECIAL_MIN: i64 = 120;
 /// weight directory.  `hidden` is read from `meta.json` and may be
 /// 256, 128, or 96 depending on the model variant.
 ///
-/// Weight matrices are stored as column-major `faer::Mat<f32>` (transposed
-/// from the row-major on-disk layout); SIMD dispatch is handled by faer.
+/// Weight matrices are stored as column-major `faer::Mat<f32>` (re-laid-out
+/// from row-major on-disk; shape is unchanged); SIMD dispatch is handled by faer.
 pub(crate) struct GruWeights {
     /// GRU hidden dimension for this model variant.
     pub(crate) hidden: usize,
@@ -536,8 +536,8 @@ fn load_input_matrix_split(
 }
 
 /// Load a [nrows × ncols] weight matrix from a row-major f32 LE binary file
-/// into a column-major `faer::Mat<f32>`.  The transpose at load time lets
-/// faer's GEMV kernel access columns contiguously.
+/// into a column-major `faer::Mat<f32>`.  The layout conversion (not a
+/// mathematical transpose) lets faer's GEMV kernel access columns contiguously.
 fn load_matrix_faer(
     dir: &Path,
     name: &str,
