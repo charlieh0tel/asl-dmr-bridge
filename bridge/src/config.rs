@@ -762,6 +762,14 @@ pub(crate) fn read_password_file(path: &Path) -> Result<Option<SecretString>, Co
     })
 }
 
+fn non_empty(s: SecretString) -> Option<SecretString> {
+    if s.expose_secret().is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
 /// Resolve the BM password from any of four sources:
 /// `--password-file` CLI, `BRANDMEISTER_PASSWORD` env var,
 /// `[network].password_file` in config, `[network].password` inline.
@@ -774,13 +782,6 @@ pub(crate) fn resolve_password(
     cli_file_source: Option<SecretString>,
     env_source: Option<SecretString>,
 ) -> Result<SecretString, ConfigError> {
-    fn non_empty(s: SecretString) -> Option<SecretString> {
-        if s.expose_secret().is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    }
     let config_file_source = match config.network.password_file.take() {
         Some(path) => read_password_file(&path)?,
         None => None,
@@ -851,13 +852,6 @@ pub(crate) fn resolve_api_key(
         }
         return Ok(None);
     };
-    fn non_empty(s: SecretString) -> Option<SecretString> {
-        if s.expose_secret().is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    }
     let config_file_source = match api_cfg.api_key_file.take() {
         Some(path) => read_api_key_file(&path)?,
         None => None,
