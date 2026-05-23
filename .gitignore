@@ -8,3 +8,5 @@ config.ai6kg*.toml
 /ambe/tests/fixtures/amb/
 /HANDOFF-*.md
 r.sh
+da.shfrag
+rt.sh
