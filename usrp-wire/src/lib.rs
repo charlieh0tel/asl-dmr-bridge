@@ -32,6 +32,33 @@ use std::time::Duration;
 
 const MAGIC: &[u8; 4] = b"USRP";
 
+/// Stack-allocated wire buffer for a serialized USRP frame.
+/// Avoids a heap allocation on the hot TX path.
+pub struct SerializedFrame {
+    buf: [u8; PACKET_SIZE],
+    len: usize,
+}
+
+impl SerializedFrame {
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+}
+
+impl std::ops::Deref for SerializedFrame {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl AsRef<[u8]> for SerializedFrame {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
 /// Header bytes preceding the optional 320-byte audio payload.
 pub const HEADER_SIZE: usize = 32;
 
@@ -214,10 +241,10 @@ impl Frame {
     /// Serialize this frame to a USRP packet.
     /// `byte_swap`: swap audio sample bytes for cross-endian peers.
     #[must_use]
-    pub fn serialize(&self, byte_swap: bool) -> Vec<u8> {
+    pub fn serialize(&self, byte_swap: bool) -> SerializedFrame {
         let has_audio = self.audio.is_some();
         let len = if has_audio { PACKET_SIZE } else { HEADER_SIZE };
-        let mut buf = vec![0u8; len];
+        let mut buf = [0u8; PACKET_SIZE];
 
         buf[0..4].copy_from_slice(MAGIC);
         buf[4..8].copy_from_slice(&self.seq.to_be_bytes());
@@ -234,7 +261,7 @@ impl Frame {
             }
         }
 
-        buf
+        SerializedFrame { buf, len }
     }
 }
 

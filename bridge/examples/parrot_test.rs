@@ -66,7 +66,12 @@ const PARROT_REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 /// jitter or hang-time gap.
 const QUIET_TIMEOUT: Duration = Duration::from_millis(1500);
 
-fn build_packet(seq: u32, keyup: bool, talkgroup: u32, audio: Option<&[i16]>) -> Vec<u8> {
+fn build_packet(
+    seq: u32,
+    keyup: bool,
+    talkgroup: u32,
+    audio: Option<&[i16]>,
+) -> usrp_wire::SerializedFrame {
     let mut samples = [0i16; VOICE_SAMPLES];
     if let Some(src) = audio {
         assert_eq!(src.len(), VOICE_SAMPLES, "voice frame must be 160 samples");
