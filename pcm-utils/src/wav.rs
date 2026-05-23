@@ -100,6 +100,7 @@ impl Drop for WavRecorder {
 /// `<kind>_<unix_ms>_<stream_id>.wav`.  Returns `None` if `dir` is
 /// `None` or creation fails (a warning is logged in the latter case
 /// so capture is best-effort and never breaks the call path).
+#[must_use]
 pub fn open_call_recorder(dir: Option<&Path>, kind: &str, stream_id: u32) -> Option<WavRecorder> {
     let dir = dir?;
     let now_ms = SystemTime::now()

@@ -124,6 +124,7 @@ pub struct AgcSummary {
 impl AgcSummary {
     /// Mean smoothed gain (linear).  Returns 1.0 (unity) if the
     /// summary is empty.
+    #[must_use]
     pub fn gain_mean(&self) -> f32 {
         if self.samples == 0 {
             1.0

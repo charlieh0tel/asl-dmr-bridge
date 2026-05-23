@@ -9,6 +9,7 @@ impl dB {
     pub const UNITY: Self = Self(0.0);
 
     /// Convert to a linear amplitude multiplier (`10^(db/20)`).
+    #[must_use]
     pub fn linear(self) -> f32 {
         10.0_f32.powf(self.0 / 20.0)
     }

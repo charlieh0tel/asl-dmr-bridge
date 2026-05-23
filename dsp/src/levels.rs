@@ -49,6 +49,7 @@ impl LevelAccumulator {
     /// `(peak_dbfs, rms_dbfs, voiced_rms_dbfs)`.  Any field is
     /// `f64::NEG_INFINITY` when nothing observed (no samples or all
     /// silent).
+    #[must_use]
     pub fn summary(&self) -> (f64, f64, f64) {
         let peak = if self.peak_abs > 0 {
             20.0 * (f64::from(self.peak_abs) / FULL_SCALE).log10()

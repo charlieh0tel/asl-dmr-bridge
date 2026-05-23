@@ -323,6 +323,7 @@ impl Vocoder for NativeGruDecoderBench {
 /// can be compared against neural logit heads.  Index order matches
 /// `FIELDS_DMR_3600X2450` (b0..b8).
 #[cfg(feature = "neural")]
+#[must_use]
 pub fn ambe_to_vq(frame: &dmr_types::AmbeFrame) -> [i64; 9] {
     neural::frame_to_vq(frame)
 }
