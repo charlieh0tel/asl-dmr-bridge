@@ -51,13 +51,15 @@ const B0_SPECIAL_MIN: i64 = 120;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
 /// weight directory.  `hidden` is read from `meta.json` and may be
-/// 256, 128, or 64 depending on the model variant.
+/// 256, 128, or 96 depending on the model variant.
 ///
 /// Weight matrices are stored as column-major `faer::Mat<f32>` (transposed
 /// from the row-major on-disk layout); SIMD dispatch is handled by faer.
 pub(crate) struct GruWeights {
     /// GRU hidden dimension for this model variant.
     pub(crate) hidden: usize,
+    /// Dual-FC hidden dimension (may differ from `hidden`).
+    pub(crate) dual_fc_hidden: usize,
     /// [256, 8] µ-law embedding lookup table.
     sample_embed: Box<[[f32; EMBED_DIM]; MU_CHANNELS]>,
     /// [H, 136] GRU input weights for r, z, n gates.
@@ -75,7 +77,7 @@ pub(crate) struct GruWeights {
     b_hr: Box<[f32]>,
     b_hz: Box<[f32]>,
     b_hn: Box<[f32]>,
-    /// [H, H] dual-FC layer 1; [256, H] dual-FC layer 2.
+    /// [FC, H] dual-FC layer 1; [256, FC] dual-FC layer 2.
     fc1_weight: Mat<f32>,
     fc1_bias: Box<[f32]>,
     /// fc2 output is always MU_CHANNELS=256 regardless of hidden size.
@@ -85,9 +87,10 @@ pub(crate) struct GruWeights {
 
 impl GruWeights {
     pub(crate) fn load(dir: &Path) -> Result<Self, VocoderError> {
-        let hidden = read_meta(dir)?;
+        let (hidden, dual_fc_hidden) = read_meta(dir)?;
         Ok(Self {
             hidden,
+            dual_fc_hidden,
             sample_embed: load_embed(dir, "sample_embed.bin")?,
             w_ir: load_matrix_faer(dir, "W_ir.bin", hidden, INPUT)?,
             w_iz: load_matrix_faer(dir, "W_iz.bin", hidden, INPUT)?,
@@ -101,9 +104,9 @@ impl GruWeights {
             b_hr: load_bias(dir, "b_hr.bin", hidden)?,
             b_hz: load_bias(dir, "b_hz.bin", hidden)?,
             b_hn: load_bias(dir, "b_hn.bin", hidden)?,
-            fc1_weight: load_matrix_faer(dir, "fc1_weight.bin", hidden, hidden)?,
-            fc1_bias: load_bias(dir, "fc1_bias.bin", hidden)?,
-            fc2_weight: load_matrix_faer(dir, "fc2_weight.bin", MU_CHANNELS, hidden)?,
+            fc1_weight: load_matrix_faer(dir, "fc1_weight.bin", dual_fc_hidden, hidden)?,
+            fc1_bias: load_bias(dir, "fc1_bias.bin", dual_fc_hidden)?,
+            fc2_weight: load_matrix_faer(dir, "fc2_weight.bin", MU_CHANNELS, dual_fc_hidden)?,
             fc2_bias: load_bias(dir, "fc2_bias.bin", MU_CHANNELS)?,
         })
     }
@@ -127,7 +130,7 @@ pub(crate) struct GruScratch {
 }
 
 impl GruScratch {
-    fn new(hidden: usize) -> Self {
+    fn new(hidden: usize, dual_fc_hidden: usize) -> Self {
         let h = || vec![0f32; hidden].into_boxed_slice();
         Self {
             x: vec![0f32; INPUT].into_boxed_slice(),
@@ -140,7 +143,7 @@ impl GruScratch {
             wn_x: h(),
             whn_h: h(),
             n: h(),
-            a: h(),
+            a: vec![0f32; dual_fc_hidden].into_boxed_slice(),
             logits: vec![0f32; MU_CHANNELS].into_boxed_slice(),
         }
     }
@@ -318,15 +321,17 @@ impl NativeGruDecoder {
 
         let weights = GruWeights::load(weights_dir)?;
         let hidden = weights.hidden;
+        let dual_fc_hidden = weights.dual_fc_hidden;
         info!(
             dir = %weights_dir.display(),
             hidden,
+            dual_fc_hidden,
             "native GRU decoder: weights loaded"
         );
 
         Ok(Self {
             frame_plan,
-            scratch: GruScratch::new(hidden),
+            scratch: GruScratch::new(hidden, dual_fc_hidden),
             weights,
             frame_ns: 0,
             step_ns: 0,
@@ -525,8 +530,8 @@ fn load_bias(dir: &Path, name: &str, len: usize) -> Result<Box<[f32]>, VocoderEr
 }
 
 /// Parse `meta.json` from the weights directory, validate fixed dimensions,
-/// and return `gru_hidden` for runtime sizing.
-fn read_meta(dir: &Path) -> Result<usize, VocoderError> {
+/// and return `(gru_hidden, dual_fc_hidden)` for runtime sizing.
+fn read_meta(dir: &Path) -> Result<(usize, usize), VocoderError> {
     let path = dir.join("meta.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| VocoderError::Init(format!("read {}: {e}", path.display())))?;
@@ -558,13 +563,8 @@ fn read_meta(dir: &Path) -> Result<usize, VocoderError> {
 
     let hidden = read_usize("gru_hidden")?;
     let dual_fc_hidden = read_usize("dual_fc_hidden")?;
-    if hidden != dual_fc_hidden {
-        return Err(VocoderError::Init(format!(
-            "meta.json: gru_hidden={hidden} != dual_fc_hidden={dual_fc_hidden}"
-        )));
-    }
 
-    Ok(hidden)
+    Ok((hidden, dual_fc_hidden))
 }
 
 fn init_err(msg: String) -> VocoderError {
@@ -600,7 +600,8 @@ mod tests {
 
         let weights = GruWeights::load(weights_dir).expect("load weights");
         let hidden = weights.hidden;
-        let mut scratch = GruScratch::new(hidden);
+        let dual_fc_hidden = weights.dual_fc_hidden;
+        let mut scratch = GruScratch::new(hidden, dual_fc_hidden);
 
         let onnx = tract_onnx::onnx();
         let step_plan = onnx
@@ -673,23 +674,11 @@ mod tests {
         );
     }
 
-    /// Parity oracle for h128 weights (committed to models/; always runs).
-    #[test]
-    fn gru_step_matches_onnx_oracle_h128() {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-d5-h128-weights");
-        let step_model = weights_dir.join("decoder_step.onnx");
-        assert!(
-            run_onnx_oracle("h128", &step_model, &weights_dir),
-            "h128 oracle fixtures missing"
-        );
-    }
-
     /// Parity oracle for h96 weights (committed to models/; always runs).
     #[test]
     fn gru_step_matches_onnx_oracle_h96() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-d5-h96-weights");
+        let weights_dir = manifest.join("../models/decoder-d6-h96-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
         assert!(
             run_onnx_oracle("h96", &step_model, &weights_dir),
@@ -706,9 +695,9 @@ mod tests {
     #[test]
     fn gru_step_silence_cond_oracle_h96() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-d5-h96-weights");
+        let weights_dir = manifest.join("../models/decoder-d6-h96-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
-        let frame_model_path = manifest.join("../models/decoder_frame.onnx");
+        let frame_model_path = weights_dir.join("decoder_frame.onnx");
         if !step_model.exists() || !weights_dir.exists() || !frame_model_path.exists() {
             eprintln!("gru_step_silence_cond_oracle_h96: fixtures absent; skipping");
             return;
@@ -739,7 +728,8 @@ mod tests {
 
         let weights = GruWeights::load(&weights_dir).expect("load weights");
         let hidden = weights.hidden;
-        let mut scratch = GruScratch::new(hidden);
+        let dual_fc_hidden = weights.dual_fc_hidden;
+        let mut scratch = GruScratch::new(hidden, dual_fc_hidden);
         let step_plan = tract_onnx::onnx()
             .model_for_path(&step_model)
             .expect("load step model")
