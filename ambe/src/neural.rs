@@ -478,10 +478,9 @@ impl NeuralDecoderVocoder {
 
     fn run_frame(&mut self, window: &[[i64; 9]; 5]) -> Result<PcmFrame, VocoderError> {
         // Run frame model once to get conditioning vector.
-        let bits_data: Vec<i64> = window.iter().flat_map(|r| r.iter().copied()).collect();
-        let bits_tensor = tract_ndarray::Array3::from_shape_vec((1usize, 5, 9), bits_data)
-            .map_err(|e| VocoderError::Decode(format!("bits_window shape: {e}")))?
-            .into_tensor();
+        let bits_tensor =
+            tract_ndarray::Array3::from_shape_fn((1usize, 5, 9), |(_, i, j)| window[i][j])
+                .into_tensor();
         let t_frame = Instant::now();
         let frame_out = self
             .frame_plan
