@@ -394,7 +394,7 @@ impl NativeGruDecoder {
             .frame_plan
             .run(tvec![bits_tensor.into()])
             .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?;
-        self.frame_ns += t_frame.elapsed().as_nanos() as u64;
+        self.frame_ns += t_frame.elapsed().as_nanos() as u64; // u128->u64: frame times are <<2^64 ns
 
         let cond_slice = frame_out[0]
             .as_slice::<f32>()
@@ -419,7 +419,7 @@ impl NativeGruDecoder {
             *s = ulaw_decode(next_mu);
             prev_mu = next_mu;
         }
-        self.step_ns += t_step.elapsed().as_nanos() as u64;
+        self.step_ns += t_step.elapsed().as_nanos() as u64; // u128->u64: same
         self.frames_timed += 1;
         self.prev_mu = prev_mu;
         self.out_db.apply(&mut out);
