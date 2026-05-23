@@ -6,7 +6,6 @@ URL="https://radioid.net/static/user.csv"
 DEST_DIR="/var/lib/asl-dmr-bridge/subscribers"
 DEST="${DEST_DIR}/user.csv"
 
-mkdir -p "${DEST_DIR}"
 TMP="$(mktemp "${DEST_DIR}/user.csv.XXXXXX")"
 trap 'rm -f "${TMP}"' EXIT
 
