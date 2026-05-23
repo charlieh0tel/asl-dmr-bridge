@@ -196,7 +196,8 @@ pub fn permute_chip_to_mbelib(chip_packed: &[u8; RAW_BYTES]) -> [u8; RAW_BYTES] 
 /// from the systematic positions only.
 pub fn channel_decode(coded: &[u8; CODED_BYTES]) -> [u8; RAW_BYTES] {
     let fr = deinterleave(coded);
-    let pr = pn_sequence(row0_seed(&fr), 23);
+    // Only 12 PN bits are consumed (row 1 dewhitening, pr[0..12]).
+    let pr = pn_sequence(row0_seed(&fr), 12);
 
     // mbelib-order bits, in the order ambe_d[0..48] uses internally.
     let mut mbelib_bits = [0u8; RAW_BITS];
