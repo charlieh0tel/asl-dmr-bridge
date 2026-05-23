@@ -124,8 +124,9 @@ impl GruWeights {
     }
 }
 
-/// Pre-allocated working buffers for `gru_step`.  Owned by
-/// `NativeGruDecoder` so the hot loop makes zero heap allocations.
+/// Pre-allocated scratch buffers for the GRU frame decode pipeline.
+/// `precompute_cond` fills the `cond_w*` slots once per frame; `gru_step`
+/// reuses the remaining slots for all 160 steps within the frame.
 pub(crate) struct GruWorkspace {
     /// Precomputed W_i{r,z,n}_c @ cond for the current frame (H each).
     /// Filled by `precompute_cond`; valid for all 160 steps of the frame.
