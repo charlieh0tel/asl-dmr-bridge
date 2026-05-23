@@ -517,10 +517,15 @@ impl NeuralDecoderVocoder {
             let h_slice = step_out[1]
                 .as_slice::<f32>()
                 .map_err(|e| VocoderError::Decode(format!("h_out: {e}")))?;
-            self.h
-                .as_slice_mut()
-                .expect("h contiguous")
-                .copy_from_slice(h_slice);
+            let h_out = self.h.as_slice_mut().expect("h contiguous");
+            if h_slice.len() != h_out.len() {
+                return Err(VocoderError::Decode(format!(
+                    "h_out size mismatch: model {} vs expected {}",
+                    h_slice.len(),
+                    h_out.len(),
+                )));
+            }
+            h_out.copy_from_slice(h_slice);
             for (s, &mu) in chunk.iter_mut().zip(mu_slice.iter()) {
                 *s = ulaw_decode(mu as u8);
             }
