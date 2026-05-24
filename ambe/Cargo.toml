@@ -78,3 +78,7 @@ required-features = ["dynarmic", "thumbdv", "neural"]
 [[example]]
 name = "roundtrip"
 required-features = ["neural"]
+
+[[example]]
+name = "gru_bench"
+required-features = ["neural"]
