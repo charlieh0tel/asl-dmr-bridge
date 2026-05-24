@@ -426,8 +426,9 @@ async fn async_main() -> anyhow::Result<()> {
     // Paced USRP output channel.  voice_task emits 3 frames per
     // incoming DMRD burst (nearly simultaneously); usrp::tx_task
     // drains them at 20 ms pacing.  Steady-state depth hovers near
-    // 3; 16 slots = 320 ms of headroom for brief producer bursts.
-    const AUDIO_OUT_DEPTH: usize = 16;
+    // 3; 64 slots = 1.28 s of headroom absorbs occasional decoder
+    // spikes without dropping bursts.
+    const AUDIO_OUT_DEPTH: usize = 64;
 
     // DMRD output to the network.  Control packets (header,
     // terminator, RPTPING, RPTCL) go through send().await and must
