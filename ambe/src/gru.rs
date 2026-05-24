@@ -489,6 +489,13 @@ impl Vocoder for NativeGruDecoder {
         self.h.fill(0.0);
     }
 
+    fn warm_cache(&mut self) {
+        // b0=0 < B0_SPECIAL_MIN; run_frame executes the full step loop.
+        let dummy = [0i64; 9];
+        let _ = self.run_frame(&[dummy; 5]);
+        self.reset();
+    }
+
     fn set_gain(&mut self, _in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
         self.out_db = out_db;
         Ok(())

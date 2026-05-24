@@ -411,6 +411,13 @@ impl PttMachine {
         }
     }
 
+    async fn warm_decoder_cache(&self) {
+        tokio::task::block_in_place(|| match self.vocoder.lock() {
+            Ok(mut g) => g.warm_cache(),
+            Err(_) => self.fatal_vocoder("warm_decoder_cache: mutex poisoned"),
+        });
+    }
+
     // --- TX burst builders ---
 
     fn build_tx_header(&self, tx: &mut TxCall) -> [u8; PACKET_SIZE] {
@@ -653,6 +660,7 @@ impl PttMachine {
                 self.stats
                     .call_start(CallDirection::DmrToFm, pkt.src_id, pkt.dst_id, pkt.slot);
                 self.on_ptt_up();
+                self.warm_decoder_cache().await;
                 self.on_rx_call_start(pkt.stream_id);
                 self.state = PttState::Rx(RxCall {
                     stream_id: pkt.stream_id,
@@ -739,6 +747,7 @@ impl PttMachine {
                 }
                 if emit_call_start {
                     self.on_ptt_up();
+                    self.warm_decoder_cache().await;
                     self.on_rx_call_start(pkt.stream_id);
                     self.stats
                         .call_start(CallDirection::DmrToFm, pkt.src_id, pkt.dst_id, pkt.slot);
