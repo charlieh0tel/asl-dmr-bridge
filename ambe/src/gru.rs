@@ -27,6 +27,7 @@ use faer::MatMut;
 use faer::MatRef;
 use faer::Par;
 use tracing::info;
+use tracing::warn;
 use tract_onnx::prelude::Framework;
 use tract_onnx::prelude::InferenceModelExt;
 use tract_onnx::prelude::IntoTensor;
@@ -50,6 +51,8 @@ pub(crate) const MU_SILENCE: u8 = 128;
 // AMBE+2 b0 values >= 120 are special frames (erasure 120-123, silence 124,
 // tone 125-127).  All bypass the GRU and output PCM silence.
 pub(crate) const B0_SPECIAL_MIN: i64 = 120;
+// Log frame+step split when total exceeds this threshold.
+const DECODE_SLOW_THRESHOLD_US: u128 = 15_000;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
 /// weight directory.  `hidden` is read from `meta.json` and may be
@@ -395,7 +398,8 @@ impl NativeGruDecoder {
             .frame_plan
             .run(tvec![bits_tensor.into()])
             .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?;
-        self.frame_ns += t_frame.elapsed().as_nanos() as u64; // u128->u64: frame times are <<2^64 ns
+        let frame_elapsed = t_frame.elapsed();
+        self.frame_ns += frame_elapsed.as_nanos() as u64; // u128->u64: frame times are <<2^64 ns
 
         let cond_slice = frame_out[0]
             .as_slice::<f32>()
@@ -420,8 +424,18 @@ impl NativeGruDecoder {
             *s = ulaw_decode(next_mu);
             prev_mu = next_mu;
         }
-        self.step_ns += t_step.elapsed().as_nanos() as u64; // u128->u64: same
+        let step_elapsed = t_step.elapsed();
+        self.step_ns += step_elapsed.as_nanos() as u64; // u128->u64: same
         self.frames_timed += 1;
+        let frame_us = frame_elapsed.as_micros();
+        let step_us = step_elapsed.as_micros();
+        if frame_us + step_us > DECODE_SLOW_THRESHOLD_US {
+            warn!(
+                frame_us = frame_us as u64,
+                step_us = step_us as u64,
+                "decode slow: frame+step above 15ms"
+            );
+        }
         self.prev_mu = prev_mu;
         self.out_db.apply(&mut out);
         Ok(out)
