@@ -1,15 +1,16 @@
 //! Brandmeister Halligan API integration: startup-time peer-profile
 //! log and optional pure-set static-talkgroup reconciliation.
 //!
-//! Read path runs unconditionally (one anonymous GET, no auth needed)
-//! so the bridge log surfaces what BM thinks our peer is subscribed
-//! to -- the shape of question that took a 2-minute live diagnostic
-//! to answer the first time we asked it.
+//! Both paths are gated on [brandmeister_api] being present in config.
+//! Section absent = no API calls at all, consistent with the config
+//! contract.
 //!
-//! Write path runs only when [brandmeister_api] supplies an api_key
-//! AND at least one `static_talkgroups_tsN` list.  The semantics are
-//! pure-set: declared list = final state.  Omitting a slot leaves it
-//! untouched; `[]` reduces it to empty.
+//! Read path (anonymous GET, no auth needed) logs what BM thinks the
+//! peer is subscribed to -- useful diagnostic when the section is
+//! present.  Write path runs only when api_key AND at least one
+//! `static_talkgroups_tsN` list are supplied.  Semantics are pure-set:
+//! declared list = final state; omitting a slot leaves it untouched;
+//! `[]` reduces it to empty.
 //!
 //! All failures are non-fatal: a bridge that can't reach the API
 //! still functions for voice traffic, and we'd rather degrade with a
@@ -31,12 +32,15 @@ use crate::config::ResolvedBrandmeisterApiConfig;
 use crate::config::RuntimeConfig;
 
 /// Run startup provisioning: log peer profile, reconcile statics if
-/// requested.  Errors are logged and swallowed -- the bridge does not
-/// gate on API success.
+/// requested.  No-op when [brandmeister_api] is absent.  Errors are
+/// logged and swallowed -- the bridge does not gate on API success.
 pub(crate) async fn provision(config: &RuntimeConfig) {
+    let Some(api_config) = config.brandmeister_api.as_ref() else {
+        return;
+    };
     let device_id = config.peer.dmr_id;
-    let client = build_client(config.brandmeister_api.as_ref());
-    run_once(&client, device_id, config.brandmeister_api.as_ref()).await;
+    let client = build_client(Some(api_config));
+    run_once(&client, device_id, Some(api_config)).await;
 }
 
 /// Re-run `provision` on each tick so SelfCare edits made while the
