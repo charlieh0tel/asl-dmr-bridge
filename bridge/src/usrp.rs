@@ -230,8 +230,7 @@ pub(crate) async fn tx_task(
                 let is_voice = audio.keyup && audio.samples.is_some();
                 if is_voice {
                     let deadline = next_voice_send.unwrap_or_else(Instant::now);
-                    let now = Instant::now();
-                    if now < deadline {
+                    if Instant::now() < deadline {
                         tokio::select! {
                             biased;
                             _ = cancel.cancelled() => {
@@ -246,14 +245,10 @@ pub(crate) async fn tx_task(
                             }
                             _ = sleep_until(deadline) => {}
                         }
-                        // Anchor on deadline so jitter doesn't drift.
-                        next_voice_send = Some(deadline + VOICE_FRAME_INTERVAL);
-                    } else {
-                        // Past deadline: anchor on now so we wait a
-                        // full interval instead of firing back-to-back
-                        // as catch-up.
-                        next_voice_send = Some(now + VOICE_FRAME_INTERVAL);
                     }
+                    // Anchor on deadline (not now) so the pacing clock
+                    // doesn't drift forward when frames arrive late.
+                    next_voice_send = Some(deadline + VOICE_FRAME_INTERVAL);
                 } else {
                     next_voice_send = None;
                 }
