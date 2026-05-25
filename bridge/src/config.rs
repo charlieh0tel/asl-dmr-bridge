@@ -59,6 +59,9 @@ pub(crate) enum ConfigError {
     #[error("network.keepalive_interval must be > 0")]
     KeepaliveIntervalZero,
 
+    #[error("network.keepalive_missed_limit must be >= 1")]
+    KeepaliveMissedLimitZero,
+
     #[error("brandmeister_api.api_key and brandmeister_api.api_key_file both set (pick one)")]
     BrandmeisterApiKeyAmbiguous,
 
@@ -645,6 +648,9 @@ impl Config {
         if self.network.keepalive_interval.is_zero() {
             return Err(ConfigError::KeepaliveIntervalZero);
         }
+        if self.network.keepalive_missed_limit == 0 {
+            return Err(ConfigError::KeepaliveMissedLimitZero);
+        }
         #[cfg(feature = "neural")]
         if let VocoderBackend::Neural = self.vocoder.backend
             && let Some(nc) = &self.vocoder.neural
@@ -994,6 +1000,16 @@ keepalive_missed_limit = 3
         let err = parse(&text).expect_err("zero keepalive_interval rejected");
         assert!(
             matches!(err, ConfigError::KeepaliveIntervalZero),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn keepalive_missed_limit_zero_rejected() {
+        let text = MINIMAL.replace("keepalive_missed_limit = 3", "keepalive_missed_limit = 0");
+        let err = parse(&text).expect_err("zero keepalive_missed_limit rejected");
+        assert!(
+            matches!(err, ConfigError::KeepaliveMissedLimitZero),
             "got {err:?}"
         );
     }
