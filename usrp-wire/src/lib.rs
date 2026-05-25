@@ -238,10 +238,16 @@ impl Frame {
         buf
     }
 
-    /// Serialize this frame to a USRP packet.
+    /// Serialize this frame to a USRP packet.  Only Voice and control
+    /// frames (no text payload) are supported; use `serialize_text` for
+    /// TEXT frames.
     /// `byte_swap`: swap audio sample bytes for cross-endian peers.
     #[must_use]
     pub fn serialize(&self, byte_swap: bool) -> SerializedFrame {
+        debug_assert!(
+            self.text.is_none(),
+            "serialize() does not write text payloads; use serialize_text()"
+        );
         let has_audio = self.audio.is_some();
         let len = if has_audio { PACKET_SIZE } else { HEADER_SIZE };
         let mut buf = [0u8; PACKET_SIZE];
