@@ -51,8 +51,8 @@ pub(crate) const MU_SILENCE: u8 = 128;
 // AMBE+2 b0 values >= 120 are special frames (erasure 120-123, silence 124,
 // tone 125-127).  All bypass the GRU and output PCM silence.
 pub(crate) const B0_SPECIAL_MIN: i64 = 120;
-// Log frame+step split when total exceeds this threshold.
-const DECODE_SLOW_THRESHOLD_US: u128 = 15_000;
+// Log frame+step split when total exceeds this threshold (one 8 kHz frame = 20 ms).
+const DECODE_SLOW_THRESHOLD_US: u128 = 20_000;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
 /// weight directory.  `hidden` is read from `meta.json` and may be
