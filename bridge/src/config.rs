@@ -119,7 +119,7 @@ pub(crate) struct Config {
     #[serde(default)]
     pub(crate) diagnostics: DiagnosticsConfig,
     /// FM->DMR pre-encode voice-band filter (HP4 @ 250 Hz + LP2 @
-    /// 3000 Hz).  Default on; set `enabled = false` to bypass.
+    /// 3000 Hz).  Default off; set `enabled = true` to activate.
     #[serde(default)]
     pub(crate) encode_filter: EncodeFilterConfig,
     /// Static dB gain applied in each direction.  Backend-agnostic
