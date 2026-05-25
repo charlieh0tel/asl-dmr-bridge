@@ -758,15 +758,15 @@ mod tests {
         );
     }
 
-    /// Parity oracle for h96 weights (committed to models/; always runs).
+    /// Parity oracle for h128 weights (committed to models/; always runs).
     #[test]
-    fn gru_step_matches_onnx_oracle_h96() {
+    fn gru_step_matches_onnx_oracle_h128() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-d6-h96-weights");
+        let weights_dir = manifest.join("../models/decoder-h128-v1-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
         assert!(
-            run_onnx_oracle("h96", &step_model, &weights_dir),
-            "h96 oracle fixtures missing"
+            run_onnx_oracle("h128", &step_model, &weights_dir),
+            "h128 oracle fixtures missing"
         );
     }
 
@@ -777,13 +777,13 @@ mod tests {
     /// that emerge under constant non-zero cond over many frames (3200 steps
     /// = 20 frames * 160 steps/frame).
     #[test]
-    fn gru_step_silence_cond_oracle_h96() {
+    fn gru_step_silence_cond_oracle_h128() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-d6-h96-weights");
+        let weights_dir = manifest.join("../models/decoder-h128-v1-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
         let frame_model_path = weights_dir.join("decoder_frame.onnx");
         if !step_model.exists() || !weights_dir.exists() || !frame_model_path.exists() {
-            eprintln!("gru_step_silence_cond_oracle_h96: fixtures absent; skipping");
+            eprintln!("gru_step_silence_cond_oracle_h128: fixtures absent; skipping");
             return;
         }
 
@@ -820,17 +820,17 @@ mod tests {
             .expect("runnable");
 
         let max_h_err = run_step_loop(
-            "silence_cond h96",
+            "silence_cond h128",
             &step_plan,
             &weights,
             &mut workspace,
             &silence_cond,
             3200,
         );
-        eprintln!("silence_cond oracle h96: max h error over 3200 steps: {max_h_err:.2e}");
+        eprintln!("silence_cond oracle h128: max h error over 3200 steps: {max_h_err:.2e}");
         assert!(
             max_h_err < 1e-4,
-            "silence_cond oracle h96: max h error {max_h_err:.2e} exceeds 1e-4"
+            "silence_cond oracle h128: max h error {max_h_err:.2e} exceeds 1e-4"
         );
     }
 }
