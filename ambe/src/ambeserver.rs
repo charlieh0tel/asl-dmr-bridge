@@ -18,7 +18,6 @@ use crate::chip::build_ambe_for_bits;
 use crate::udp_dv::UdpDvTransport;
 use dmr_types::AmbeFrame;
 use dmr_types::PcmFrame;
-use dv3000_wire::CONTROL_GAIN;
 use dv3000_wire::Packet;
 use dv3000_wire::build_ambe;
 use dv3000_wire::build_ambe_lost_frame;
@@ -99,19 +98,18 @@ impl Vocoder for AmbeServer {
     fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {
         let in_byte = in_db.to_chip_byte();
         let out_byte = out_db.to_chip_byte();
-        match self.transport.send_recv(&build_gain(in_byte, out_byte))? {
-            Packet::Control { field_id, .. } if field_id == CONTROL_GAIN => {
-                tracing::info!(
-                    "AMBEserver gain set: in={} dB, out={} dB",
-                    in_byte,
-                    out_byte
-                );
-                Ok(())
-            }
-            other => Err(VocoderError::Init(format!(
-                "expected GAIN ack, got {other:?}"
-            ))),
+        let response = self.transport.send_recv(&build_gain(in_byte, out_byte))?;
+        if !is_gain_ack(&response) {
+            return Err(VocoderError::Init(format!(
+                "expected GAIN ack, got {response:?}"
+            )));
         }
+        tracing::info!(
+            "AMBEserver gain set: in={} dB, out={} dB",
+            in_byte,
+            out_byte
+        );
+        Ok(())
     }
 }
 

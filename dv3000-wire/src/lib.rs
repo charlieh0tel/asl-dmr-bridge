@@ -321,9 +321,12 @@ pub fn build_gain(in_db: i8, out_db: i8) -> Vec<u8> {
     buf
 }
 
-/// Check if a control packet is a GAIN acknowledgment.
+/// Check if a control packet is a successful GAIN acknowledgment
+/// (`result == 0`).  A reject ack has the same `field_id` but a
+/// non-zero result byte and must not be treated as success.
 pub fn is_gain_ack(packet: &Packet) -> bool {
-    matches!(packet, Packet::Control { field_id, .. } if *field_id == CONTROL_GAIN)
+    matches!(packet, Packet::Control { field_id, data }
+        if *field_id == CONTROL_GAIN && data.first() == Some(&0))
 }
 
 /// Build a product ID query packet (sent by a client to a chip).
@@ -382,9 +385,12 @@ pub fn is_ready(packet: &Packet) -> bool {
     matches!(packet, Packet::Control { field_id, .. } if *field_id == CONTROL_READY)
 }
 
-/// Check if a control packet is a RATEP acknowledgment.
+/// Check if a control packet is a successful RATEP acknowledgment
+/// (`result == 0`).  A reject ack has the same `field_id` but a
+/// non-zero result byte and must not be treated as success.
 pub fn is_ratep_ack(packet: &Packet) -> bool {
-    matches!(packet, Packet::Control { field_id, .. } if *field_id == CONTROL_RATEP)
+    matches!(packet, Packet::Control { field_id, data }
+        if *field_id == CONTROL_RATEP && data.first() == Some(&0))
 }
 
 #[cfg(test)]
@@ -455,13 +461,20 @@ mod tests {
 
     #[test]
     fn gain_ack_detection() {
-        let packet = Packet::Control {
+        let ok = Packet::Control {
             field_id: CONTROL_GAIN,
-            data: vec![],
+            data: vec![0],
         };
-        assert!(is_gain_ack(&packet));
-        assert!(!is_ratep_ack(&packet));
-        assert!(!is_ready(&packet));
+        assert!(is_gain_ack(&ok));
+        assert!(!is_ratep_ack(&ok));
+        assert!(!is_ready(&ok));
+
+        // Non-zero result byte is a reject; must not be treated as success.
+        let reject = Packet::Control {
+            field_id: CONTROL_GAIN,
+            data: vec![1],
+        };
+        assert!(!is_gain_ack(&reject));
     }
 
     #[test]
