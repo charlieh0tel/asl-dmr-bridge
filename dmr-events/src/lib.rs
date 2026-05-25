@@ -99,10 +99,11 @@ impl TerminationReason {
 ///
 /// Channel is bounded; the producer (voice task) `try_send`s and
 /// drops on full.  Dropping a `VoiceFrame` slightly understates
-/// counters; dropping a `CallStart` / `CallEnd` orphans a call from
-/// the per-call summary -- accepted as best-effort given the
-/// realistic event rate (~50 frames/s/dir, consumer is one
-/// non-blocking task per event).
+/// counters.  Dropping a `CallEnd` orphans a call from the per-call
+/// summary log and, if no subsequent `CallStart` arrives for that
+/// direction, also undercounts the cumulative totals by one call.
+/// Accepted as best-effort given the realistic event rate
+/// (~50 frames/s/dir, consumer is one non-blocking task per event).
 #[derive(Debug, Clone)]
 pub enum StatsEvent {
     CallStart {
