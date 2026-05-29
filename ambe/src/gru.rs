@@ -762,7 +762,7 @@ mod tests {
     #[test]
     fn gru_step_matches_onnx_oracle_h128() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-h128-v1-weights");
+        let weights_dir = manifest.join("../models/decoder-h128-v5-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
         assert!(
             run_onnx_oracle("h128", &step_model, &weights_dir),
@@ -779,7 +779,7 @@ mod tests {
     #[test]
     fn gru_step_silence_cond_oracle_h128() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-h128-v1-weights");
+        let weights_dir = manifest.join("../models/decoder-h128-v5-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
         let frame_model_path = weights_dir.join("decoder_frame.onnx");
         if !step_model.exists() || !weights_dir.exists() || !frame_model_path.exists() {
