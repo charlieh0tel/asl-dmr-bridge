@@ -53,10 +53,6 @@ pub(crate) const MU_SILENCE: u8 = 128;
 pub(crate) const B0_SPECIAL_MIN: i64 = 120;
 // Log frame+step split when total exceeds this threshold (one 8 kHz frame = 20 ms).
 const DECODE_SLOW_THRESHOLD_US: u128 = 20_000;
-// Number of all-zero-VQ frames run through the GRU at reset time to warm the
-// hidden state before the first real frame arrives.  All-zero VQ has b0=0 <
-// B0_SPECIAL_MIN so the full step loop executes (unlike the silence sentinel).
-const PRIME_FRAMES: usize = 2;
 
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
 /// weight directory.  `hidden` is read from `meta.json` and may be
@@ -491,13 +487,6 @@ impl Vocoder for NativeGruDecoder {
         self.history.clear();
         self.prev_mu = MU_SILENCE;
         self.h.fill(0.0);
-        // Prime the GRU hidden state so the first real frame decodes from a
-        // warm start.  b0=0 < B0_SPECIAL_MIN, so run_frame executes the full
-        // step loop; h and prev_mu are left in the primed state.
-        let prime_window = [[0i64; 9]; 5];
-        for _ in 0..PRIME_FRAMES {
-            let _ = self.run_frame(&prime_window);
-        }
     }
 
     fn warm_cache(&mut self) {
