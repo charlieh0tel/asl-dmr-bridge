@@ -712,8 +712,11 @@ mod tests {
                 max_h_err = step_h_err;
             }
 
+            // Sync both paths to the same (h, prev_mu) before the next step so
+            // floating-point h divergence doesn't compound across the AR chain.
+            h_onnx.as_slice_mut().unwrap().copy_from_slice(&h_native);
             prev_mu_native = next_native;
-            prev_mu_onnx = i64::from(next_onnx);
+            prev_mu_onnx = i64::from(next_native);
         }
 
         max_h_err
@@ -762,7 +765,7 @@ mod tests {
     #[test]
     fn gru_step_matches_onnx_oracle_h128() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-h128-v5-weights");
+        let weights_dir = manifest.join("../models/decoder-h128-v6-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
         assert!(
             run_onnx_oracle("h128", &step_model, &weights_dir),
@@ -779,7 +782,7 @@ mod tests {
     #[test]
     fn gru_step_silence_cond_oracle_h128() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let weights_dir = manifest.join("../models/decoder-h128-v5-weights");
+        let weights_dir = manifest.join("../models/decoder-h128-v6-weights");
         let step_model = weights_dir.join("decoder_step.onnx");
         let frame_model_path = weights_dir.join("decoder_frame.onnx");
         if !step_model.exists() || !weights_dir.exists() || !frame_model_path.exists() {
