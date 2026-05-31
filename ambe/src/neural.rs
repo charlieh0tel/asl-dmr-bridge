@@ -12,6 +12,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Instant;
 
+use tracing::debug;
 use tracing::info;
 use tract_onnx::pb;
 use tract_onnx::prelude::Framework;
@@ -157,11 +158,16 @@ impl NeuralVocoder {
             .parse(&proto, None)
             .map_err(|e| init_err(format!("parse {}: {e}", model_path.display())))?
             .model;
-        let plan = model
+        debug!(path = %model_path.display(), "into_typed");
+        let typed = model
             .into_typed()
-            .map_err(|e| init_err(format!("into_typed: {e}")))?
+            .map_err(|e| init_err(format!("into_typed: {e}")))?;
+        debug!(path = %model_path.display(), "into_optimized");
+        let optimized = typed
             .into_optimized()
-            .map_err(|e| init_err(format!("optimize: {e}")))?
+            .map_err(|e| init_err(format!("optimize: {e}")))?;
+        debug!(path = %model_path.display(), "into_runnable");
+        let plan = optimized
             .into_runnable()
             .map_err(|e| init_err(format!("into_runnable: {e}")))?;
 
@@ -180,7 +186,7 @@ impl NeuralVocoder {
         );
 
         let pcm_input_samples = meta.pcm_input_samples;
-        Ok(Self {
+        let mut vocoder = Self {
             plan,
             meta,
             buffer_cap,
@@ -188,13 +194,21 @@ impl NeuralVocoder {
             input_scratch: vec![0.0f32; pcm_input_samples].into_boxed_slice(),
             decoder,
             in_db: dsp::dB::UNITY,
-        })
+        };
+        // Pre-warm the inner decoder now that ONNX model loading is
+        // complete.  For DynarmicVocoder this is the first lock() call,
+        // which runs md380_init() and JIT warmup.  Must come after
+        // into_optimized() to avoid the dynarmic SIGSEGV-handler /
+        // tract probe conflict.
+        vocoder.warm_cache();
+        Ok(vocoder)
     }
 
     /// Run inference on the current buffer slice and argmax each of
     /// the 9 logit heads.  Output order matches FIELDS_DMR_3600X2450
     /// (validated at load).
     fn run_inference(&mut self) -> Result<[u16; 9], VocoderError> {
+        debug!("run_inference");
         let n = self.meta.pcm_input_samples;
         for (dst, &src) in self.input_scratch.iter_mut().zip(self.samples.iter()) {
             *dst = f32::from(src) / 32768.0;
@@ -291,6 +305,10 @@ impl Vocoder for NeuralVocoder {
 
     fn decode(&mut self, ambe: Option<&AmbeFrame>) -> Result<PcmFrame, VocoderError> {
         self.decoder.decode(ambe)
+    }
+
+    fn warm_cache(&mut self) {
+        self.decoder.warm_cache();
     }
 
     fn reset(&mut self) {

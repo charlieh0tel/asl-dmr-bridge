@@ -44,7 +44,14 @@ pub(crate) struct DynarmicVocoder {
 
 impl DynarmicVocoder {
     pub(crate) fn new() -> Self {
-        drop(lock());
+        // Do NOT call lock() here: doing so installs dynarmic's
+        // process-wide SIGSEGV handler before any caller has had a
+        // chance to load ONNX models via tract.  Tract runs a one-shot
+        // probe (SIMD feature detection / constant folding) that
+        // generates a controlled SIGSEGV; if the dynarmic handler is
+        // already installed it intercepts and fatally re-raises that
+        // probe.  warm_cache() triggers the same init after model
+        // loading completes.
         Self {
             in_db: dsp::dB::UNITY,
             out_db: dsp::dB::UNITY,
@@ -73,6 +80,10 @@ impl Vocoder for DynarmicVocoder {
         unsafe { dynarmic_sys::md380_decode_fec(coded.as_ptr(), pcm.as_mut_ptr()) };
         self.out_db.apply(&mut pcm);
         Ok(pcm)
+    }
+
+    fn warm_cache(&mut self) {
+        drop(lock());
     }
 
     fn reset(&mut self) {
