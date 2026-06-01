@@ -195,11 +195,6 @@ impl NeuralVocoder {
             decoder,
             in_db: dsp::dB::UNITY,
         };
-        // Pre-warm the inner decoder now that ONNX model loading is
-        // complete.  For DynarmicVocoder this is the first lock() call,
-        // which runs md380_init() and JIT warmup.  Must come after
-        // into_optimized() to avoid the dynarmic SIGSEGV-handler /
-        // tract probe conflict.
         vocoder.warm_cache();
         Ok(vocoder)
     }
