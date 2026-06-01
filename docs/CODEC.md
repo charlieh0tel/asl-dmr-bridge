@@ -21,6 +21,11 @@ half of the neural backend (`decoder_backend = "dynarmic"` under
 artifacts.**  No legal advice offered -- operators are responsible
 for the posture in their jurisdiction.
 
+**SIGSEGV on startup** with a backtrace in `oaknut` /
+`A32AddressSpace` almost always means `MemoryDenyWriteExecute=yes`
+is blocking the JIT's W+X mmap.  See the drop-in in
+`docs/INSTALL.md`.
+
 ## neural
 
 Tract-loaded ONNX encoder (`backend = "neural"`).  Encode and decode

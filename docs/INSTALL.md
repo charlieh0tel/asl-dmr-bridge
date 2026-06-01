@@ -43,3 +43,24 @@ weights_dir = "/usr/share/asl-dmr-bridge/models/decoder-h128-v6-weights"
 The `step = "native_gru"` kernel (default) runs the GRU in native Rust and
 is the recommended path on aarch64.  Rollback: change both paths to
 `decoder-h128-v5-weights`.
+
+## dynarmic backend: W+X drop-in required
+
+The `dynarmic` vocoder backend requires write+execute memory mappings for its
+JIT code cache.  The shipped unit has `MemoryDenyWriteExecute=yes` which
+blocks this.  A ready-made drop-in ships at:
+
+```
+/usr/share/doc/asl-dmr-bridge/examples/allow-wx.conf
+```
+
+Install it and reload:
+
+```
+sudo mkdir -p /etc/systemd/system/asl-dmr-bridge.service.d
+sudo cp /usr/share/doc/asl-dmr-bridge/examples/allow-wx.conf \
+        /etc/systemd/system/asl-dmr-bridge.service.d/
+sudo systemctl daemon-reload
+```
+
+Not needed for `thumbdv`, `ambeserver`, or `decoder_backend = "neural"`.
