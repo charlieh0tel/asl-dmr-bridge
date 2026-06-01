@@ -1,4 +1,4 @@
-//! AMBE+2 encode / decode / roundtrip utility.
+//! AMBE+2 encode / decode utility.
 //!
 //! Each 20 ms vocoder frame encodes 160 i16 PCM samples to 9 AMBE bytes.
 //! The `.ambe` file format is raw concatenated 9-byte frames with no header.
@@ -27,8 +27,6 @@ enum Cmd {
     Encode(EncodeArgs),
     /// Decode raw AMBE frames to an 8 kHz mono i16 WAV.
     Decode(DecodeArgs),
-    /// Encode then decode; encoder closes before decoder opens.
-    Roundtrip(RoundtripArgs),
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -79,42 +77,6 @@ struct DecodeArgs {
     /// AMBEserver UDP address.
     #[arg(long, default_value = "127.0.0.1:2460")]
     ambeserver: String,
-    /// Directory with decoder_frame.onnx and GRU weight files for neural decoder.
-    #[arg(long)]
-    decoder_model: Option<PathBuf>,
-    #[arg(long = "in")]
-    input: PathBuf,
-    #[arg(long = "out")]
-    output: PathBuf,
-}
-
-#[derive(clap::Args)]
-struct RoundtripArgs {
-    #[arg(long, value_enum)]
-    encoder: EncoderBackend,
-    #[arg(long, value_enum)]
-    decoder: DecoderBackend,
-    /// Serial port for both thumbdv sides; overridden per-side by --encoder-serial/--decoder-serial.
-    #[arg(long, default_value = "/dev/ttyUSB0")]
-    serial: String,
-    /// AMBEserver address for both sides; overridden per-side by --encoder-ambeserver/--decoder-ambeserver.
-    #[arg(long, default_value = "127.0.0.1:2460")]
-    ambeserver: String,
-    /// Serial port for thumbdv encoder (overrides --serial).
-    #[arg(long)]
-    encoder_serial: Option<String>,
-    /// AMBEserver address for encoder (overrides --ambeserver).
-    #[arg(long)]
-    encoder_ambeserver: Option<String>,
-    /// ONNX model path for neural encoder.
-    #[arg(long)]
-    encoder_model: Option<PathBuf>,
-    /// Serial port for thumbdv decoder (overrides --serial).
-    #[arg(long)]
-    decoder_serial: Option<String>,
-    /// AMBEserver address for decoder (overrides --ambeserver).
-    #[arg(long)]
-    decoder_ambeserver: Option<String>,
     /// Directory with decoder_frame.onnx and GRU weight files for neural decoder.
     #[arg(long)]
     decoder_model: Option<PathBuf>,
@@ -324,41 +286,6 @@ fn run(cli: Cli) -> Result<()> {
             let samples = decode_all(dec.as_mut(), &frames)?;
             write_wav(&a.output, &samples)?;
             info!(samples = samples.len(), path = %a.output.display(), "decoded");
-        }
-        Cmd::Roundtrip(a) => {
-            let enc_serial = a.encoder_serial.as_deref().unwrap_or(&a.serial);
-            let dec_serial = a.decoder_serial.as_deref().unwrap_or(&a.serial);
-            let enc_ambeserver = a.encoder_ambeserver.as_deref().unwrap_or(&a.ambeserver);
-            let dec_ambeserver = a.decoder_ambeserver.as_deref().unwrap_or(&a.ambeserver);
-            // Encode and drop before opening decoder so thumbdv->thumbdv
-            // doesn't double-open the serial port.
-            let frames = {
-                let mut enc = open_encoder(
-                    a.encoder,
-                    enc_serial,
-                    enc_ambeserver,
-                    a.encoder_model.as_deref(),
-                )?;
-                let samples = read_wav(&a.input)?;
-                info!(
-                    frames = samples.len() / PCM_SAMPLES,
-                    path = %a.input.display(),
-                    "encoding"
-                );
-                encode_all(enc.as_mut(), &samples)?
-            };
-            let samples = {
-                let mut dec = open_decoder(
-                    a.decoder,
-                    dec_serial,
-                    dec_ambeserver,
-                    a.decoder_model.as_deref(),
-                )?;
-                info!(frames = frames.len(), "decoding");
-                decode_all(dec.as_mut(), &frames)?
-            };
-            write_wav(&a.output, &samples)?;
-            info!(samples = samples.len(), path = %a.output.display(), "done");
         }
     }
     Ok(())
