@@ -94,21 +94,27 @@ struct RoundtripArgs {
     encoder: EncoderBackend,
     #[arg(long, value_enum)]
     decoder: DecoderBackend,
-    /// Serial port for thumbdv encoder.
+    /// Serial port for both thumbdv sides; overridden per-side by --encoder-serial/--decoder-serial.
     #[arg(long, default_value = "/dev/ttyUSB0")]
-    encoder_serial: String,
-    /// AMBEserver address for encoder.
+    serial: String,
+    /// AMBEserver address for both sides; overridden per-side by --encoder-ambeserver/--decoder-ambeserver.
     #[arg(long, default_value = "127.0.0.1:2460")]
-    encoder_ambeserver: String,
+    ambeserver: String,
+    /// Serial port for thumbdv encoder (overrides --serial).
+    #[arg(long)]
+    encoder_serial: Option<String>,
+    /// AMBEserver address for encoder (overrides --ambeserver).
+    #[arg(long)]
+    encoder_ambeserver: Option<String>,
     /// ONNX model path for neural encoder.
     #[arg(long)]
     encoder_model: Option<PathBuf>,
-    /// Serial port for thumbdv decoder.
-    #[arg(long, default_value = "/dev/ttyUSB0")]
-    decoder_serial: String,
-    /// AMBEserver address for decoder.
-    #[arg(long, default_value = "127.0.0.1:2460")]
-    decoder_ambeserver: String,
+    /// Serial port for thumbdv decoder (overrides --serial).
+    #[arg(long)]
+    decoder_serial: Option<String>,
+    /// AMBEserver address for decoder (overrides --ambeserver).
+    #[arg(long)]
+    decoder_ambeserver: Option<String>,
     /// Directory with decoder_frame.onnx and GRU weight files for neural decoder.
     #[arg(long)]
     decoder_dir: Option<PathBuf>,
@@ -315,13 +321,17 @@ fn run(cli: Cli) -> Result<()> {
             info!(samples = samples.len(), path = %a.output.display(), "decoded");
         }
         Cmd::Roundtrip(a) => {
+            let enc_serial = a.encoder_serial.as_deref().unwrap_or(&a.serial);
+            let dec_serial = a.decoder_serial.as_deref().unwrap_or(&a.serial);
+            let enc_ambeserver = a.encoder_ambeserver.as_deref().unwrap_or(&a.ambeserver);
+            let dec_ambeserver = a.decoder_ambeserver.as_deref().unwrap_or(&a.ambeserver);
             // Encode and drop before opening decoder so thumbdv->thumbdv
             // doesn't double-open the serial port.
             let frames = {
                 let mut enc = open_encoder(
                     a.encoder,
-                    &a.encoder_serial,
-                    &a.encoder_ambeserver,
+                    enc_serial,
+                    enc_ambeserver,
                     a.encoder_model.as_deref(),
                 )?;
                 let samples = read_wav(&a.input)?;
@@ -335,8 +345,8 @@ fn run(cli: Cli) -> Result<()> {
             let samples = {
                 let mut dec = open_decoder(
                     a.decoder,
-                    &a.decoder_serial,
-                    &a.decoder_ambeserver,
+                    dec_serial,
+                    dec_ambeserver,
                     a.decoder_dir.as_deref(),
                 )?;
                 info!(frames = frames.len(), "decoding");
