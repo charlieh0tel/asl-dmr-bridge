@@ -62,7 +62,7 @@ struct EncodeArgs {
     ambeserver: String,
     /// ONNX model path for neural encoder.
     #[arg(long)]
-    model: Option<PathBuf>,
+    encoder_model: Option<PathBuf>,
     #[arg(long = "in")]
     input: PathBuf,
     #[arg(long = "out")]
@@ -81,7 +81,7 @@ struct DecodeArgs {
     ambeserver: String,
     /// Directory with decoder_frame.onnx and GRU weight files for neural decoder.
     #[arg(long)]
-    decoder_dir: Option<PathBuf>,
+    decoder_model: Option<PathBuf>,
     #[arg(long = "in")]
     input: PathBuf,
     #[arg(long = "out")]
@@ -117,7 +117,7 @@ struct RoundtripArgs {
     decoder_ambeserver: Option<String>,
     /// Directory with decoder_frame.onnx and GRU weight files for neural decoder.
     #[arg(long)]
-    decoder_dir: Option<PathBuf>,
+    decoder_model: Option<PathBuf>,
     #[arg(long = "in")]
     input: PathBuf,
     #[arg(long = "out")]
@@ -159,7 +159,7 @@ fn open_encoder(
         EncoderBackend::Neural => {
             #[cfg(feature = "neural")]
             {
-                let path = model.context("--model required for neural encoder")?;
+                let path = model.context("--encoder-model required for neural encoder")?;
                 return Ok(ambe::open_neural(path)?);
             }
             #[cfg(not(feature = "neural"))]
@@ -204,7 +204,7 @@ fn open_decoder(
             #[cfg(feature = "neural")]
             {
                 // native_gru step: both model and weights in the same directory.
-                let dir = decoder_dir.context("--decoder-dir required for neural decoder")?;
+                let dir = decoder_dir.context("--decoder-model required for neural decoder")?;
                 return Ok(ambe::open_native_gru_decoder_from_dirs(dir, dir)?);
             }
             #[cfg(not(feature = "neural"))]
@@ -300,7 +300,12 @@ fn read_ambe(path: &Path) -> Result<Vec<AmbeFrame>> {
 fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Encode(a) => {
-            let mut enc = open_encoder(a.encoder, &a.serial, &a.ambeserver, a.model.as_deref())?;
+            let mut enc = open_encoder(
+                a.encoder,
+                &a.serial,
+                &a.ambeserver,
+                a.encoder_model.as_deref(),
+            )?;
             let samples = read_wav(&a.input)?;
             info!(frames = samples.len() / PCM_SAMPLES, path = %a.input.display(), "encoding");
             let frames = encode_all(enc.as_mut(), &samples)?;
@@ -312,7 +317,7 @@ fn run(cli: Cli) -> Result<()> {
                 a.decoder,
                 &a.serial,
                 &a.ambeserver,
-                a.decoder_dir.as_deref(),
+                a.decoder_model.as_deref(),
             )?;
             let frames = read_ambe(&a.input)?;
             info!(frames = frames.len(), path = %a.input.display(), "decoding");
@@ -347,7 +352,7 @@ fn run(cli: Cli) -> Result<()> {
                     a.decoder,
                     dec_serial,
                     dec_ambeserver,
-                    a.decoder_dir.as_deref(),
+                    a.decoder_model.as_deref(),
                 )?;
                 info!(frames = frames.len(), "decoding");
                 decode_all(dec.as_mut(), &frames)?
