@@ -9,13 +9,6 @@ worth picking up.
 Plausible but value-uncertain; defer until a real-world need
 appears.
 
-- **`ambe-tool` encode/decode/roundtrip binary.**  Swiss-Army CLI
-  with three subcommands: `encode --encoder X --in audio.wav
-  --out utt.ambe`, `decode --decoder X --in utt.ambe --out out.wav`,
-  `roundtrip --encoder X --decoder Y`.  `roundtrip` is two sequential
-  steps (encode to temp, then decode) so thumbdv->thumbdv works
-  without serial double-open.  Enables the full 9-cell
-  encoder x decoder grid.
 
 - **Pre-encode LP 3000 -> 3400 Hz A/B.**  AMBE+2 at DMR rate is
   documented for 250-3400 Hz; current LP at 3000 Hz is the

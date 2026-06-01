@@ -75,6 +75,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambe-tool"
+version = "2.19.1"
+dependencies = [
+ "ambe",
+ "anyhow",
+ "clap",
+ "dmr-types",
+ "hound",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ambeserver"
 version = "2.19.1"
 dependencies = [

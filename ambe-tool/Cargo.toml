@@ -1,0 +1,25 @@
+[package]
+name = "ambe-tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dev tool: encode/decode/roundtrip AMBE+2 frames via any vocoder backend."
+
+[[bin]]
+name = "ambe-tool"
+path = "src/main.rs"
+
+[features]
+default = ["thumbdv"]
+thumbdv  = ["ambe/thumbdv"]
+dynarmic = ["ambe/dynarmic"]
+neural   = ["ambe/neural"]
+
+[dependencies]
+ambe.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+dmr-types.workspace = true
+hound = "3.5"
+tracing.workspace = true
+tracing-subscriber.workspace = true
