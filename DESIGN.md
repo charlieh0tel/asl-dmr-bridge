@@ -126,9 +126,14 @@ that abstracts over four backends behind a `Vocoder` trait:
   same DV3000 packet protocol but over UDP (default port 2460).
 - **dynarmic** (software, feature-gated, not in pre-built debs):
   MD380 firmware vocoder JIT-emulated by dynarmic; encode + decode.
-- **neural** (feature-gated): tract-loaded ONNX encoder; decode delegates
-  to a configurable backend selected by `[vocoder].neural_decoder`
-  (default `thumbdv`).
+- **neural** (feature-gated): tract-loaded ONNX encoder + configurable
+  decoder.  Encoder and decoder are independently selected by
+  `encoder_backend` / `decoder_backend` under `[vocoder.neural]`
+  (defaults: encoder `neural`, decoder `dynarmic`).  When
+  `decoder_backend = "neural"`, a `[vocoder.neural.decoder]` sub-section
+  specifies the model split directory, GRU weight directory, and step
+  kernel (`native_gru` or `onnx`).  `warm_cache()` defers dynarmic JIT
+  init until after tract model loading completes.
 
 DV3000 packet format (shared by ThumbDV and AMBEserver):
 - Start byte 0x61, 2-byte big-endian payload length, 1-byte type.
@@ -286,7 +291,8 @@ deinterleaved codeword makes chip FEC fail and output silence.
      - hardware backends pass bytes through; chip deinterleaves + FEC
      - dynarmic emulates the MD380 firmware vocoder over the same
        on-air bits
-     - neural delegates decode to dynarmic
+     - neural decoder runs ONNX frame-conditioning + native Rust GRU
+       (native_gru step, default) or full tract step (onnx step)
 ```
 
 #### Frame type cycle

@@ -9,13 +9,45 @@ worth picking up.
 Plausible but value-uncertain; defer until a real-world need
 appears.
 
-- **Investigate the v1.8.0 SIGSEGV.**  Crash hit on the first RX
-  header on arm64 with `backend = "neural"` (decode delegated to
-  dynarmic at the time).  Print line was dynarmic's signal handler
-  `Unhandled SIGSEGV at pc 0x...`, suggesting a fault outside JIT
-  memory regions.  Coredump was not captured at the time.  Trigger:
-  any dynarmic-on-arm64 crash.  Capture core via systemd-coredump
-  and follow the backtrace.
+- **Revert dynarmic diagnostic eprintln!s; commit cleanly.**  b0b1cf8
+  added four `eprintln!` calls to `lock()`; reverted locally but not
+  committed.  Hold until crash is resolved, then squash or amend into
+  the fix commit.  Also: once root cause is confirmed, update the
+  comment in `DynarmicVocoder::new()` to name the actual failure mode
+  (currently says "must not be active while tract's into_optimized()
+  runs" without explaining why).
+
+- **Fix neural+dynarmic SIGSEGV on aarch64.**  `Dynarmic::A32::Jit`
+  constructor crashes (dynarmic's own handler prints `Unhandled
+  SIGSEGV at pc 0x...`) when called after tract's `into_optimized()`.
+  Pure dynarmic backend works; neural+thumbdv works; neural+dynarmic
+  is the broken case.  VMA exhaustion ruled out (87 VMAs).  mmap
+  probe ok.  Coredump captured; symbolized backtrace pending
+  (rebuilding with debug symbols).
+
+- **Ship h128-v7 decoder weights.**  v7 is trained in nambe
+  (`runs/ckpt-decoder-h128-v7.pt.best`); weights not yet exported or
+  vendored in bridge.  v7 adds voiced-bypass conditioning and
+  silence-loss downweighting; offline silent% drops to 1-2%
+  (vs v6's 17-41%).  Steps: `export_decoder` in nambe, copy
+  `decoder-h128-v7-weights/` into bridge, update deb assets;
+  v7 becomes the default in config.  Keep v5 and v6 in place as
+  rollback options.  On-air parrot test.  Trigger: neural+dynarmic
+  crash fixed and deploy path clear.
+
+- **`ambe-tool` encode/decode/roundtrip binary.**  Swiss-Army CLI
+  with three subcommands: `encode --encoder X --in audio.wav
+  --out utt.ambe`, `decode --decoder X --in utt.ambe --out out.wav`,
+  `roundtrip --encoder X --decoder Y`.  `roundtrip` is two sequential
+  steps (encode to temp, then decode) so thumbdv->thumbdv works
+  without serial double-open.  Enables the full 9-cell
+  encoder x decoder grid in nambe's `encode_decode_grid.py`.
+  Parked until crash is resolved.
+
+- **Docs update pass.**  The docs/ .md files are significantly out
+  of date.  At minimum: CODEC.md (neural decoder, native GRU,
+  model versioning), INSTALL.md (neural backend config), README.md,
+  DESIGN.md.  Do as a dedicated pass after the crash fix ships.
 
 - **Pre-encode LP 3000 -> 3400 Hz A/B.**  AMBE+2 at DMR rate is
   documented for 250-3400 Hz; current LP at 3000 Hz is the

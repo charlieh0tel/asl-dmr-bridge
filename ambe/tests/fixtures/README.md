@@ -13,11 +13,14 @@ frames.  Each backend's decoded output is committed as a golden file:
 
 Each golden is 2560 bytes (8 frames x 160 samples x 2 bytes LE i16).
 
+Committed goldens:
+- `thumbdv_golden.bin` + `thumbdv_golden.meta.toml`
+- `ambeserver_golden.bin` + `ambeserver_golden.meta.toml`
+
 Regenerate (the `testing` feature exposes `test_harness` /
 `test_vectors` to the example):
 
 ```
-cargo run -p ambe --features mbelib,testing --example gen_golden -- mbelib
 cargo run -p ambe --features thumbdv,testing --example gen_golden -- thumbdv /dev/ttyUSB0
 cargo run -p ambe --features testing --example gen_golden -- ambeserver 127.0.0.1:2460
 ```

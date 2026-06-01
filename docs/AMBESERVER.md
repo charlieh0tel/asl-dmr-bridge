@@ -26,7 +26,9 @@ ambeserver --backend neural   --model-path path/to/model.onnx
   / dynarmic"`) and runs encode/decode through `ambe::Vocoder`.
 
 - **neural**: same wrapper, but the encoder is the ONNX model
-  selected by `--model-path`.  Decode delegates to dynarmic.
+  selected by `--model-path`.  Decode delegates to dynarmic
+  (fixed in the ambeserver binary; the bridge has a configurable
+  `decoder_backend`).
 
 Build with the matching cargo feature:
 

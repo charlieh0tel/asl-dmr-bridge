@@ -31,11 +31,15 @@ Feature flags:
 - `--features dynarmic` -- software AMBE codec via the MD380 firmware
   JIT-emulated by dynarmic (encode + decode).  **Not in pre-built
   debs** -- source builds only.
-- `--features neural` -- neural-encoder backend via tract-loaded ONNX
-  (encode neural; decode delegates to a configurable backend, default
-  thumbdv).
+- `--features neural` -- neural encoder + decoder backend via tract-loaded
+  ONNX.  Encode and decode independently configurable via
+  `[vocoder.neural]`; default decode is `dynarmic`.
 
 Combinable: `--features thumbdv,neural,dynarmic`.
+
+**Codec licensing**: the `dynarmic` backend involves firmware extracted
+from commercial hardware; legal implications vary by jurisdiction.
+See [docs/CODEC.md](docs/CODEC.md) before deploying it.
 
 ## Test tools
 
