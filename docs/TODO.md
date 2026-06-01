@@ -25,16 +25,6 @@ appears.
   probe ok.  Coredump captured; symbolized backtrace pending
   (rebuilding with debug symbols).
 
-- **Ship h128-v7 decoder weights.**  v7 is trained in nambe
-  (`runs/ckpt-decoder-h128-v7.pt.best`); weights not yet exported or
-  vendored in bridge.  v7 adds voiced-bypass conditioning and
-  silence-loss downweighting; offline silent% drops to 1-2%
-  (vs v6's 17-41%).  Steps: `export_decoder` in nambe, copy
-  `decoder-h128-v7-weights/` into bridge, update deb assets;
-  v7 becomes the default in config.  Keep v5 and v6 in place as
-  rollback options.  On-air parrot test.  Trigger: neural+dynarmic
-  crash fixed and deploy path clear.
-
 - **`ambe-tool` encode/decode/roundtrip binary.**  Swiss-Army CLI
   with three subcommands: `encode --encoder X --in audio.wav
   --out utt.ambe`, `decode --decoder X --in utt.ambe --out out.wav`,
