@@ -34,7 +34,7 @@ terrific, peer-to-peer network of Asterisk-based voice nodes that
 speak the IAX2 protocol directly to one another without relying on a
 central routing server.  (The machine also accepts EchoLink
 connections for broader accessibility.)  ASL3 passes audio between its
-internal modules as raw, uncompressed PCM—specifically, 8 kHz, 16-bit
+internal modules as raw, uncompressed PCM -- specifically, 8 kHz, 16-bit
 samples.  Because audio on AllStarLink travels uncompressed, fidelity is limited
 only by the original RF path.
 
@@ -46,8 +46,8 @@ process.
 
 On the flip side, the W6OTX UHF and VHF DMR repeaters live in a
 completely different ecosystem. They connect to Brandmeister, the
-largest global DMR network for hams. Because our club repeaters are
-Motorola machines, they connect using IPSC (IP Site Connect)—simply
+one of the largest global DMR networks for hams. Because our club repeaters are
+Motorola machines, they connect using IPSC (IP Site Connect) -- simply
 because that is the only language those repeaters speak.
 
 Instead of trying to mimic a complex repeater, the bridge connects to
@@ -64,8 +64,8 @@ decode incoming DMR frames back to PCM and push it to ASL3.
 
 ## The Hidden Hurdles
 
-In reality, digital-to-analog bridging introduces a laundry list of
-less-obvious engineering challenges beyond just moving audio bits.
+In reality, digital-to-analog bridging introduces a set of less-obvious
+engineering challenges beyond the obvious audio transport.
 
 * **Call Tracking and Metadata:** DMR identifies every transmission by
   source ID, destination talkgroup, slot, and color code. Analog FM has
@@ -101,10 +101,9 @@ codec itself.
 ## The Elephant in the Room: Proprietary Voice Codec
 
 DMR voice does not use open audio formats. It relies on a proprietary
-codec called AMBE+2, developed and aggressively protected by a company
-called DVSI. The mathematical specification is not public, and
-software implementations are tightly controlled by patents and
-licensing agreements.
+codec called AMBE+2, developed by DVSI. The specification is not
+public, and software implementations are controlled by copyright and
+patents.
 
 This is why most DIY FM-to-DMR setups require hardware: specifically,
 the ThumbDV, a USB dongle from Northwest Digital Radio (costing around
@@ -115,9 +114,8 @@ currently uses a ThumbDV for production traffic.
 The project supports two dongle-free software alternatives, both
 capable of running in real time on a Raspberry Pi 4:
 
-* **Emulated MD380 Firmware:** The TYT MD380 is a popular, inexpensive
-  consumer DMR handheld radio. It handles AMBE+2 using a software
-  implementation burned into its internal ARM processor. Radio
+* **Emulated MD380 Firmware:** The TYT MD380 handles AMBE+2 using a
+  software implementation that runs on its internal ARM processor. Radio
   researchers long ago reverse-engineered and documented this
   firmware. The bridge backend can actually run that exact, native
   radio firmware inside a highly optimized ARM CPU emulator called
@@ -147,25 +145,31 @@ elsewhere on the internet and EchoLink users.  Down the right side,
 the bridge connects to Brandmeister via Homebrew.  Along the bottom,
 Brandmeister distributes the audio to the W6OTX UHF and VHF DMR
 repeaters and on to DMR radios.  Digital voice travels either direction
-through this path.
+through this path.  End-to-end latency -- FM microphone to DMR speaker
+-- is dominated by the AMBE+2 encode cycle and the round-trip through
+Brandmeister; in practice it falls in the same range as a VoIP phone
+call.
 
 ## Written in Rust
 
-The entire bridge daemon is written in Rust, a modern systems
-programming language. Rust compiles directly to native code with
-performance that rivals C and C++, but it includes a massive benefit:
-the compiler strictly enforces memory safety and catches data races
-before the code is even built. If there is a bug that could cause a
-crash or a memory leak, Rust usually catches it at compile time. 
+The bridge daemon is written in Rust, a systems language that compiles
+to native code with performance comparable to C and C++. Beyond
+performance, Rust enforces memory safety and catches data races at
+compile time rather than at runtime. The multi-threaded daemon uses
+the Tokio async runtime; audio frames flow between tasks over typed
+channels, and if the encoder holds a buffer, the audio pipeline cannot
+touch it simultaneously -- the compiler rejects the attempt rather
+than leaving it to silently corrupt audio or crash the program.
 
 
 ## Open Source
 
 The project is published on GitHub under the GPL at
-https://github.com/charlieh0tel/asl-dmr-bridge.  Prebuilt Debian
-packages for Raspberry Pi 4 are available on the releases page.
-Anyone running ASL3 who wants to experiment with a DMR link is welcome
-to try it.
+https://github.com/charlieh0tel/asl-dmr-bridge.  The GPL means anyone
+who modifies and distributes it must publish their changes under the
+same terms -- forks stay open.  Prebuilt Debian packages for Raspberry
+Pi 4 are available on the releases page.  Anyone running ASL3 who
+wants to experiment with a DMR link is welcome to try it.
 
 On Brandmeister, the bridge is active on PAARA club talkgroup TG
 3224295, reachable from any connected hotspot or repeater on the
