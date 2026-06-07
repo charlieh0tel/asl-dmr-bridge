@@ -4193,6 +4193,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "usrp-tool"
+version = "2.20.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cpal",
+ "hound",
+ "tracing",
+ "tracing-subscriber",
+ "usrp-wire",
+]
+
+[[package]]
 name = "usrp-wire"
 version = "2.20.0"
 dependencies = [

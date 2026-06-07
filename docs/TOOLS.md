@@ -16,20 +16,37 @@ ambe-tool decode --decoder dynarmic --in-format bin --in utt.bin --out decoded.w
 ambe-tool roundtrip --encoder thumbdv --decoder dynarmic --in audio.wav --out rt.wav
 ```
 
-## USRP test examples
+## usrp-tool
 
-These run against a live bridge without needing a second radio.
+Send and receive USRP voice frames.  Runs against a live bridge without
+needing a second radio.
 
 ```
-# Play USRP PCM audio from the bridge through speakers
-cargo run --example usrp_play
+# Play USRP audio from the bridge through the default audio device
+cargo run -p usrp-tool -- recv --device
 
-# Dump decoded DMR audio to raw PCM (pipe to aplay)
-cargo run --example usrp_dump | aplay -f S16_LE -r 8000 -c 1
+# Play through a specific device (list available devices first)
+cargo run -p usrp-tool -- recv --list-devices
+cargo run -p usrp-tool -- recv --device "Built-in Output"
+
+# Dump decoded audio to raw PCM (pipe to aplay)
+cargo run -p usrp-tool -- recv | aplay -f S16_LE -r 8000 -c 1
+
+# Dump decoded audio to a WAV file
+cargo run -p usrp-tool -- recv out.wav
 
 # Send raw PCM to the bridge as USRP (emulates chan_usrp)
-cargo run --example usrp_send < voice.raw
+cargo run -p usrp-tool -- send < voice.raw
+
+# Send a WAV file
+cargo run -p usrp-tool -- send voice.wav
+
+# Write USRP wire frames to stdout (for piping or inspection)
+cargo run -p usrp-tool -- send --to - < voice.raw
 ```
+
+All commands default the bridge endpoint to `127.0.0.1:34001` (send) or
+`127.0.0.1:34002` (recv); override with `--to` or `--bind`.
 
 ## Parrot end-to-end TX test
 
