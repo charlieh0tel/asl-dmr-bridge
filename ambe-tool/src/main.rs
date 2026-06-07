@@ -1,14 +1,19 @@
 //! AMBE+2 encode / decode / roundtrip utility.
 //!
 //! Each 20 ms vocoder frame encodes 160 i16 PCM samples to 9 AMBE bytes.
-//! The `.ambe` file format is raw concatenated 9-byte frames with no header.
+//!
+//! Frame formats (--in-format / --out-format):
+//! - `ambe` (default): raw 9-byte channel-coded AMBE+2 frames (FEC intact)
+//! - `bin`: bridge diagnostic format -- 49 source bits per frame packed
+//!   MSB-first into 7 bytes in mbelib `ambe_d[]` order (FEC stripped)
 
 use std::io::Write as _;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail, ensure};
+use ambe::voice_channel::{RAW_BYTES, channel_encode, permute_mbelib_to_chip, to_source_bits};
+use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand, ValueEnum};
 use dmr_types::{AMBE_FRAME_SIZE, AmbeFrame, PCM_SAMPLES};
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
@@ -23,12 +28,22 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Encode an 8 kHz mono i16 WAV to raw AMBE frames.
+    /// Encode an 8 kHz mono i16 WAV to AMBE frames.
     Encode(EncodeArgs),
-    /// Decode raw AMBE frames to an 8 kHz mono i16 WAV.
+    /// Decode AMBE frames to an 8 kHz mono i16 WAV.
     Decode(DecodeArgs),
     /// Encode then decode; encoder closes before decoder opens.
     Roundtrip(RoundtripArgs),
+}
+
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum FrameFormat {
+    /// Raw 9-byte channel-coded AMBE+2 frames (FEC intact).
+    #[default]
+    Ambe,
+    /// Bridge diagnostic format: 49 source bits packed MSB-first into 7 bytes,
+    /// mbelib ambe_d[] order (FEC stripped).
+    Bin,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -63,6 +78,9 @@ struct EncodeArgs {
     /// ONNX model path for neural encoder.
     #[arg(long)]
     encoder_model: Option<PathBuf>,
+    /// Output file format (ambe = 9-byte channel-coded; bin = 7-byte 49-bit source bits).
+    #[arg(long, value_enum, default_value_t)]
+    out_format: FrameFormat,
     #[arg(long = "in")]
     input: PathBuf,
     #[arg(long = "out")]
@@ -82,6 +100,9 @@ struct DecodeArgs {
     /// Directory with decoder_frame.onnx and GRU weight files for neural decoder.
     #[arg(long)]
     decoder_model: Option<PathBuf>,
+    /// Input file format (ambe = 9-byte channel-coded; bin = 7-byte 49-bit source bits).
+    #[arg(long, value_enum, default_value_t)]
+    in_format: FrameFormat,
     #[arg(long = "in")]
     input: PathBuf,
     #[arg(long = "out")]
@@ -140,7 +161,7 @@ fn open_encoder(
                 return Ok(ambe::open_thumbdv(serial, None)?);
             }
             #[cfg(not(feature = "thumbdv"))]
-            bail!("thumbdv not compiled; rebuild with --features thumbdv")
+            anyhow::bail!("thumbdv not compiled; rebuild with --features thumbdv")
         }
         EncoderBackend::Ambeserver => {
             let addr: SocketAddr = ambeserver
@@ -151,10 +172,10 @@ fn open_encoder(
         EncoderBackend::Dynarmic => {
             #[cfg(feature = "dynarmic")]
             {
-                return Ok(ambe::open_dynarmic());
+                Ok(ambe::open_dynarmic())
             }
             #[cfg(not(feature = "dynarmic"))]
-            bail!("dynarmic not compiled; rebuild with --features dynarmic")
+            anyhow::bail!("dynarmic not compiled; rebuild with --features dynarmic")
         }
         EncoderBackend::Neural => {
             #[cfg(feature = "neural")]
@@ -165,7 +186,7 @@ fn open_encoder(
             #[cfg(not(feature = "neural"))]
             {
                 let _ = model;
-                bail!("neural not compiled; rebuild with --features neural")
+                anyhow::bail!("neural not compiled; rebuild with --features neural")
             }
         }
     }
@@ -184,7 +205,7 @@ fn open_decoder(
                 return Ok(ambe::open_thumbdv(serial, None)?);
             }
             #[cfg(not(feature = "thumbdv"))]
-            bail!("thumbdv not compiled; rebuild with --features thumbdv")
+            anyhow::bail!("thumbdv not compiled; rebuild with --features thumbdv")
         }
         DecoderBackend::Ambeserver => {
             let addr: SocketAddr = ambeserver
@@ -195,10 +216,10 @@ fn open_decoder(
         DecoderBackend::Dynarmic => {
             #[cfg(feature = "dynarmic")]
             {
-                return Ok(ambe::open_dynarmic());
+                Ok(ambe::open_dynarmic())
             }
             #[cfg(not(feature = "dynarmic"))]
-            bail!("dynarmic not compiled; rebuild with --features dynarmic")
+            anyhow::bail!("dynarmic not compiled; rebuild with --features dynarmic")
         }
         DecoderBackend::Neural => {
             #[cfg(feature = "neural")]
@@ -210,7 +231,7 @@ fn open_decoder(
             #[cfg(not(feature = "neural"))]
             {
                 let _ = decoder_dir;
-                bail!("neural not compiled; rebuild with --features neural")
+                anyhow::bail!("neural not compiled; rebuild with --features neural")
             }
         }
     }
@@ -239,7 +260,73 @@ fn decode_all(vocoder: &mut dyn ambe::Vocoder, frames: &[AmbeFrame]) -> Result<V
 }
 
 // ---------------------------------------------------------------------------
-// WAV / AMBE I/O
+// Frame I/O
+
+fn read_ambe(path: &Path) -> Result<Vec<AmbeFrame>> {
+    let data = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    ensure!(
+        data.len() % AMBE_FRAME_SIZE == 0,
+        "{}: size {} is not a multiple of {AMBE_FRAME_SIZE}",
+        path.display(),
+        data.len()
+    );
+    Ok(data
+        .chunks_exact(AMBE_FRAME_SIZE)
+        .map(|c| c.try_into().unwrap())
+        .collect())
+}
+
+fn write_ambe(path: &Path, frames: &[AmbeFrame]) -> Result<()> {
+    let mut f =
+        std::fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    for frame in frames {
+        f.write_all(frame)?;
+    }
+    Ok(())
+}
+
+fn read_bin(path: &Path) -> Result<Vec<AmbeFrame>> {
+    let data = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    ensure!(
+        data.len() % RAW_BYTES == 0,
+        "{}: size {} is not a multiple of {RAW_BYTES}",
+        path.display(),
+        data.len()
+    );
+    Ok(data
+        .chunks_exact(RAW_BYTES)
+        .map(|c| {
+            let mbelib: &[u8; RAW_BYTES] = c.try_into().unwrap();
+            channel_encode(&permute_mbelib_to_chip(mbelib))
+        })
+        .collect())
+}
+
+fn write_bin(path: &Path, frames: &[AmbeFrame]) -> Result<()> {
+    let mut f =
+        std::fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
+    for frame in frames {
+        f.write_all(&to_source_bits(frame))?;
+    }
+    Ok(())
+}
+
+fn read_frames(path: &Path, fmt: FrameFormat) -> Result<Vec<AmbeFrame>> {
+    match fmt {
+        FrameFormat::Ambe => read_ambe(path),
+        FrameFormat::Bin => read_bin(path),
+    }
+}
+
+fn write_frames(path: &Path, frames: &[AmbeFrame], fmt: FrameFormat) -> Result<()> {
+    match fmt {
+        FrameFormat::Ambe => write_ambe(path, frames),
+        FrameFormat::Bin => write_bin(path, frames),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WAV I/O
 
 fn read_wav(path: &Path) -> Result<Vec<i16>> {
     let mut reader = WavReader::open(path).with_context(|| format!("open {}", path.display()))?;
@@ -271,29 +358,6 @@ fn write_wav(path: &Path, samples: &[i16]) -> Result<()> {
     Ok(())
 }
 
-fn write_ambe(path: &Path, frames: &[AmbeFrame]) -> Result<()> {
-    let mut f =
-        std::fs::File::create(path).with_context(|| format!("create {}", path.display()))?;
-    for frame in frames {
-        f.write_all(frame)?;
-    }
-    Ok(())
-}
-
-fn read_ambe(path: &Path) -> Result<Vec<AmbeFrame>> {
-    let data = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    ensure!(
-        data.len() % AMBE_FRAME_SIZE == 0,
-        "{}: size {} is not a multiple of {AMBE_FRAME_SIZE}",
-        path.display(),
-        data.len()
-    );
-    Ok(data
-        .chunks_exact(AMBE_FRAME_SIZE)
-        .map(|c| c.try_into().unwrap())
-        .collect())
-}
-
 // ---------------------------------------------------------------------------
 // Run
 
@@ -309,7 +373,7 @@ fn run(cli: Cli) -> Result<()> {
             let samples = read_wav(&a.input)?;
             info!(frames = samples.len() / PCM_SAMPLES, path = %a.input.display(), "encoding");
             let frames = encode_all(enc.as_mut(), &samples)?;
-            write_ambe(&a.output, &frames)?;
+            write_frames(&a.output, &frames, a.out_format)?;
             info!(frames = frames.len(), path = %a.output.display(), "encoded");
         }
         Cmd::Decode(a) => {
@@ -319,7 +383,7 @@ fn run(cli: Cli) -> Result<()> {
                 &a.ambeserver,
                 a.decoder_model.as_deref(),
             )?;
-            let frames = read_ambe(&a.input)?;
+            let frames = read_frames(&a.input, a.in_format)?;
             info!(frames = frames.len(), path = %a.input.display(), "decoding");
             let samples = decode_all(dec.as_mut(), &frames)?;
             write_wav(&a.output, &samples)?;
