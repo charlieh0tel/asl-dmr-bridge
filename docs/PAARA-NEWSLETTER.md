@@ -6,21 +6,22 @@
 
 Key up an analog HT on 900 MHz and you can cleanly chat with someone
 operating a digital DMR radio. If you have been active on the W6OTX
-repeaters lately, you may have noticed something new: audio from our 33cm FM machine is
-now appearing on the UHF and VHF DMR repeaters, and vice versa.
+repeaters lately, you may have noticed something new: audio from our
+33cm FM machine is now appearing on the UHF and VHF DMR repeaters, and
+vice versa.
 
 Hams familiar with digital linking might naturally assume the club is
 running DVSwitch — the most common, go-to software suite for FM-to-DMR
-bridges. We are not. While DVSwitch is an impressive piece of
-engineering that has served the community well, it is closed-source
-freeware. It has no public bug tracker, no open repository, and no
-license permitting modification or redistribution. For a club
-infrastructure project, relying on a closed black box feels
-antithetical to the open, experimental spirit of amateur radio.
+bridges. We are not. While DVSwitch is a capable piece of software
+that has served the community well, it is closed-source freeware. It
+has no public bug tracker, no open repository, and no license
+permitting modification or redistribution. For a club infrastructure
+project, relying on a closed black box feels antithetical to the open,
+experimental spirit of amateur radio.
 
 Because I wanted something transparent, maintainable, and truly open
-source, I decided to write a replacement from scratch. Here is how the
-project works and how the pieces connect.
+source, I decided to write an AllstarLink to DMR bridge from
+scratch. Here is how the project works and how the pieces connect.
 
 
 ## Two Different Worlds
@@ -84,8 +85,8 @@ capable of running in real time on a Raspberry Pi 4:
 * **Emulated MD380 Firmware:** The TYT MD380 handles AMBE+2 via a
   software implementation on its ARM processor; the bridge can run
   that exact firmware inside an ARM CPU emulator called dynarmic. No
-  dongle required, but the firmware is proprietary and the legal
-  picture around extraction varies by jurisdiction.
+  dongle required, but the firmware is proprietary and the legality of
+  using it is unclear.
 
 * **nambe (Neural AMBE):** An experimental AI6KG research project that
   trains neural networks against a hardware dongle as oracle — no
@@ -98,7 +99,7 @@ capable of running in real time on a Raspberry Pi 4:
 ![Signal flow diagram](paara-newsletter-bridge-diagram.svg)
 
 The diagram traces a U-shape: FM audio enters at top-left, flows
-through the AllStarLink 3 node into the bridge, down to Brandmeister, and back
+through the AllStarLink node into the bridge, down to Brandmeister, and back
 out through the DMR repeaters at bottom-left. The dashed boxes show the other networks the 33cm machine serves in
 addition to the bridge.
 Digital voice travels either direction; end-to-end latency falls in
