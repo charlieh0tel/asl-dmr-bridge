@@ -1,5 +1,21 @@
 # Developer and Test Tools
 
+## ambe-tool
+
+Standalone encode / decode / roundtrip utility for AMBE+2 files.
+Supports all vocoder backends (thumbdv, ambeserver, dynarmic, neural)
+and both frame formats (`.ambe` channel-coded, `.bin` 49-bit source bits).
+See [FILE-FORMATS.md](FILE-FORMATS.md) for format details.
+
+```
+cargo build --release -p ambe-tool --features thumbdv,dynarmic,neural
+ambe-tool encode --encoder dynarmic --in audio.wav --out utt.ambe
+ambe-tool encode --encoder dynarmic --out-format bin --in audio.wav --out utt.bin
+ambe-tool decode --decoder neural --decoder-model /path/to/weights --in utt.ambe --out decoded.wav
+ambe-tool decode --decoder dynarmic --in-format bin --in utt.bin --out decoded.wav
+ambe-tool roundtrip --encoder thumbdv --decoder dynarmic --in audio.wav --out rt.wav
+```
+
 ## USRP test examples
 
 These run against a live bridge without needing a second radio.

@@ -45,21 +45,7 @@ Combinable: `--features thumbdv,neural,dynarmic`.
 from commercial hardware; legal implications vary by jurisdiction.
 See [docs/CODEC.md](docs/CODEC.md) before deploying it.
 
-## ambe-tool
-
-Standalone encode / decode / roundtrip utility for AMBE+2 files.
-Supports all vocoder backends (thumbdv, ambeserver, dynarmic, neural)
-and both frame formats (`.ambe` channel-coded, `.bin` 49-bit source bits).
-See [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md) for format details.
-
-```
-cargo build --release -p ambe-tool --features thumbdv,dynarmic,neural
-ambe-tool encode --encoder dynarmic --in audio.wav --out utt.ambe
-ambe-tool decode --decoder neural --decoder-model /path/to/weights --in utt.ambe --out decoded.wav
-ambe-tool roundtrip --encoder thumbdv --decoder dynarmic --in audio.wav --out rt.wav
-```
-
-## Test tools
+## Tools
 
 See [docs/TOOLS.md](docs/TOOLS.md).
 
