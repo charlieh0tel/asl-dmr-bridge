@@ -4,80 +4,174 @@
 
 ---
 
-If you have been active on the W6OTX repeaters lately you may have noticed
-something new: audio from the 33cm FM machine appearing on the UHF and VHF
-DMR repeaters, and vice versa.  Hams familiar with digital linking might assume
-the club is running DVSwitch -- the most common software for FM-to-DMR bridges.
-We are not.  DVSwitch is closed-source freeware with no public bug tracker and
-no license permitting modification or redistribution.  I wrote a replacement
-from scratch, and this article explains how it works.
+If you have been active on the W6OTX repeaters lately, you may have
+noticed something new and slightly magical: audio from our 33cm analog
+FM machine is now seamlessly appearing on the UHF and VHF digital DMR
+repeaters, and vice versa. You can key up an analog HT on 900 MHz and
+cleanly chat with someone operating a digital DMR radio.
+
+Hams familiar with digital linking might naturally assume the club is
+running DVSwitch -- the most common, go-to software suite for
+FM-to-DMR bridges. We are not. While DVSwitch is an impressive piece
+of engineering that has served the community well, it is closed-source
+freeware. It has no public bug tracker, no open repository, and no
+license permitting modification or redistribution. For a club
+infrastructure project, relying on a closed black box feels
+antithetical to the open, experimental spirit of amateur radio.
+
+Because I wanted something transparent, maintainable, and truly open
+source, I decided to write a replacement from scratch. Here is how the
+project works and how the pieces connect.
+
 
 ## Two Different Worlds
 
-The W6OTX 33cm FM machine runs AllStarLink (ASL3), a peer-to-peer network of
-Asterisk-based nodes that speak IAX2 directly to one another with no central
-routing server.  The 33cm machine also accepts EchoLink connections.  ASL3
-passes audio between nodes as raw PCM -- uncompressed 8 kHz 16-bit samples --
-over a local protocol called USRP.  The bridge plugs into ASL3 as a USRP
-endpoint: audio flows in and out over a UDP port on the same machine.
+To understand why bridging these systems is a challenge, you have to
+look at how different their underlying architectures are.
 
-The W6OTX UHF and VHF DMR repeaters connect to Brandmeister, one of the major
-global DMR network operators, using IPSC (IP Site Connect) -- the commercial
-protocol built into Motorola and Hytera infrastructure.  The bridge connects to
-Brandmeister a different way: via Homebrew, a simpler UDP protocol designed for
-personal hotspots.
+The W6OTX 33cm FM machine runs AllStarLink (ASL3). AllStarLink is a
+terrific, peer-to-peer network of Asterisk-based voice nodes that
+speak the IAX2 protocol directly to one another without relying on a
+central routing server.  (The machine also accepts EchoLink
+connections for broader accessibility.)  ASL3 passes audio between its
+internal modules as raw, uncompressed PCM—specifically, 8 kHz, 16-bit
+samples.  Because audio on AllStarLink travels uncompressed, fidelity is limited
+only by the original RF path.
 
-Connecting the two worlds is conceptually straightforward: receive PCM from
-ASL3, encode it into DMR voice frames, and transmit via Homebrew.  In the
-other direction, decode incoming DMR frames and push PCM back to ASL3.  The
-difficulty is entirely in the codec step.
+To hook into this, the new bridge plugs into ASL3 as a USRP
+endpoint. In the Asterisk ecosystem, the USRP protocol is simply a
+lightweight network audio format. Audio flows in and out over a local
+UDP port on the same machine, completely uncompressed and ready to
+process.
 
-## The AMBE+2 Problem
+On the flip side, the W6OTX UHF and VHF DMR repeaters live in a
+completely different ecosystem. They connect to Brandmeister, the
+largest global DMR network for hams. Because our club repeaters are
+Motorola machines, they connect using IPSC (IP Site Connect)—simply
+because that is the only language those repeaters speak.
 
-DMR voice uses a codec called AMBE+2, developed by DVSI.  The specification is
-not public and software implementations are tightly controlled.  This is why
-most FM-to-DMR bridges rely on the ThumbDV, a USB dongle from Northwest Digital
-Radio (around $100) containing a licensed DVSI AMBE-3000R chip that handles
-encoding and decoding in hardware.  W6OTX currently uses a ThumbDV.
+Instead of trying to mimic a complex repeater, the bridge connects to
+Brandmeister a different way: via the Homebrew protocol. Homebrew is a
+simpler, lightweight UDP-based protocol originally designed for
+personal hotspots. By acting like a high-performance hotspot to the
+Brandmeister network, the bridge can inject and extract digital audio
+smoothly.
 
-The bridge also supports two dongle-free software alternatives, both capable of
-running in real time on a Raspberry Pi 4:
+Connecting the two worlds sounds straightforward on paper: receive raw
+PCM from ASL3, encode it into compressed DMR voice frames, and
+transmit it via Homebrew to Brandmeister. In the other direction, you
+decode incoming DMR frames back to PCM and push it to ASL3.
 
-**Emulated MD380 firmware**: The TYT MD380 is a consumer DMR handheld that runs
-the AMBE+2 codec on its own ARM processor.  Researchers have documented the
-MD380 firmware in detail.  This backend runs that firmware inside an ARM CPU
-emulator called dynarmic.  No dongle is required, but the firmware is
-proprietary and the legal picture around extraction varies by jurisdiction.
+## The Hidden Hurdles
 
-**nambe**: A research project developed alongside the bridge, still a work in
-progress.  Rather than emulating proprietary code, nambe trains small neural
-networks to perform AMBE+2 encoding and decoding, using a hardware chip to
-generate training data.  It runs in entirely original code with no dongle and
-no proprietary firmware.  The decoder is approaching chip quality on typical
-voice; the encoder is still being refined.
+In reality, digital-to-analog bridging introduces a laundry list of
+less-obvious engineering challenges beyond just moving audio bits.
+
+* **Call Tracking and Metadata:** DMR identifies every transmission by
+  source ID, destination talkgroup, slot, and color code. Analog FM has
+  none of that -- it is an open squelch with no caller identity. The
+  bridge maintains a PTT state machine that tracks active calls on both
+  sides, resolves DMR numeric IDs to callsigns for logging, and
+  arbitrates between the two worlds: while a DMR call is incoming, FM
+  transmission is suppressed so the two sides do not step on each
+  other.
+
+* **PTT and Timing State:** Managing push-to-talk state between an
+  untimed IP audio stream and a physical repeater requires careful
+  synchronization. Cut the timing too close and you clip the first
+  syllable; leave it too loose and the repeater hangs endlessly. A
+  configurable hang timer holds the state open briefly after each
+  transmission ends. The noise gate and hang time together also absorb
+  the analog squelch tail -- the brief burst of noise after an FM user
+  unkeys -- so it does not produce a spurious kerchunk on the DMR
+  side.
+
+* **Gain Staging:** Analog FM operators arrive at widely varying audio
+  levels depending on their radio's deviation and mic gain. DMR's
+  AMBE+2 codec is sensitive to input levels -- too hot and the vocoder
+  produces artifacts; too quiet and intelligibility suffers. The bridge
+  applies configurable gain stages in both directions, with per-call
+  level tracking and a peak limiter, so that FM operators do not
+  overdrive the vocoder and DMR operators are not inaudible on the 33cm
+  machine.
+
+But the single most significant technical bottleneck remains the voice
+codec itself.
+
+## The Elephant in the Room: Proprietary Voice Codec
+
+DMR voice does not use open audio formats. It relies on a proprietary
+codec called AMBE+2, developed and aggressively protected by a company
+called DVSI. The mathematical specification is not public, and
+software implementations are tightly controlled by patents and
+licensing agreements.
+
+This is why most DIY FM-to-DMR setups require hardware: specifically,
+the ThumbDV, a USB dongle from Northwest Digital Radio (costing around
+$100) that contains a licensed, physical DVSI AMBE-3000R chip. The
+chip handles all of the encoding and decoding in hardware.  W6OTX
+currently uses a ThumbDV for production traffic.
+
+The project supports two dongle-free software alternatives, both
+capable of running in real time on a Raspberry Pi 4:
+
+* **Emulated MD380 Firmware:** The TYT MD380 is a popular, inexpensive
+  consumer DMR handheld radio. It handles AMBE+2 using a software
+  implementation burned into its internal ARM processor. Radio
+  researchers long ago reverse-engineered and documented this
+  firmware. The bridge backend can actually run that exact, native
+  radio firmware inside a highly optimized ARM CPU emulator called
+  dynarmic. It works without a dongle, but the firmware is
+  proprietary and the legal picture around extraction varies by
+  jurisdiction.
+
+* **nambe (Neural AMBE):** This is an experimental AI6KG research
+  project developed alongside the bridge. Rather than emulating
+  proprietary code, nambe uses machine learning. It trains small,
+  efficient neural networks to mimic AMBE+2 encoding and decoding,
+  using a hardware dongle as an oracle to generate training data. It
+  runs entirely on original, open-source code with no proprietary
+  firmware. While the decoder is already approaching
+  hardware-chip quality on typical voice, the encoder is still being
+  actively refined.
 
 ## Signal Flow
 
-![Signal flow diagram](bridge-diagram.svg)
+![Signal flow diagram](paara-newsletter-bridge-diagram.svg)
+
+The diagram traces a U-shape.  Along the top, audio travels from FM
+radios through the W6OTX 33cm repeater and its ASL3 node into the
+bridge.  The dashed boxes above the ASL3 node show the other networks
+the 33cm machine serves alongside the bridge: AllStarLink nodes
+elsewhere on the internet and EchoLink users.  Down the right side,
+the bridge connects to Brandmeister via Homebrew.  Along the bottom,
+Brandmeister distributes the audio to the W6OTX UHF and VHF DMR
+repeaters and on to DMR radios.  Digital voice travels either direction
+through this path.
 
 ## Written in Rust
 
-The bridge is written in Rust, a systems language that compiles to native code
-with performance comparable to C.  Rust catches memory safety bugs and data
-races at compile time -- properties that matter for a daemon running around the
-clock.
+The entire bridge daemon is written in Rust, a modern systems
+programming language. Rust compiles directly to native code with
+performance that rivals C and C++, but it includes a massive benefit:
+the compiler strictly enforces memory safety and catches data races
+before the code is even built. If there is a bug that could cause a
+crash or a memory leak, Rust usually catches it at compile time. 
+
 
 ## Open Source
 
 The project is published on GitHub under the GPL at
-https://github.com/charlieh0tel/asl-dmr-bridge.  Prebuilt Debian packages for
-Raspberry Pi 4 are available on the releases page.  Anyone running ASL3 who
-wants to experiment with a DMR link is welcome to try it.
+https://github.com/charlieh0tel/asl-dmr-bridge.  Prebuilt Debian
+packages for Raspberry Pi 4 are available on the releases page.
+Anyone running ASL3 who wants to experiment with a DMR link is welcome
+to try it.
 
-On Brandmeister the bridge is active on PAARA club talkgroup TG 3224295,
-reachable from any connected hotspot or repeater on the network.
+On Brandmeister, the bridge is active on PAARA club talkgroup TG
+3224295, reachable from any connected hotspot or repeater on the
+network.
 
-If you have questions or want to set up a link of your own, find me on the
-W6OTX repeaters or by email.
+If you have questions or want to set up a link of your own, find me on
+the W6OTX repeaters or by email.
 
 *73 de AI6KG*
