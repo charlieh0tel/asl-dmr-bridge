@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="680" height="450" viewBox="0 0 680 450" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="490" viewBox="0 0 680 490" role="img">
 <title>ASL-DMR bridge signal flow diagram</title>
-<desc>U-shaped signal flow from FM radios through the W6OTX 33cm repeater and ASL3 node into the asl-dmr-bridge, then down to Brandmeister, then left to W6OTX UHF/VHF DMR repeaters and DMR radios.</desc>
+<desc>U-shaped signal flow from FM radios through the W6OTX 33cm repeater and AllStarLink 3 node into the asl-dmr-bridge, then down to Brandmeister, then left to W6OTX UHF/VHF DMR repeaters and DMR radios.</desc>
 <defs>
   <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
     <path d="M2 1L8 5L2 9" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -11,11 +11,11 @@
 </defs>
 
 <!-- Peer clouds -->
-<rect x="166" y="10" width="106" height="44" rx="8" fill="white" stroke="#000" stroke-width="1" stroke-dasharray="5,3"/>
+<rect x="166" y="10" width="106" height="44" rx="8" fill="url(#hatch)" stroke="#000" stroke-width="1" stroke-dasharray="5,3"/>
 <text font-family="Arial,Helvetica,sans-serif" font-size="12" x="219" y="28" text-anchor="middle">AllStarLink</text>
 <text font-family="Arial,Helvetica,sans-serif" font-size="12" x="219" y="44" text-anchor="middle">nodes</text>
 
-<rect x="286" y="10" width="90" height="44" rx="8" fill="white" stroke="#000" stroke-width="1" stroke-dasharray="5,3"/>
+<rect x="286" y="10" width="90" height="44" rx="8" fill="url(#hatch)" stroke="#000" stroke-width="1" stroke-dasharray="5,3"/>
 <text font-family="Arial,Helvetica,sans-serif" font-size="12" x="331" y="28" text-anchor="middle">EchoLink</text>
 <text font-family="Arial,Helvetica,sans-serif" font-size="12" x="331" y="44" text-anchor="middle">nodes</text>
 
@@ -23,12 +23,12 @@
 <text font-family="Arial,Helvetica,sans-serif" font-size="11" x="225" y="87" text-anchor="start">IAX2</text>
 
 <line x1="331" y1="54" x2="331" y2="112" stroke="#000" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="11" x="337" y="87" text-anchor="start">VoIP</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="11" x="337" y="87" text-anchor="start">EchoLink</text>
 
 <!-- FM Radios -->
-<rect x="18" y="118" width="88" height="58" rx="6" fill="white" stroke="#000" stroke-width="1.5"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="bold" x="62" y="143" text-anchor="middle" dominant-baseline="central">FM</text>
-<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="62" y="161" text-anchor="middle" dominant-baseline="central">radios</text>
+<rect x="18" y="118" width="88" height="58" rx="6" fill="url(#hatch)" stroke="#000" stroke-width="1.5"/>
+<text font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="bold" x="62" y="148" text-anchor="middle">FM</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="62" y="165" text-anchor="middle">radios</text>
 
 <!-- RF (analog) -->
 <line x1="106" y1="147" x2="180" y2="147" stroke="#000" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
@@ -36,9 +36,9 @@
 
 <!-- W6OTX 33cm + ASL3 -->
 <rect x="182" y="112" width="206" height="82" rx="6" fill="url(#hatch)" stroke="#000" stroke-width="1.5"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="285" y="135" text-anchor="middle" dominant-baseline="central">W6OTX 33cm repeater</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="285" y="140" text-anchor="middle">W6OTX 33cm repeater</text>
 <line x1="194" y1="153" x2="376" y2="153" stroke="#000" stroke-width="0.5" stroke-dasharray="3,3"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="285" y="171" text-anchor="middle" dominant-baseline="central">ASL3 node</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="285" y="175" text-anchor="middle">AllStarLink 3 node</text>
 
 <!-- PCM (USRP) -->
 <line x1="388" y1="153" x2="462" y2="153" stroke="#000" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
@@ -46,9 +46,9 @@
 
 <!-- asl-dmr-bridge -->
 <rect x="464" y="112" width="192" height="82" rx="6" fill="white" stroke="#000" stroke-width="2.5"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="560" y="133" text-anchor="middle" dominant-baseline="central">asl-dmr-bridge</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="560" y="138" text-anchor="middle">asl-dmr-bridge</text>
 <rect x="476" y="150" width="168" height="28" rx="4" fill="none" stroke="#000" stroke-width="1"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="560" y="167" text-anchor="middle" dominant-baseline="central">AMBE+2 vocoder</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="560" y="168" text-anchor="middle">AMBE+2 vocoder</text>
 
 <!-- Homebrew (UDP) -->
 <line x1="560" y1="194" x2="560" y2="278" stroke="#000" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
@@ -56,13 +56,13 @@
 
 <!-- Brandmeister -->
 <rect x="464" y="280" width="192" height="68" rx="6" fill="url(#hatch)" stroke="#000" stroke-width="2"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="560" y="303" text-anchor="middle" dominant-baseline="central">Brandmeister</text>
-<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="560" y="323" text-anchor="middle" dominant-baseline="central">global DMR network</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="560" y="308" text-anchor="middle">Brandmeister</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="560" y="327" text-anchor="middle">global DMR network</text>
 
 <!-- W6OTX UHF/VHF DMR repeaters -->
 <rect x="182" y="280" width="206" height="68" rx="6" fill="url(#hatch)" stroke="#000" stroke-width="1.5"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="285" y="303" text-anchor="middle" dominant-baseline="central">W6OTX UHF/VHF</text>
-<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="285" y="323" text-anchor="middle" dominant-baseline="central">DMR repeaters</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" x="285" y="308" text-anchor="middle">W6OTX UHF/VHF</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="285" y="327" text-anchor="middle">DMR repeaters</text>
 
 <!-- IPSC (two lines) -->
 <line x1="463" y1="314" x2="389" y2="314" stroke="#000" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
@@ -74,11 +74,17 @@
 <text font-family="Arial,Helvetica,sans-serif" font-size="11" x="144" y="304" text-anchor="middle">RF (digital)</text>
 
 <!-- DMR Radios -->
-<rect x="18" y="280" width="88" height="58" rx="6" fill="white" stroke="#000" stroke-width="1.5"/>
-<text font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="bold" x="62" y="305" text-anchor="middle" dominant-baseline="central">DMR</text>
-<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="62" y="323" text-anchor="middle" dominant-baseline="central">radios</text>
+<rect x="18" y="280" width="88" height="58" rx="6" fill="url(#hatch)" stroke="#000" stroke-width="1.5"/>
+<text font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="bold" x="62" y="310" text-anchor="middle">DMR</text>
+<text font-family="Arial,Helvetica,sans-serif" font-size="12" x="62" y="327" text-anchor="middle">radios</text>
 
 <!-- Brandmeister tail -->
 <line x1="560" y1="348" x2="560" y2="368" stroke="#000" stroke-width="1" stroke-dasharray="4,3"/>
 <text font-family="Arial,Helvetica,sans-serif" font-size="11" x="560" y="386" text-anchor="middle">+ other repeaters &amp; hotspots</text>
+<!-- Legend -->
+<rect x="14" y="402" width="270" height="28" rx="4" fill="none" stroke="#000" stroke-width="0.75" stroke-dasharray="3,2"/>
+<rect x="22" y="409" width="14" height="14" rx="2" fill="url(#hatch)" stroke="#000" stroke-width="1"/>
+<text font-family="Arial,Helvetica,sans-serif" font-size="11" x="42" y="420">external infrastructure</text>
+<rect x="172" y="409" width="14" height="14" rx="2" fill="white" stroke="#000" stroke-width="1.5"/>
+<text font-family="Arial,Helvetica,sans-serif" font-size="11" x="192" y="420">this project</text>
 </svg>
