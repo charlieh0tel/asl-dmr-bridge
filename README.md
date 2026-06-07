@@ -12,6 +12,8 @@ Bridge AllStarLink / ASL3 to Brandmeister using Homebrew.
   API integration (`bmcli` + bridge auto-provisioning).
 - [docs/USRP-METADATA.md](docs/USRP-METADATA.md) -- USRP TEXT
   call-metadata wire shape.
+- [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md) -- `.ambe`, `.bin`,
+  and WAV format reference.
 - [docs/TEST-VECTORS.md](docs/TEST-VECTORS.md) -- encoder test
   coverage.
 - [docs/TODO.md](docs/TODO.md) -- tracked deferred work.
@@ -41,6 +43,20 @@ Combinable: `--features thumbdv,neural,dynarmic`.
 from commercial hardware; legal implications vary by jurisdiction.
 See [docs/CODEC.md](docs/CODEC.md) before deploying it.
 
+## ambe-tool
+
+Standalone encode / decode / roundtrip utility for AMBE+2 files.
+Supports all vocoder backends (thumbdv, ambeserver, dynarmic, neural)
+and both frame formats (`.ambe` channel-coded, `.bin` 49-bit source bits).
+See [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md) for format details.
+
+```
+cargo build --release -p ambe-tool --features thumbdv,dynarmic,neural
+ambe-tool encode --encoder dynarmic --in audio.wav --out utt.ambe
+ambe-tool decode --decoder neural --decoder-model /path/to/weights --in utt.ambe --out decoded.wav
+ambe-tool roundtrip --encoder thumbdv --decoder dynarmic --in audio.wav --out rt.wav
+```
+
 ## Test tools
 
 Examples for testing without an ASL3 instance:
@@ -59,6 +75,19 @@ cargo run --example usrp_send < voice.raw
 # in the bridge config first, then run.  See docs/PARROT-TEST.md.
 cargo run --example parrot_test
 ```
+
+Vocoder fixture tools (require hardware or a running daemon):
+
+```
+# Regenerate backend golden files after hardware change
+cargo run -p ambe --features thumbdv,testing --example gen_golden -- thumbdv /dev/ttyUSB0
+cargo run -p ambe --features testing --example gen_golden -- ambeserver 127.0.0.1:2460
+
+# Fetch real captured DMR frames for stress testing (populates ambe/tests/fixtures/amb/)
+cargo run -p ambe --example fetch_amb_samples
+```
+
+See [ambe/tests/fixtures/README.md](ambe/tests/fixtures/README.md) for details.
 
 ## License
 
