@@ -14,8 +14,8 @@ Bridge AllStarLink / ASL3 to Brandmeister using Homebrew.
   call-metadata wire shape.
 - [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md) -- `.ambe`, `.bin`,
   and WAV format reference.
-- [docs/TOOLS.md](docs/TOOLS.md) -- USRP test examples, parrot TX
-  test, vocoder fixture tools.
+- [docs/TOOLS.md](docs/TOOLS.md) -- ambe-tool, USRP test examples,
+  parrot TX test, vocoder fixture tools.
 - [docs/TEST-VECTORS.md](docs/TEST-VECTORS.md) -- encoder test
   coverage.
 - [docs/TODO.md](docs/TODO.md) -- tracked deferred work.
@@ -44,10 +44,6 @@ Combinable: `--features thumbdv,neural,dynarmic`.
 **Codec licensing**: the `dynarmic` backend involves firmware extracted
 from commercial hardware; legal implications vary by jurisdiction.
 See [docs/CODEC.md](docs/CODEC.md) before deploying it.
-
-## Tools
-
-See [docs/TOOLS.md](docs/TOOLS.md).
 
 ## License
 
