@@ -21,7 +21,7 @@ ambe-tool roundtrip --encoder thumbdv --decoder dynarmic --in audio.wav --out rt
 These run against a live bridge without needing a second radio.
 
 ```
-# Listen to decoded DMR audio through speakers
+# Play USRP PCM audio from the bridge through speakers
 cargo run --example usrp_play
 
 # Dump decoded DMR audio to raw PCM (pipe to aplay)
