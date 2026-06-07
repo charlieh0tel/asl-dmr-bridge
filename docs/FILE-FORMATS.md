@@ -22,7 +22,7 @@ the corresponding `.bin` frame.
 
 ## `.bin` -- 49-bit source bits (mbelib order)
 
-Used by the bridge diagnostic recorder and as input to `ambe_bits2wav`.
+Used by the bridge diagnostic recorder and by `ambe-tool decode --in-format bin`.
 
 - **Frame size:** 7 bytes
 - **Layout:** 49 AMBE+2 source bits packed MSB-first into 7 bytes, in mbelib
@@ -67,7 +67,7 @@ The default for both flags is `ambe`.
 
 ## WAV -- PCM audio
 
-Convention used throughout the bridge, ambe-tool, and ambe_bits2wav:
+Convention used throughout the bridge and ambe-tool:
 
 - **Sample rate:** 8000 Hz
 - **Channels:** 1 (mono)
