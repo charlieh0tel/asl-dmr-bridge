@@ -59,35 +59,9 @@ ambe-tool roundtrip --encoder thumbdv --decoder dynarmic --in audio.wav --out rt
 
 ## Test tools
 
-Examples for testing without an ASL3 instance:
-
-```
-# Listen to decoded DMR audio through speakers
-cargo run --example usrp_play
-
-# Dump decoded DMR audio to raw PCM (pipe to aplay)
-cargo run --example usrp_dump | aplay -f S16_LE -r 8000 -c 1
-
-# Send raw PCM to the bridge as USRP (emulates chan_usrp)
-cargo run --example usrp_send < voice.raw
-
-# End-to-end TX test via BM TG 9990 parrot.  Set talkgroup = 9990
-# in the bridge config first, then run.  See docs/PARROT-TEST.md.
-cargo run --example parrot_test
-```
-
-Vocoder fixture tools (require hardware or a running daemon):
-
-```
-# Regenerate backend golden files after hardware change
-cargo run -p ambe --features thumbdv,testing --example gen_golden -- thumbdv /dev/ttyUSB0
-cargo run -p ambe --features testing --example gen_golden -- ambeserver 127.0.0.1:2460
-
-# Fetch real captured DMR frames for stress testing (populates ambe/tests/fixtures/amb/)
-cargo run -p ambe --example fetch_amb_samples
-```
-
-See [ambe/tests/fixtures/README.md](ambe/tests/fixtures/README.md) for details.
+See [docs/PARROT-TEST.md](docs/PARROT-TEST.md) for end-to-end TX testing via
+the BM TG 9990 parrot.  See [ambe/tests/fixtures/README.md](ambe/tests/fixtures/README.md)
+for vocoder golden-file and captured-frame fixture tools.
 
 ## License
 
