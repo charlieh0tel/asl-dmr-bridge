@@ -45,8 +45,7 @@ UDP port on the same machine, completely uncompressed and ready to
 process.
 
 On the flip side, the W6OTX UHF and VHF DMR repeaters live in a
-completely different ecosystem. They connect to Brandmeister, the
-one of the largest global DMR networks for hams. Because our club repeaters are
+completely different ecosystem. They connect to Brandmeister, one of the largest global DMR networks for hams. Because our club repeaters are
 Motorola machines, they connect using IPSC (IP Site Connect) -- simply
 because that is the only language those repeaters speak.
 
@@ -158,8 +157,8 @@ performance, Rust enforces memory safety and catches data races at
 compile time rather than at runtime. The multi-threaded daemon uses
 the Tokio async runtime; audio frames flow between tasks over typed
 channels, and if the encoder holds a buffer, the audio pipeline cannot
-touch it simultaneously -- the compiler rejects the attempt rather
-than leaving it to silently corrupt audio or crash the program.
+touch it simultaneously -- the compiler rejects the attempt outright, rather than letting it
+silently corrupt audio or crash at runtime.
 
 
 ## Open Source
@@ -175,7 +174,6 @@ On Brandmeister, the bridge is active on PAARA club talkgroup TG
 3224295, reachable from any connected hotspot or repeater on the
 network.
 
-If you have questions or want to set up a link of your own, find me on
-the W6OTX repeaters or by email.
+If you have questions or want to set up a link of your own, find me on the W6OTX repeaters, by email, or on the club Discord.
 
 *73 de AI6KG*
