@@ -88,11 +88,11 @@ capable of running in real time on a Raspberry Pi 4:
   dongle required, but the firmware is proprietary and the legality of
   using it is unclear.
 
-* **nambe (Neural AMBE):** An experimental AI6KG research project that
-  trains neural networks against a hardware dongle as oracle — no
-  proprietary firmware involved. The decoder is already approaching
-  hardware quality on typical voice; the encoder is still being
-  refined.
+* **Neural AMBE (nambe):** An experimental AI6KG research project that
+  trains neural networks for encoding and decoding using a hardware
+  dongle as an oracle — no proprietary firmware involved. The decoder
+  is already approaching hardware quality on typical bitstreams; the
+  encoder is still being refined.
 
 ## Signal Flow
 
