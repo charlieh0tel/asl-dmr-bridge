@@ -14,6 +14,8 @@ Bridge AllStarLink / ASL3 to Brandmeister using Homebrew.
   call-metadata wire shape.
 - [docs/FILE-FORMATS.md](docs/FILE-FORMATS.md) -- `.ambe`, `.bin`,
   and WAV format reference.
+- [docs/TOOLS.md](docs/TOOLS.md) -- USRP test examples, parrot TX
+  test, vocoder fixture tools.
 - [docs/TEST-VECTORS.md](docs/TEST-VECTORS.md) -- encoder test
   coverage.
 - [docs/TODO.md](docs/TODO.md) -- tracked deferred work.
@@ -59,9 +61,7 @@ ambe-tool roundtrip --encoder thumbdv --decoder dynarmic --in audio.wav --out rt
 
 ## Test tools
 
-See [docs/PARROT-TEST.md](docs/PARROT-TEST.md) for end-to-end TX testing via
-the BM TG 9990 parrot.  See [ambe/tests/fixtures/README.md](ambe/tests/fixtures/README.md)
-for vocoder golden-file and captured-frame fixture tools.
+See [docs/TOOLS.md](docs/TOOLS.md).
 
 ## License
 
