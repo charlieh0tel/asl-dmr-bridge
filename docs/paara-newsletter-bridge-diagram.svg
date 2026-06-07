@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="580" height="330"
+     font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5"
+            orient="auto-start-reverse">
+      <polygon points="0 0, 7 2.5, 0 5" fill="#000"/>
+    </marker>
+  </defs>
+
+  <!-- AllStarLink + EchoLink: dashed = network clouds, not single nodes -->
+  <rect x="155" y="5" width="80" height="38" rx="7"
+        fill="white" stroke="#000" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="195" y="19" text-anchor="middle" font-size="12" font-weight="bold">Allstar</text>
+  <text x="195" y="33" text-anchor="middle" font-size="12" font-weight="bold">Nodes</text>
+
+  <rect x="245" y="5" width="80" height="38" rx="7"
+        fill="white" stroke="#000" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="285" y="19" text-anchor="middle" font-size="12" font-weight="bold">EchoLink</text>
+  <text x="285" y="33" text-anchor="middle" font-size="12" font-weight="bold">Nodes</text>
+
+  <!-- Arrows from Allstar and EchoLink into W6OTX FM / ASL3 Node -->
+  <!-- Labels: to the right of vertical arrows, no background -->
+  <line x1="195" y1="45" x2="195" y2="91"
+        stroke="#000" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="199" y="72" text-anchor="start" font-size="9">IAX2</text>
+
+  <line x1="285" y1="45" x2="285" y2="91"
+        stroke="#000" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="289" y="72" text-anchor="start" font-size="9">VoIP</text>
+
+  <!-- FM Radios -->
+  <rect x="10" y="108" width="80" height="50" rx="5"
+        fill="white" stroke="#000" stroke-width="1.5"/>
+  <text x="50" y="130" text-anchor="middle" font-size="13" font-weight="bold">FM</text>
+  <text x="50" y="147" text-anchor="middle" font-size="13" font-weight="bold">Radios</text>
+
+  <!-- RF (analog) arrow: FM Radios <-> W6OTX FM -->
+  <!-- Label: below the arrow, no background -->
+  <line x1="90" y1="133" x2="155" y2="133"
+        stroke="#000" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="122" y="144" text-anchor="middle" font-size="9">RF (analog)</text>
+
+  <!-- W6OTX 33cm FM Repeater / ASL3 Node compound box (h=80) -->
+  <rect x="155" y="93" width="170" height="80" rx="5"
+        fill="white" stroke="#000" stroke-width="1.5"/>
+  <text x="240" y="111" text-anchor="middle" font-size="12" font-weight="bold">W6OTX 33cm</text>
+  <text x="240" y="125" text-anchor="middle" font-size="12" font-weight="bold">FM Repeater</text>
+  <line x1="168" y1="133" x2="312" y2="133"
+        stroke="#000" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="240" y="158" text-anchor="middle" font-size="12" font-weight="bold">ASL3 Node</text>
+
+  <!-- PCM (USRP) arrow: ASL3 Node <-> bridge -->
+  <!-- Label: below the arrow, no background -->
+  <line x1="325" y1="133" x2="400" y2="133"
+        stroke="#000" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="362" y="144" text-anchor="middle" font-size="9">PCM (USRP)</text>
+
+  <!-- asl-dmr-bridge box (h=80) -->
+  <rect x="400" y="93" width="170" height="80" rx="7"
+        fill="white" stroke="#000" stroke-width="2"/>
+  <text x="485" y="113" text-anchor="middle" font-size="13" font-weight="bold">asl-dmr-bridge</text>
+
+  <!-- AMBE+2 Vocoder sub-box (compact) -->
+  <rect x="412" y="120" width="146" height="36" rx="5"
+        fill="#f0f0f0" stroke="#000" stroke-width="1.5"/>
+  <text x="485" y="143" text-anchor="middle" font-size="12" font-weight="bold">AMBE+2 Vocoder</text>
+
+  <!-- Homebrew (UDP) arrow: bridge <-> Brandmeister (vertical leg of U) -->
+  <!-- Label: to the right of vertical arrow, no background -->
+  <line x1="485" y1="175" x2="485" y2="221"
+        stroke="#000" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="489" y="202" text-anchor="start" font-size="9">Homebrew (UDP)</text>
+
+  <!-- Brandmeister hub (thicker border = central hub; h=80) -->
+  <rect x="400" y="223" width="170" height="80" rx="5"
+        fill="white" stroke="#000" stroke-width="2.5"/>
+  <text x="485" y="255" text-anchor="middle" font-size="13" font-weight="bold">Brandmeister</text>
+  <text x="485" y="272" text-anchor="middle" font-size="9">(global DMR network)</text>
+
+  <!-- IPSC arrow: Brandmeister <-> W6OTX UHF/VHF DMR -->
+  <!-- Label: below the arrow, no background -->
+  <line x1="325" y1="263" x2="400" y2="263"
+        stroke="#000" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="362" y="274" text-anchor="middle" font-size="9">IPSC</text>
+  <text x="362" y="284" text-anchor="middle" font-size="9">(Motorola)</text>
+
+  <!-- W6OTX UHF/VHF DMR Repeaters (h=80) -->
+  <rect x="155" y="223" width="170" height="80" rx="5"
+        fill="white" stroke="#000" stroke-width="1.5"/>
+  <text x="240" y="255" text-anchor="middle" font-size="12" font-weight="bold">W6OTX UHF/VHF</text>
+  <text x="240" y="271" text-anchor="middle" font-size="12" font-weight="bold">DMR Repeaters</text>
+
+  <!-- RF (digital) arrow: W6OTX UHF/VHF DMR <-> DMR Radios -->
+  <!-- Label: below the arrow, no background -->
+  <line x1="90" y1="263" x2="155" y2="263"
+        stroke="#000" stroke-width="1.5"
+        marker-start="url(#arr)" marker-end="url(#arr)"/>
+  <text x="122" y="274" text-anchor="middle" font-size="9">RF (digital)</text>
+
+  <!-- DMR Radios -->
+  <rect x="10" y="238" width="80" height="50" rx="5"
+        fill="white" stroke="#000" stroke-width="1.5"/>
+  <text x="50" y="260" text-anchor="middle" font-size="13" font-weight="bold">DMR</text>
+  <text x="50" y="277" text-anchor="middle" font-size="13" font-weight="bold">Radios</text>
+
+  <!-- Brandmeister hub indicator -->
+  <line x1="485" y1="305" x2="485" y2="317"
+        stroke="#000" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <text x="485" y="326" text-anchor="middle" font-size="9" font-style="italic">(+ other repeaters &amp; hotspots)</text>
+
+</svg>
