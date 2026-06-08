@@ -75,6 +75,8 @@ maintainer-scripts = "../packaging/maintainer-scripts/"
 assets = [
     ["target/release/asl-dmr-bridge", "usr/bin/", "0755"],
     ["target/release/ambeserver", "usr/bin/", "0755"],
+    ["target/release/ambe-tool", "usr/bin/", "0755"],
+    ["target/release/usrp-tool", "usr/bin/", "0755"],
     ["target/release/man/asl-dmr-bridge.1", "usr/share/man/man1/", "0644"],
     ["target/release/man/ambeserver.1", "usr/share/man/man1/", "0644"],
     ["../config.example.toml", "usr/share/doc/asl-dmr-bridge/examples/config.example.toml", "0644"],
