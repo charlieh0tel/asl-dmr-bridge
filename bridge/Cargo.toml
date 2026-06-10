@@ -95,6 +95,7 @@ assets = [
     ["../models/encoder-dmr50.onnx", "usr/share/asl-dmr-bridge/models/encoder-dmr50-2026-05-04.onnx", "0644"],
     ["../models/encoder-aug50.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug50-2026-05-06.onnx", "0644"],
     ["../models/encoder-aug52.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug52-2026-05-15.onnx", "0644"],
+    ["../models/encoder-aug55-nacf-2026-06-09.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug55-nacf-2026-06-09.onnx", "0644"],
     ["../models/decoder-h128-v5-weights/decoder_frame.onnx", "usr/share/asl-dmr-bridge/models/decoder-h128-v5-weights/decoder_frame.onnx", "0644"],
     ["../models/decoder-h128-v5-weights/decoder_step.onnx", "usr/share/asl-dmr-bridge/models/decoder-h128-v5-weights/decoder_step.onnx", "0644"],
     ["../models/decoder-h128-v5-weights/meta.json", "usr/share/asl-dmr-bridge/models/decoder-h128-v5-weights/meta.json", "0644"],
