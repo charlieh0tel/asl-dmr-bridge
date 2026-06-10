@@ -1,7 +1,7 @@
 /target
 *~
 config.ai6kg*.toml
-/.claude/
+/.claude/settings.local.json
 /test_bm.py
 /test_single.py
 /run_tests.sh
