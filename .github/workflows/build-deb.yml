@@ -18,7 +18,7 @@ jobs:
       # ambeserver binaries.  cargo-deb without -p picks up
       # asl-dmr-bridge as the only [package.metadata.deb] crate.
       package: ""
-      build-deps: "libudev-dev libboost-dev cmake"
+      build-deps: "libasound2-dev libudev-dev libboost-dev cmake"
       run-tests: false
       submodules: recursive
     secrets: inherit
