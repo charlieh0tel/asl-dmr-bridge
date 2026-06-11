@@ -6,7 +6,7 @@ config.ai6kg*.toml
 /test_single.py
 /run_tests.sh
 /ambe/tests/fixtures/amb/
-/HANDOFF-*.md
+/HANDOFF-*
 r.sh
 da.shfrag
 rt.sh
