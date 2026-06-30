@@ -137,6 +137,12 @@ pub(crate) struct NeuralVocoder {
     /// Pre-encode gain applied to PCM before it lands in `samples`.
     /// Output gain is the inner decoder's responsibility.
     in_db: dsp::dB,
+    /// True when the loaded model requires a `prev_indices [1,9] int64`
+    /// second input (temporal prior conditioning, aug-63+).
+    requires_prev_indices: bool,
+    /// Previous frame's VQ argmax, fed back as the prior.  Reset to zeros
+    /// on stream discontinuity.  Unused when `requires_prev_indices` is false.
+    prev_indices: [i64; 9],
 }
 
 impl NeuralVocoder {
@@ -172,6 +178,11 @@ impl NeuralVocoder {
             .map_err(|e| init_err(format!("into_runnable: {e}")))?;
 
         validate_output_names(&proto)?;
+        let requires_prev_indices = proto
+            .graph
+            .as_ref()
+            .map(|g| g.input.iter().any(|i| i.name == "prev_indices"))
+            .unwrap_or(false);
         let buffer_cap = derive_buffer_cap(&meta);
 
         info!(
@@ -182,6 +193,7 @@ impl NeuralVocoder {
             context_lookahead = meta.context_lookahead,
             harness_lookback_samples = meta.harness_lookback_samples,
             buffer_cap,
+            requires_prev_indices,
             "neural model loaded",
         );
 
@@ -194,6 +206,8 @@ impl NeuralVocoder {
             input_scratch: vec![0.0f32; pcm_input_samples].into_boxed_slice(),
             decoder,
             in_db: dsp::dB::UNITY,
+            requires_prev_indices,
+            prev_indices: [0i64; 9],
         };
         vocoder.warm_cache();
         Ok(vocoder)
@@ -209,13 +223,22 @@ impl NeuralVocoder {
             *dst = f32::from(src) / 32768.0;
         }
         // to_vec() is unavoidable: tract takes tensor ownership.
-        let tensor = tract_ndarray::Array2::from_shape_vec((1, n), self.input_scratch.to_vec())
+        let pcm_tensor = tract_ndarray::Array2::from_shape_vec((1, n), self.input_scratch.to_vec())
             .expect("input_scratch length matches pcm_input_samples by construction")
             .into_tensor();
-        let outputs = self
-            .plan
-            .run(tvec!(tensor.into()))
-            .map_err(|e| VocoderError::Encode(format!("inference: {e}")))?;
+        let outputs = if self.requires_prev_indices {
+            let prior_tensor =
+                tract_ndarray::Array2::from_shape_vec((1, 9), self.prev_indices.to_vec())
+                    .expect("prev_indices has 9 elements by construction")
+                    .into_tensor();
+            self.plan
+                .run(tvec!(pcm_tensor.into(), prior_tensor.into()))
+                .map_err(|e| VocoderError::Encode(format!("inference: {e}")))?
+        } else {
+            self.plan
+                .run(tvec!(pcm_tensor.into()))
+                .map_err(|e| VocoderError::Encode(format!("inference: {e}")))?
+        };
 
         let mut vq = [0u16; 9];
         for (field_idx, field) in FIELDS_DMR_3600X2450.iter().enumerate() {
@@ -239,6 +262,11 @@ impl NeuralVocoder {
                 }
             }
             vq[field_idx] = best_idx;
+        }
+        if self.requires_prev_indices {
+            for (j, &v) in vq.iter().enumerate() {
+                self.prev_indices[j] = i64::from(v);
+            }
         }
         Ok(vq)
     }
@@ -317,6 +345,7 @@ impl Vocoder for NeuralVocoder {
         self.samples.clear();
         self.samples
             .extend(std::iter::repeat_n(0i16, self.buffer_cap));
+        self.prev_indices = [0i64; 9];
     }
 
     fn set_gain(&mut self, in_db: dsp::dB, out_db: dsp::dB) -> Result<(), VocoderError> {

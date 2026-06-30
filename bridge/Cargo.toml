@@ -93,6 +93,7 @@ assets = [
     ["../packaging/asl-dmr-bridge.tmpfiles", "usr/lib/tmpfiles.d/asl-dmr-bridge.conf", "0644"],
     ["../packaging/99-thumbdv.rules", "lib/udev/rules.d/", "0644"],
     ["../models/encoder-aug58-linear-scratch-2026-06-14.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug58-linear-scratch-2026-06-14.onnx", "0644"],
+    ["../models/encoder-aug63-prior-2026-06-30.onnx", "usr/share/asl-dmr-bridge/models/encoder-aug63-prior-2026-06-30.onnx", "0644"],
     ["../models/decoder-h128-v5-weights/decoder_frame.onnx", "usr/share/asl-dmr-bridge/models/decoder-h128-v5-weights/decoder_frame.onnx", "0644"],
     ["../models/decoder-h128-v5-weights/decoder_step.onnx", "usr/share/asl-dmr-bridge/models/decoder-h128-v5-weights/decoder_step.onnx", "0644"],
     ["../models/decoder-h128-v5-weights/meta.json", "usr/share/asl-dmr-bridge/models/decoder-h128-v5-weights/meta.json", "0644"],
