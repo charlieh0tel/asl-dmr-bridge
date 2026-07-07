@@ -150,3 +150,10 @@ fn aug50_bit_parity() {
 fn aug52_bit_parity() {
     run_parity("aug52", 1.0);
 }
+
+#[test]
+fn aug66_bit_parity() {
+    // AR feedback can compound FP divergence between tract and the
+    // PT-canonical reference, so threshold is 99.5% instead of 100%.
+    run_parity("aug66", 0.995);
+}
