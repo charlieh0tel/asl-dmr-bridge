@@ -172,10 +172,12 @@ pub fn open_neural(model_path: &std::path::Path) -> Result<Box<dyn Vocoder>, Voc
 pub fn open_neural_decoder(
     frame_model_path: &std::path::Path,
     step_model_path: &std::path::Path,
+    sample_temperature: f32,
 ) -> Result<Box<dyn Vocoder>, VocoderError> {
     Ok(Box::new(neural::NeuralDecoderVocoder::open(
         frame_model_path,
         step_model_path,
+        sample_temperature,
     )?))
 }
 
@@ -187,10 +189,12 @@ pub fn open_neural_decoder(
 pub fn open_native_gru_decoder(
     frame_model_path: &std::path::Path,
     weights_dir: &std::path::Path,
+    sample_temperature: f32,
 ) -> Result<Box<dyn Vocoder>, VocoderError> {
     Ok(Box::new(gru::NativeGruDecoder::open(
         frame_model_path,
         weights_dir,
+        sample_temperature,
     )?))
 }
 
@@ -199,10 +203,12 @@ pub fn open_native_gru_decoder(
 #[cfg(feature = "neural")]
 pub fn open_neural_decoder_from_dir(
     dir: &std::path::Path,
+    sample_temperature: f32,
 ) -> Result<Box<dyn Vocoder>, VocoderError> {
     open_neural_decoder(
         &dir.join("decoder_frame.onnx"),
         &dir.join("decoder_step.onnx"),
+        sample_temperature,
     )
 }
 
@@ -212,8 +218,13 @@ pub fn open_neural_decoder_from_dir(
 pub fn open_native_gru_decoder_from_dirs(
     model_dir: &std::path::Path,
     weights_dir: &std::path::Path,
+    sample_temperature: f32,
 ) -> Result<Box<dyn Vocoder>, VocoderError> {
-    open_native_gru_decoder(&model_dir.join("decoder_frame.onnx"), weights_dir)
+    open_native_gru_decoder(
+        &model_dir.join("decoder_frame.onnx"),
+        weights_dir,
+        sample_temperature,
+    )
 }
 
 /// Like `open_neural`, but the caller supplies the decoder backend.
@@ -251,10 +262,12 @@ impl NeuralDecoderBench {
     pub fn open(
         frame_model_path: &std::path::Path,
         step_model_path: &std::path::Path,
+        sample_temperature: f32,
     ) -> Result<Self, VocoderError> {
         Ok(Self(neural::NeuralDecoderVocoder::open(
             frame_model_path,
             step_model_path,
+            sample_temperature,
         )?))
     }
 
@@ -295,10 +308,12 @@ impl NativeGruDecoderBench {
     pub fn open(
         frame_model_path: &std::path::Path,
         weights_dir: &std::path::Path,
+        sample_temperature: f32,
     ) -> Result<Self, VocoderError> {
         Ok(Self(gru::NativeGruDecoder::open(
             frame_model_path,
             weights_dir,
+            sample_temperature,
         )?))
     }
 

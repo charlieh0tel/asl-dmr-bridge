@@ -446,6 +446,9 @@ pub(crate) struct NeuralDecoderConfig {
     /// Directory containing flat-binary GRU weight files (`W_ir.bin`, etc.);
     /// required when `step = "native_gru"` (the default).
     pub(crate) weights_dir: Option<std::path::PathBuf>,
+    /// Softmax sampling temperature for the step kernel (0.0 = argmax).
+    /// Default 0.7; set to 0.0 to revert to legacy argmax behavior.
+    pub(crate) sample_temperature: Option<f32>,
 }
 
 #[cfg(feature = "neural")]

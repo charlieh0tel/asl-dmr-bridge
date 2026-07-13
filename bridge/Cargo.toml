@@ -103,6 +103,10 @@ assets = [
     ["../models/decoder-h128-v6-weights/decoder_step.onnx", "usr/share/asl-dmr-bridge/models/decoder-h128-v6-weights/decoder_step.onnx", "0644"],
     ["../models/decoder-h128-v6-weights/meta.json", "usr/share/asl-dmr-bridge/models/decoder-h128-v6-weights/meta.json", "0644"],
     ["../models/decoder-h128-v6-weights/*.bin", "usr/share/asl-dmr-bridge/models/decoder-h128-v6-weights/", "0644"],
+    ["../models/decoder-h128-v8-weights/decoder_frame.onnx", "usr/share/asl-dmr-bridge/models/decoder-h128-v8-weights/decoder_frame.onnx", "0644"],
+    ["../models/decoder-h128-v8-weights/decoder_step.onnx", "usr/share/asl-dmr-bridge/models/decoder-h128-v8-weights/decoder_step.onnx", "0644"],
+    ["../models/decoder-h128-v8-weights/meta.json", "usr/share/asl-dmr-bridge/models/decoder-h128-v8-weights/meta.json", "0644"],
+    ["../models/decoder-h128-v8-weights/*.bin", "usr/share/asl-dmr-bridge/models/decoder-h128-v8-weights/", "0644"],
 ]
 conf-files = [
     "/etc/default/asl-dmr-bridge",

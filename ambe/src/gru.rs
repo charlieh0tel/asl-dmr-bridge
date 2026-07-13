@@ -54,6 +54,49 @@ pub(crate) const B0_SPECIAL_MIN: i64 = 120;
 // Log frame+step split when total exceeds this threshold (one 8 kHz frame = 20 ms).
 const DECODE_SLOW_THRESHOLD_US: u128 = 20_000;
 
+/// Xorshift64 PRNG for multinomial sampling; no cryptographic requirement.
+/// Seeded once from the system RNG at construction.
+#[cfg(feature = "neural")]
+pub(crate) struct Rng(u64);
+
+#[cfg(feature = "neural")]
+impl Rng {
+    pub(crate) fn new() -> Self {
+        let mut buf = [0u8; 8];
+        getrandom::fill(&mut buf).expect("getrandom");
+        let s = u64::from_le_bytes(buf);
+        Self(if s == 0 { 1 } else { s })
+    }
+
+    fn next_f32(&mut self) -> f32 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        // 24 random bits mapped to [0, 1).
+        (x >> 40) as f32 * (1.0 / (1u64 << 24) as f32)
+    }
+}
+
+/// Sample one index from `logits` with temperature `t` via stable softmax + CDF.
+/// Two passes over `logits`; no heap allocation.
+#[cfg(feature = "neural")]
+pub(crate) fn sample_logits(logits: &[f32], temperature: f32, rng: &mut Rng) -> usize {
+    let inv_t = 1.0 / temperature;
+    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let z: f32 = logits.iter().map(|&v| ((v - max) * inv_t).exp()).sum();
+    let threshold = rng.next_f32() * z;
+    let mut cdf = 0.0f32;
+    for (i, &v) in logits.iter().enumerate() {
+        cdf += ((v - max) * inv_t).exp();
+        if cdf >= threshold {
+            return i;
+        }
+    }
+    logits.len() - 1
+}
+
 /// All GRU weight matrices and bias vectors, loaded from a flat-binary
 /// weight directory.  `hidden` is read from `meta.json` and may be
 /// 256, 128, or 96 depending on the model variant.
@@ -297,6 +340,7 @@ pub(crate) fn ulaw_decode(mu: u8) -> i16 {
 /// while the buffer fills.
 pub(crate) struct NativeGruDecoder {
     /// Tract frame model: [1,5,9] i64 → [1,128] f32.  Called once/frame.
+    /// v8+: also accepts voiced_flag [1] i64 as a second input.
     frame_plan: TypedRunnableModel<TypedModel>,
     weights: GruWeights,
     /// Cumulative wall-time in the frame model (ns).
@@ -311,10 +355,19 @@ pub(crate) struct NativeGruDecoder {
     h: Box<[f32]>,
     scratch: GruWorkspace,
     out_db: dsp::dB,
+    /// True when the frame model requires a `voiced_flag [1] i64` second input.
+    requires_voiced_flag: bool,
+    /// Sampling temperature (0.0 = argmax; 0.7 = recommended for whistle suppression).
+    sample_temperature: f32,
+    rng: Rng,
 }
 
 impl NativeGruDecoder {
-    pub(crate) fn open(frame_model_path: &Path, weights_dir: &Path) -> Result<Self, VocoderError> {
+    pub(crate) fn open(
+        frame_model_path: &Path,
+        weights_dir: &Path,
+        sample_temperature: f32,
+    ) -> Result<Self, VocoderError> {
         let onnx = tract_onnx::onnx();
         let frame_proto = onnx
             .proto_model_for_path(frame_model_path)
@@ -339,6 +392,12 @@ impl NativeGruDecoder {
             )));
         }
 
+        let requires_voiced_flag = frame_proto
+            .graph
+            .as_ref()
+            .map(|g| g.input.iter().any(|i| i.name == "voiced_flag"))
+            .unwrap_or(false);
+
         let frame_plan = onnx
             .parse(&frame_proto, None)
             .map_err(|e| init_err(format!("parse {}: {e}", frame_model_path.display())))?
@@ -352,6 +411,7 @@ impl NativeGruDecoder {
 
         info!(
             path = %frame_model_path.display(),
+            requires_voiced_flag,
             "native GRU decoder: frame model loaded"
         );
 
@@ -362,6 +422,7 @@ impl NativeGruDecoder {
             dir = %weights_dir.display(),
             hidden,
             dual_fc_hidden,
+            sample_temperature,
             "native GRU decoder: weights loaded"
         );
 
@@ -377,6 +438,9 @@ impl NativeGruDecoder {
             prev_mu: MU_SILENCE,
             h: vec![0.0; hidden].into_boxed_slice(),
             out_db: dsp::dB::UNITY,
+            requires_voiced_flag,
+            sample_temperature,
+            rng: Rng::new(),
         })
     }
 
@@ -388,16 +452,23 @@ impl NativeGruDecoder {
             return Ok(silence_pcm(self.out_db));
         }
 
-        // Frame model: [1,5,9] → cond [1,128]
+        // Frame model: [1,5,9] (+ optional voiced_flag [1]) → cond [1,128]
         let bits_tensor =
             tract_ndarray::Array3::from_shape_fn((1usize, 5, 9), |(_, i, j)| window[i][j])
                 .into_tensor();
 
         let t_frame = Instant::now();
-        let frame_out = self
-            .frame_plan
-            .run(tvec![bits_tensor.into()])
-            .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?;
+        let frame_out = if self.requires_voiced_flag {
+            let voiced: i64 = if window[2][0] < B0_SPECIAL_MIN { 1 } else { 0 };
+            let vf_tensor = tract_ndarray::arr1(&[voiced]).into_tensor();
+            self.frame_plan
+                .run(tvec![bits_tensor.into(), vf_tensor.into()])
+                .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?
+        } else {
+            self.frame_plan
+                .run(tvec![bits_tensor.into()])
+                .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?
+        };
         let frame_elapsed = t_frame.elapsed();
         self.frame_ns += frame_elapsed.as_nanos() as u64; // u128->u64: frame times are <<2^64 ns
 
@@ -419,8 +490,14 @@ impl NativeGruDecoder {
         precompute_cond(&cond, &self.weights, &mut self.scratch);
         let mut out = [0i16; PCM_SAMPLES];
         let mut prev_mu = self.prev_mu;
+        let use_sampling = self.sample_temperature > 0.0;
         for s in out.iter_mut() {
-            let next_mu = gru_step(prev_mu, &mut self.h, &self.weights, &mut self.scratch);
+            let argmax_mu = gru_step(prev_mu, &mut self.h, &self.weights, &mut self.scratch);
+            let next_mu = if use_sampling {
+                sample_logits(&self.scratch.logits, self.sample_temperature, &mut self.rng) as u8
+            } else {
+                argmax_mu
+            };
             *s = ulaw_decode(next_mu);
             prev_mu = next_mu;
         }

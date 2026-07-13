@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     let model_dir = args.model_dir.as_deref().unwrap_or(&args.weights_dir);
     let frame_model = model_dir.join("decoder_frame.onnx");
 
-    let mut bench = ambe::NativeGruDecoderBench::open(&frame_model, &args.weights_dir)
+    let mut bench = ambe::NativeGruDecoderBench::open(&frame_model, &args.weights_dir, 0.7)
         .context("open NativeGruDecoderBench")?;
 
     // All-zero AmbeFrame: b0=0 < B0_SPECIAL_MIN, so the full GRU step loop runs.

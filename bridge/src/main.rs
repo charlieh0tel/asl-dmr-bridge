@@ -120,6 +120,7 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                             "decoder_backend = \"neural\" requires [vocoder.neural.decoder]"
                         )
                     })?;
+                    let temperature = dc.sample_temperature.unwrap_or(0.7);
                     match dc.step {
                         config::NeuralDecoderStep::NativeGru => {
                             let weights_dir = dc.weights_dir.as_deref().ok_or_else(|| {
@@ -128,10 +129,14 @@ async fn make_vocoder(config: &config::VocoderConfig) -> anyhow::Result<Box<dyn 
                                      when step = \"native_gru\""
                                 )
                             })?;
-                            ambe::open_native_gru_decoder_from_dirs(&dc.split_dir, weights_dir)?
+                            ambe::open_native_gru_decoder_from_dirs(
+                                &dc.split_dir,
+                                weights_dir,
+                                temperature,
+                            )?
                         }
                         config::NeuralDecoderStep::Onnx => {
-                            ambe::open_neural_decoder_from_dir(&dc.split_dir)?
+                            ambe::open_neural_decoder_from_dir(&dc.split_dir, temperature)?
                         }
                     }
                 }

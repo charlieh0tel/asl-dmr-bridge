@@ -62,6 +62,7 @@ dependencies = [
  "dv3000-wire",
  "dynarmic-sys",
  "faer",
+ "getrandom 0.4.2",
  "hound",
  "proptest",
  "serde",

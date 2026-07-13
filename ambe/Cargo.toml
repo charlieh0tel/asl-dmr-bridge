@@ -10,7 +10,7 @@ dynarmic = ["dep:dynarmic-sys"]
 thumbdv = ["dep:serialport"]
 # Implies dynarmic because the neural backend is encode-only and
 # delegates decode to dynarmic.
-neural = ["dep:tract-onnx", "dynarmic", "dep:serde_json"]
+neural = ["dep:tract-onnx", "dynarmic", "dep:serde_json", "dep:getrandom"]
 # Exposes `test_harness` + `test_vectors` for integration tests and
 # the `gen_golden` example.  Off by default so the public API of the
 # crate doesn't include test-only code.
@@ -27,6 +27,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tract-onnx = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
 faer = "0.24.0"
 
 [dev-dependencies]

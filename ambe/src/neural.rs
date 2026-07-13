@@ -416,13 +416,14 @@ fn parse_decoder_meta(proto: &pb::ModelProto) -> Result<i64, VocoderError> {
 /// first 2 `decode` calls return silence while the lookahead buffer fills.
 /// The up-to-2 buffered frames remaining at `reset` are discarded.
 pub(crate) struct NeuralDecoderVocoder {
-    /// Frame conditioning model.  Input: bits_window [1,5,9] int64.
-    /// Output: cond [1,128] float32.  Called once per 20 ms frame.
+    /// Frame conditioning model.
+    /// v6: inputs bits_window [1,5,9] int64; output cond [1,128] float32.
+    /// v8+: also requires voiced_flag [1] int64 as a second input.
     frame_plan: TypedRunnableModel<TypedModel>,
-    /// Per-sample (or per-chunk) autoregressive step model.
+    /// Per-sample autoregressive step model.
     /// Inputs: prev_mu [1] int64, cond [1,COND_DIM] float32, h_in [1,1,H] float32.
-    /// Outputs: mu_out [step_stride] int64, h_out [1,1,H] float32.
-    /// Called PCM_SAMPLES/step_stride times per frame.
+    /// v6 outputs: next_mu [step_stride] int64, h_out [1,1,H] float32.
+    /// v8 outputs: next_mu [1] int64, h_out [1,1,H] float32, logits [1,256] float32.
     step_plan: TypedRunnableModel<TypedModel>,
     /// Samples produced per step model call (1 for step-1, 16 for step-16, etc.).
     step_stride: usize,
@@ -441,12 +442,20 @@ pub(crate) struct NeuralDecoderVocoder {
     h: tract_ndarray::Array3<f32>,
     mu_silence: i64,
     out_db: dsp::dB,
+    /// True when the frame model requires a `voiced_flag [1] int64` second input.
+    requires_voiced_flag: bool,
+    /// True when the step model emits a third `logits [1,256] float32` output.
+    step_has_logits: bool,
+    /// Sampling temperature (0.0 = argmax; 0.7 = recommended for whistle suppression).
+    sample_temperature: f32,
+    rng: crate::gru::Rng,
 }
 
 impl NeuralDecoderVocoder {
     pub(crate) fn open(
         frame_model_path: &Path,
         step_model_path: &Path,
+        sample_temperature: f32,
     ) -> Result<Self, VocoderError> {
         let onnx = tract_onnx::onnx();
 
@@ -454,6 +463,11 @@ impl NeuralDecoderVocoder {
             .proto_model_for_path(frame_model_path)
             .map_err(|e| init_err(format!("load {}: {e}", frame_model_path.display())))?;
         let mu_silence = parse_decoder_meta(&frame_proto)?;
+        let requires_voiced_flag = frame_proto
+            .graph
+            .as_ref()
+            .map(|g| g.input.iter().any(|i| i.name == "voiced_flag"))
+            .unwrap_or(false);
         let frame_plan = onnx
             .parse(&frame_proto, None)
             .map_err(|e| init_err(format!("parse {}: {e}", frame_model_path.display())))?
@@ -467,6 +481,7 @@ impl NeuralDecoderVocoder {
         info!(
             path = %frame_model_path.display(),
             mu_silence,
+            requires_voiced_flag,
             "neural decoder frame model loaded"
         );
 
@@ -478,6 +493,11 @@ impl NeuralDecoderVocoder {
         let step_proto = onnx
             .proto_model_for_path(step_model_path)
             .map_err(|e| init_err(format!("load {}: {e}", step_model_path.display())))?;
+        let step_has_logits = step_proto
+            .graph
+            .as_ref()
+            .map(|g| g.output.len() >= 3)
+            .unwrap_or(false);
         let step_plan = onnx
             .parse(&step_proto, None)
             .map_err(|e| init_err(format!("parse {}: {e}", step_model_path.display())))?
@@ -499,6 +519,8 @@ impl NeuralDecoderVocoder {
             path = %step_model_path.display(),
             step_stride,
             hidden,
+            step_has_logits,
+            sample_temperature,
             "neural decoder step model loaded"
         );
 
@@ -515,6 +537,10 @@ impl NeuralDecoderVocoder {
             h: tract_ndarray::Array3::zeros((1, 1, hidden)),
             mu_silence,
             out_db: dsp::dB::UNITY,
+            requires_voiced_flag,
+            step_has_logits,
+            sample_temperature,
+            rng: crate::gru::Rng::new(),
         })
     }
 
@@ -531,10 +557,17 @@ impl NeuralDecoderVocoder {
             tract_ndarray::Array3::from_shape_fn((1usize, 5, 9), |(_, i, j)| window[i][j])
                 .into_tensor();
         let t_frame = Instant::now();
-        let frame_out = self
-            .frame_plan
-            .run(tvec![bits_tensor.into()])
-            .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?;
+        let frame_out = if self.requires_voiced_flag {
+            let voiced: i64 = if window[2][0] < B0_SPECIAL_MIN { 1 } else { 0 };
+            let vf_tensor = tract_ndarray::arr1(&[voiced]).into_tensor();
+            self.frame_plan
+                .run(tvec![bits_tensor.into(), vf_tensor.into()])
+                .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?
+        } else {
+            self.frame_plan
+                .run(tvec![bits_tensor.into()])
+                .map_err(|e| VocoderError::Decode(format!("frame inference: {e}")))?
+        };
         self.frame_ns += t_frame.elapsed().as_nanos() as u64;
         let cond_val = frame_out
             .into_iter()
@@ -545,6 +578,7 @@ impl NeuralDecoderVocoder {
         let mut prev_mu = self.prev_mu;
         let mut out = [0i16; PCM_SAMPLES];
         let t_step = Instant::now();
+        let use_sampling = self.step_has_logits && self.sample_temperature > 0.0;
         for chunk in out.chunks_exact_mut(self.step_stride) {
             let mu_tensor = tract_ndarray::arr1(&[prev_mu]).into_tensor();
             let h_tensor = self.h.clone().into_tensor();
@@ -553,9 +587,6 @@ impl NeuralDecoderVocoder {
                 .run(tvec![mu_tensor.into(), cond_val.clone(), h_tensor.into()])
                 .map_err(|e| VocoderError::Decode(format!("step inference: {e}")))?;
 
-            let mu_slice = step_out[0]
-                .as_slice::<i64>()
-                .map_err(|e| VocoderError::Decode(format!("mu_out: {e}")))?;
             let h_slice = step_out[1]
                 .as_slice::<f32>()
                 .map_err(|e| VocoderError::Decode(format!("h_out: {e}")))?;
@@ -568,10 +599,22 @@ impl NeuralDecoderVocoder {
                 )));
             }
             h_out.copy_from_slice(h_slice);
-            for (s, &mu) in chunk.iter_mut().zip(mu_slice.iter()) {
-                *s = ulaw_decode(mu as u8);
+
+            let next_mu: i64 = if use_sampling {
+                let logits = step_out[2]
+                    .as_slice::<f32>()
+                    .map_err(|e| VocoderError::Decode(format!("logits: {e}")))?;
+                crate::gru::sample_logits(logits, self.sample_temperature, &mut self.rng) as i64
+            } else {
+                let mu_slice = step_out[0]
+                    .as_slice::<i64>()
+                    .map_err(|e| VocoderError::Decode(format!("mu_out: {e}")))?;
+                *mu_slice.last().expect("mu_slice non-empty")
+            };
+            for s in chunk.iter_mut() {
+                *s = ulaw_decode(next_mu as u8);
             }
-            prev_mu = *mu_slice.last().expect("mu_slice non-empty");
+            prev_mu = next_mu;
         }
         self.step_ns += t_step.elapsed().as_nanos() as u64;
         self.frames_timed += 1;

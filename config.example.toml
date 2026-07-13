@@ -78,8 +78,9 @@ serial_port = "/dev/ttyUSB0"
 # Neural decoder sub-config; required when decoder_backend = "neural".
 # [vocoder.neural.decoder]
 # step = "native_gru"           # default; native_gru | onnx
-# split_dir = "/usr/share/asl-dmr-bridge/models/decoder-h128-v6-weights"   # frame.onnx (+ step.onnx if onnx)
-# weights_dir = "/usr/share/asl-dmr-bridge/models/decoder-h128-v6-weights" # required for native_gru
+# split_dir = "/usr/share/asl-dmr-bridge/models/decoder-h128-v8-weights"   # frame.onnx (+ step.onnx if onnx)
+# weights_dir = "/usr/share/asl-dmr-bridge/models/decoder-h128-v8-weights" # required for native_gru
+# sample_temperature = 0.7      # default; 0.0 = legacy argmax (may produce whistle artifacts)
 
 
 # DMR call routing.

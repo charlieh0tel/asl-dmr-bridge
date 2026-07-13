@@ -226,7 +226,7 @@ fn open_decoder(
             {
                 // native_gru step: both model and weights in the same directory.
                 let dir = decoder_dir.context("--decoder-model required for neural decoder")?;
-                return Ok(ambe::open_native_gru_decoder_from_dirs(dir, dir)?);
+                return Ok(ambe::open_native_gru_decoder_from_dirs(dir, dir, 0.7)?);
             }
             #[cfg(not(feature = "neural"))]
             {
