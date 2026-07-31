@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-deb:
-    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@main
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-build-deb.yml@v1
     with:
       # Build the whole workspace so the deb ships the bridge and
       # ambeserver binaries.  cargo-deb without -p picks up
