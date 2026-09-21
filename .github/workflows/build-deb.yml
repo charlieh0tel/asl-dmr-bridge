@@ -21,6 +21,9 @@ jobs:
       # ambeserver binaries.  cargo-deb without -p picks up
       # asl-dmr-bridge as the only [package.metadata.deb] crate.
       package: ""
+      # Match rust-toolchain.toml; the toml wins once cargo runs, so a
+      # different value here would only install a second toolchain.
+      toolchain: "1.98.1"
       build-deps: "libasound2-dev libudev-dev libboost-dev cmake"
       run-tests: false
       submodules: recursive
