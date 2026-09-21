@@ -26,7 +26,12 @@ jobs:
           toolchain: "1.98.1"
           components: rustfmt, clippy
 
+      # dynarmic-sys pre-clones dynarmic into target/dynarmic-src.  The
+      # cache prunes target/ to the paths it knows, so without this the
+      # clone is stripped and every restore re-clones it.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-directories: target/dynarmic-src
 
       - name: Format
         run: cargo fmt --all -- --check
