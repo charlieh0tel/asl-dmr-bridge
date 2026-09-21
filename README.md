@@ -30,6 +30,9 @@ Per-module detail lives in module-level rustdoc.
 cargo build --release
 ```
 
+The toolchain is pinned in `rust-toolchain.toml`; rustup installs the
+matching compiler on first build.
+
 Feature flags:
 - `--features thumbdv` -- ThumbDV serial backend (encode + decode)
 - `--features dynarmic` -- software AMBE codec via the MD380 firmware

@@ -1,0 +1,11 @@
+# Pin the toolchain so a new stable release cannot fail CI on an
+# unrelated commit: clippy gains lints with each release, and CI runs
+# with -D warnings.  Bump deliberately, alongside any resulting fixes.
+#
+# rustup honors this for every cargo invocation in the repo, so local
+# builds and CI resolve to the same compiler.  CI installs with the
+# minimal profile, so rustfmt and clippy must be named here to be
+# present.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]
