@@ -114,10 +114,14 @@ fn main() {
 /// Returns the path to the cloned source tree.
 fn ensure_dynarmic_src(workspace_root: &Path) -> PathBuf {
     let src_dir = workspace_root.join("target/dynarmic-src");
-    if src_dir.join(".git").exists() {
+    // Require the worktree, not just .git: CI restores a pruned target/ from
+    // its build cache, which can leave .git without the sources.  Trusting
+    // .git alone then hands cmake an empty source dir, and the build fails
+    // much later with missing dynarmic headers.
+    if src_dir.join(".git").exists() && src_dir.join("CMakeLists.txt").exists() {
         return src_dir;
     }
-    // A partial clone (no .git) would cause git clone to fail; remove it.
+    // Any leftover would make git clone fail; remove it.
     if src_dir.exists() {
         std::fs::remove_dir_all(&src_dir).expect("remove partial dynarmic-src");
     }
