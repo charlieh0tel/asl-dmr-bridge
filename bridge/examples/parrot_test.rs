@@ -173,7 +173,7 @@ fn main() -> std::io::Result<()> {
             in_sock_send.send(&build_packet(seq, true, tg, None))?;
             seq = seq.wrapping_add(1);
             let start = Instant::now();
-            for (i, chunk) in tone_send.chunks_exact(VOICE_SAMPLES).enumerate() {
+            for (i, chunk) in tone_send.as_chunks::<VOICE_SAMPLES>().0.iter().enumerate() {
                 let pkt = build_packet(seq, true, tg, Some(chunk));
                 in_sock_send.send(&pkt)?;
                 seq = seq.wrapping_add(1);
@@ -266,8 +266,10 @@ fn read_pcm_s16le(path: &str) -> std::io::Result<Vec<i16>> {
         ));
     }
     Ok(bytes
-        .chunks_exact(2)
-        .map(|c| i16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| i16::from_le_bytes(*c))
         .collect())
 }
 

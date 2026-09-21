@@ -179,8 +179,8 @@ mod tests {
         assert_eq!(data_size, samples.len() as u32 * 2);
         assert_eq!(riff_size, data_size + 36);
         assert_eq!(bytes.len() as u32, riff_size + 8);
-        for (i, chunk) in bytes[44..].chunks_exact(2).enumerate() {
-            let s = i16::from_le_bytes([chunk[0], chunk[1]]);
+        for (i, chunk) in bytes[44..].as_chunks::<2>().0.iter().enumerate() {
+            let s = i16::from_le_bytes(*chunk);
             assert_eq!(s, samples[i]);
         }
     }

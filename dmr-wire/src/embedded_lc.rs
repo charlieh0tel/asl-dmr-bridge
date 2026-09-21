@@ -93,10 +93,10 @@ fn encode_raw(lc_bits: &[u8; DATA_BITS]) -> [u8; RAW_BITS] {
     mat[106] = crc & 1;
 
     // Hamming(16,11,4) row parity on rows 0..6 (positions 11..15 of each row).
-    for row in mat[..112].chunks_exact_mut(ROW_BITS) {
+    for row in mat[..112].as_chunks_mut::<ROW_BITS>().0 {
         let d: [u8; 11] = row[..11]
             .try_into()
-            .expect("chunks_exact_mut yields ROW_BITS-sized slices");
+            .expect("ROW_BITS-wide row holds 11 data bits");
         let parity = hamming_16_11_parity(&d);
         row[11..].copy_from_slice(&parity);
     }

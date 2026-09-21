@@ -56,7 +56,7 @@ fn read_pcm_frames(path: &Path) -> Result<Vec<[i16; PCM_SAMPLES]>, String> {
     }
     let n = bytes.len() / PCM_FRAME_BYTES;
     let mut frames = Vec::with_capacity(n);
-    for chunk in bytes.chunks_exact(PCM_FRAME_BYTES) {
+    for chunk in bytes.as_chunks::<PCM_FRAME_BYTES>().0.iter() {
         let mut frame = [0i16; PCM_SAMPLES];
         for (i, sample) in frame.iter_mut().enumerate() {
             *sample = i16::from_le_bytes([chunk[i * 2], chunk[i * 2 + 1]]);

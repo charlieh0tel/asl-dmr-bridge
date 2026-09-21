@@ -270,10 +270,7 @@ fn read_ambe(path: &Path) -> Result<Vec<AmbeFrame>> {
         path.display(),
         data.len()
     );
-    Ok(data
-        .chunks_exact(AMBE_FRAME_SIZE)
-        .map(|c| c.try_into().unwrap())
-        .collect())
+    Ok(data.as_chunks::<AMBE_FRAME_SIZE>().0.to_vec())
 }
 
 fn write_ambe(path: &Path, frames: &[AmbeFrame]) -> Result<()> {
@@ -294,11 +291,10 @@ fn read_bin(path: &Path) -> Result<Vec<AmbeFrame>> {
         data.len()
     );
     Ok(data
-        .chunks_exact(RAW_BYTES)
-        .map(|c| {
-            let mbelib: &[u8; RAW_BYTES] = c.try_into().unwrap();
-            channel_encode(&permute_mbelib_to_chip(mbelib))
-        })
+        .as_chunks::<RAW_BYTES>()
+        .0
+        .iter()
+        .map(|mbelib| channel_encode(&permute_mbelib_to_chip(mbelib)))
         .collect())
 }
 

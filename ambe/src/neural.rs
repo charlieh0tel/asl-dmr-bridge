@@ -927,8 +927,10 @@ mod tests {
         let bytes = std::fs::read(&wav_path).unwrap();
         assert!(bytes.len() > 44, "WAV too short");
         let pcm: Vec<i16> = bytes[44..]
-            .chunks_exact(2)
-            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| i16::from_le_bytes(*c))
             .collect();
         assert!(pcm.len() >= PCM_SAMPLES, "fixture has no complete frames");
         let mut frame = [0i16; PCM_SAMPLES];
@@ -994,8 +996,10 @@ mod tests {
         let bytes = std::fs::read(&wav_path).unwrap();
         assert!(bytes.len() > 44, "WAV too short");
         let pcm: Vec<i16> = bytes[44..]
-            .chunks_exact(2)
-            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| i16::from_le_bytes(*c))
             .collect();
         assert_eq!(pcm.len() % PCM_SAMPLES, 0);
         let total_frames = pcm.len() / PCM_SAMPLES;
