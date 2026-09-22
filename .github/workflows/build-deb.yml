@@ -30,9 +30,10 @@ jobs:
     needs: build-deb
     runs-on: ubuntu-latest
     steps:
+      # workflow_dispatch, not repository_dispatch: the token then needs
+      # Actions: write on apt-repo instead of Contents: write, which could
+      # push a commit to the workflow that runs with the GPG signing key.
       - name: Trigger APT repo rebuild
-        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-        with:
-          token: ${{ secrets.APT_REPO_TOKEN }}
-          repository: charlieh0tel/apt-repo
-          event-type: update-apt-repo
+        env:
+          GH_TOKEN: ${{ secrets.APT_REPO_TOKEN }}
+        run: gh workflow run update-repo.yml -R charlieh0tel/apt-repo
