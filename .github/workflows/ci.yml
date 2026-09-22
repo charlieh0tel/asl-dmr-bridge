@@ -5,41 +5,26 @@ on:
     branches: [main]
   pull_request:
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libboost-dev cmake
-
-      # Version must match rust-toolchain.toml; pre-installing it here
-      # avoids downloading stable only for the toml to override it.
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
-        with:
-          toolchain: "1.98.1"
-          components: rustfmt, clippy
-
-      # dynarmic-sys pre-clones dynarmic into target/dynarmic-src.  The
-      # cache prunes target/ to the paths it knows, so without this the
-      # clone is stripped and every restore re-clones it.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-directories: target/dynarmic-src
-
-      - name: Format
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets --features testing -- -D warnings
-
-      # `testing` exposes test_harness + test_vectors so the golden
-      # integration tests + gen_golden example are reachable.
-      - name: Test
-        run: cargo test --features testing
+  # The shared workflow, so this repository's CI matches the rest. It grew the
+  # three inputs this job needed: submodules, so dynarmic and the vendored
+  # sources are there to compile; cache-directories, because dynarmic-sys
+  # pre-clones dynarmic into target/dynarmic-src and the cache prunes target/
+  # to the paths it knows about, re-cloning on every restore otherwise; and
+  # test-args, for the feature the tests need.
+  ci:
+    uses: charlieh0tel/deb-workflows/.github/workflows/rust-ci.yml@v1
+    with:
+      submodules: recursive
+      build-deps: "libasound2-dev libudev-dev libboost-dev cmake"
+      cache-directories: target/dynarmic-src
+      # --workspace: sixteen crates live here, and clippy without it looked at
+      # one of them. `testing` exposes test_harness and test_vectors, so the
+      # golden integration tests and the gen_golden example are reachable.
+      check-args: "--workspace --all-targets --features testing"
+      test-args: "--features testing"
+      # rust-toolchain.toml pins 1.98.1 and the workflow reads it, so the
+      # version is named once now rather than here as well. Empty rather than
+      # absent: the default is nightly, which would fetch a second toolchain
+      # for rustfmt alone.
+      fmt-toolchain: ""
