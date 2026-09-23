@@ -1,8 +1,0 @@
-# cargo-audit configuration.
-
-[advisories]
-ignore = [
-    # paste unmaintained.  Pulled in by faer -> gemm/pulp (proc-macro,
-    # build-time only); no fixed upstream release.  Revisit on faer bump.
-    "RUSTSEC-2024-0436",
-]
