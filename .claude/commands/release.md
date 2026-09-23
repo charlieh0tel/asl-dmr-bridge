@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git status), Bash(git add *), Bash(git commit *), Bash(git tag *), Bash(cargo check *), Bash(cargo deb *)
+allowed-tools: Bash(git status), Bash(git add *), Bash(git commit *), Bash(git tag *), Bash(cargo check *), Bash(cargo build *), Bash(cargo deb *)
 description: Bump version, commit, tag, and build the .deb
 ---
 
@@ -45,8 +45,13 @@ git tag vNEW
 
 ### Step 5 — build the .deb
 
+Build the whole workspace first: the deb ships the ambeserver,
+ambe-tool and usrp-tool binaries too, which `cargo deb -p` alone
+would not rebuild.
+
 ```
-cargo deb -p asl-dmr-bridge --features dynarmic,neural
+cargo build --release --workspace --features dynarmic,neural
+cargo deb -p asl-dmr-bridge --no-build
 ```
 
 ### Step 6 — report
