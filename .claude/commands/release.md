@@ -13,6 +13,8 @@ description: Bump version, commit, tag, and build the .deb
 
 Release asl-dmr-bridge at the version supplied as `$ARGUMENTS` (prompt if not given).
 
+The human-readable process is `RELEASING.md`; keep the two in sync.
+
 ### Step 0 — verify clean tree
 
 Run `git status`. If there are any staged changes, unstaged modifications, or untracked files (other than known-ignored files), stop and tell the user what is outstanding. Do not proceed until the tree is clean.
