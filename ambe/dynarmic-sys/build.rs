@@ -40,6 +40,9 @@ fn main() {
         // Use the pre-cloned dynarmic source; cmake skips its own git operations
         // for dynarmic (no clone, no checkout, no fetch).
         .define("FETCHCONTENT_SOURCE_DIR_DYNARMIC", &dynarmic_src)
+        // Ignore system packages (e.g. libfmt-dev); the link steps below
+        // expect the bundled externals' static libs in the build tree.
+        .define("DYNARMIC_USE_BUNDLED_EXTERNALS", "ON")
         .build_target("md380_vocoder");
 
     // Prevent cmake's git clones of dynarmic's sub-dependencies (mcl, fmt,
