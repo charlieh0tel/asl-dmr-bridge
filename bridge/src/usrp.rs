@@ -122,6 +122,7 @@ pub(crate) async fn rx_task(
                                 if let Some(stats) = &stats {
                                     let _ = stats.try_send(StatsEvent::Drop {
                                         dir: CallDirection::FmToDmr,
+                                        frames: 1,
                                     });
                                 }
                             }
@@ -512,13 +513,14 @@ mod tests {
 
         let mut drops = 0;
         while let Ok(evt) = stats_rx.try_recv() {
-            assert!(matches!(
-                evt,
-                StatsEvent::Drop {
-                    dir: CallDirection::FmToDmr
-                }
-            ));
-            drops += 1;
+            let StatsEvent::Drop {
+                dir: CallDirection::FmToDmr,
+                frames,
+            } = evt
+            else {
+                panic!("unexpected stats event {evt:?}");
+            };
+            drops += usize::try_from(frames).unwrap();
         }
         assert_eq!(
             drained + drops,

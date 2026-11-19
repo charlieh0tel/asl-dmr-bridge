@@ -116,9 +116,9 @@ pub enum StatsEvent {
         dir: CallDirection,
         transcode: std::time::Duration,
     },
-    Drop {
-        dir: CallDirection,
-    },
+    /// `frames` lost AMBE frames (20 ms each).  Batched into one event
+    /// so a multi-packet seq gap can't overflow the bounded channel.
+    Drop { dir: CallDirection, frames: u32 },
     CallEnd {
         dir: CallDirection,
         reason: TerminationReason,

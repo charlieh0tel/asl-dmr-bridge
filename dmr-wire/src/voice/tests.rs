@@ -7,6 +7,7 @@ use super::ptt::PttMachine;
 use super::ptt::PttState;
 use super::*;
 use crate::dmrd::PACKET_SIZE;
+use dmr_events::CallDirection;
 use dmr_types::AMBE_FRAME_SIZE;
 use dmr_types::AmbeFrame;
 use dmr_types::ColorCode;
@@ -263,6 +264,56 @@ async fn rx_voice_produces_usrp() {
         );
     }
     assert_eq!(count, 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rx_seq_gap_counts_dropped_ambe_frames() {
+    const HEADER_SEQ: u8 = 250;
+    const FIRST_VOICE_SEQ: u8 = 254;
+    const LOST_PACKETS: u8 = 2;
+    let (audio_tx, _audio_rx) = mpsc::channel(16);
+    let (dmrd_voice_out, _dmrd_voice_rx) = mpsc::channel(16);
+    let (dmrd_control_out, _dmrd_control_rx) = mpsc::unbounded_channel();
+    let (metadata_tx, _metadata_rx) = mpsc::channel(16);
+    let (stats_tx, mut stats_rx) = mpsc::channel(64);
+    let mut m = PttMachine::new(
+        test_voice_config(),
+        PttDiagnostics::default(),
+        PttPolicy::default(),
+        Box::new(StubVocoder),
+        audio_tx,
+        dmrd_voice_out,
+        dmrd_control_out,
+        metadata_tx,
+        Some(stats_tx),
+        None,
+        CancellationToken::new(),
+    );
+    // Header seq is not a gap baseline: the jump to the first voice
+    // seq must not count.  The second voice seq wraps past 255.
+    m.on_dmrd(&Dmrd {
+        seq: HEADER_SEQ,
+        ..header_dmrd(0xBB)
+    })
+    .await;
+    m.on_dmrd(&Dmrd {
+        seq: FIRST_VOICE_SEQ,
+        ..voice_dmrd(0xBB)
+    })
+    .await;
+    m.on_dmrd(&Dmrd {
+        seq: FIRST_VOICE_SEQ.wrapping_add(1 + LOST_PACKETS),
+        ..voice_dmrd(0xBB)
+    })
+    .await;
+    let mut dropped = 0;
+    while let Ok(evt) = stats_rx.try_recv() {
+        if let StatsEvent::Drop { dir, frames } = evt {
+            assert_eq!(dir, CallDirection::DmrToFm);
+            dropped += usize::try_from(frames).unwrap();
+        }
+    }
+    assert_eq!(dropped, FRAMES_PER_BURST * usize::from(LOST_PACKETS));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

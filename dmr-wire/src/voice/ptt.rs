@@ -137,8 +137,9 @@ impl StatsEmitter {
         self.send(StatsEvent::VoiceFrame { dir, transcode });
     }
 
-    fn frame_dropped(&self, dir: CallDirection) {
-        self.send(StatsEvent::Drop { dir });
+    fn frames_dropped(&self, dir: CallDirection, frames: usize) {
+        let frames = u32::try_from(frames).unwrap_or(u32::MAX);
+        self.send(StatsEvent::Drop { dir, frames });
     }
 
     fn call_start(
@@ -565,19 +566,17 @@ impl PttMachine {
             }
         } else {
             warn!(kind, "DMRD out channel full, dropping packet");
-            for _ in 0..FRAMES_PER_BURST {
-                self.stats.frame_dropped(CallDirection::FmToDmr);
-            }
+            self.stats
+                .frames_dropped(CallDirection::FmToDmr, FRAMES_PER_BURST);
         }
     }
 
-    /// Emit FRAMES_PER_BURST Drop events for an encode failure (whole
+    /// Emit a FRAMES_PER_BURST Drop event for an encode failure (whole
     /// burst lost; per-frame transcode latencies are not recorded for
     /// the partial-success prefix because the listener never hears it).
     fn drop_burst_fm_to_dmr(&self) {
-        for _ in 0..FRAMES_PER_BURST {
-            self.stats.frame_dropped(CallDirection::FmToDmr);
-        }
+        self.stats
+            .frames_dropped(CallDirection::FmToDmr, FRAMES_PER_BURST);
     }
 
     /// Headers and terminators define call boundaries.  Queue them on
@@ -755,8 +754,11 @@ impl PttMachine {
                 if emit_metadata {
                     self.emit_call_metadata(pkt);
                 }
-                for _ in 0..seq_gap {
-                    self.stats.frame_dropped(CallDirection::DmrToFm);
+                if seq_gap > 0 {
+                    self.stats.frames_dropped(
+                        CallDirection::DmrToFm,
+                        FRAMES_PER_BURST * usize::from(seq_gap),
+                    );
                 }
 
                 let ambe_frames = extract_ambe(&pkt.dmr_data);
@@ -780,9 +782,8 @@ impl PttMachine {
                             stream_id = pkt.stream_id,
                             "audio tx channel full, dropping voice burst"
                         );
-                        for _ in 0..FRAMES_PER_BURST {
-                            self.stats.frame_dropped(CallDirection::DmrToFm);
-                        }
+                        self.stats
+                            .frames_dropped(CallDirection::DmrToFm, FRAMES_PER_BURST);
                         return;
                     }
                 };
@@ -832,7 +833,7 @@ impl PttMachine {
                         }
                         Err(e) => {
                             warn!(stream_id = pkt.stream_id, sub = i, "decode error: {e}");
-                            self.stats.frame_dropped(CallDirection::DmrToFm);
+                            self.stats.frames_dropped(CallDirection::DmrToFm, 1);
                             // permit drops, releasing its slot.
                         }
                     }
