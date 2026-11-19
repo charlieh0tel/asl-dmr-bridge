@@ -473,6 +473,10 @@ async fn async_main() -> anyhow::Result<()> {
 
     let profile = make_profile(&config.network.profile);
     let mut vocoder = make_vocoder(&config.vocoder).await?;
+    // Pay JIT init now rather than inside the first call, where it
+    // stalls every task in the join! below.  Must follow
+    // make_vocoder: neural model load has to precede dynarmic init.
+    tokio::task::block_in_place(|| vocoder.warm_cache());
     vocoder.set_gain(
         dsp::dB(config.gain.fm_to_dmr_db),
         dsp::dB(config.gain.dmr_to_fm_db),
