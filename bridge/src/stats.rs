@@ -117,9 +117,10 @@ fn percentile_us(samples: &mut [u32], pct: f32) -> Option<u32> {
 }
 
 /// Drain the stats event channel until close, accumulating per-call
-/// stats and folding into cumulative `Stats` at each `CallEnd`.
-/// Cancellation closes the producer side via the voice task; this
-/// task naturally exits when `rx.recv()` returns `None`.
+/// stats and folding into cumulative `Stats` at each `CallEnd` (or
+/// directly, for a `Drop` with no call open).  Producers are the
+/// voice task and USRP rx; this task exits when both have dropped
+/// their senders and `rx.recv()` returns `None`.
 pub(crate) async fn consume_events(
     stats: Arc<Stats>,
     mut rx: mpsc::Receiver<StatsEvent>,
@@ -164,8 +165,14 @@ pub(crate) async fn consume_events(
                     CallDirection::FmToDmr => fm_to_dmr.as_mut(),
                     CallDirection::DmrToFm => dmr_to_fm.as_mut(),
                 };
-                if let Some(acc) = acc {
-                    acc.drops += 1;
+                // A drop can precede CallStart (e.g. the USRP input
+                // queue fills before the voice task opens the call);
+                // count it in the cumulative totals regardless.
+                match acc {
+                    Some(acc) => acc.drops += 1,
+                    None => {
+                        stats.dir(dir).drops.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
             StatsEvent::CallEnd { dir, reason } => {
@@ -337,5 +344,20 @@ mod tests {
         let mut v = vec![5, 1, 9, 3, 7, 2, 8, 4, 6, 10];
         assert_eq!(percentile_us(&mut v, 50.0), Some(5));
         assert_eq!(percentile_us(&mut v, 99.0), Some(10));
+    }
+
+    #[tokio::test]
+    async fn drop_without_open_call_counts_in_totals() {
+        let stats = Arc::new(Stats::new());
+        let (tx, rx) = mpsc::channel(1);
+        tx.send(StatsEvent::Drop {
+            dir: CallDirection::FmToDmr,
+        })
+        .await
+        .unwrap();
+        drop(tx);
+        consume_events(stats.clone(), rx, Duration::ZERO).await;
+        assert_eq!(stats.fm_to_dmr.drops.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.dmr_to_fm.drops.load(Ordering::Relaxed), 0);
     }
 }
