@@ -413,11 +413,13 @@ specific RATEP configuration (3600x2450).
 
 **Vocoder is half-duplex, head-of-line.** One DV3000 chip serves both
 directions.  `voice_task` takes the vocoder's `Arc<Mutex<...>>` lock
-inside `spawn_blocking` for every encode/decode.  A stuck chip (or a
+inside `block_in_place` for every encode/decode.  A stuck chip (or a
 serial read that hits `SERIAL_TIMEOUT=2s`) blocks BOTH ingress
 (DMR->FM) and egress (FM->DMR) for the duration.  Acceptable under
 a well-behaved chip; if the chip wedges repeatedly, audio on both
-paths drops.
+paths drops.  `voice_task` runs as its own spawned task, so the
+stall holds only its worker thread; USRP rx/tx pacing and the
+Homebrew client keep running.
 
 **`try_send` drop warnings are problem sentinels, not noise.** The
 logs in `dmr-wire/src/voice/ptt.rs` ("audio tx channel full,

@@ -518,8 +518,13 @@ async fn async_main() -> anyhow::Result<()> {
     // drain through their cancel-aware paths -- voice_task gets to
     // run on_shutdown (terminator + unkey to peers) instead of being
     // dropped at its next .await mid-call.
+    //
+    // voice_task is spawned rather than polled in the join! so its
+    // block_in_place vocoder calls actually yield the thread; inline,
+    // a slow encode/decode stalls USRP rx/tx pacing and every other
+    // sibling.  A panic surfaces as a JoinError and fails the bridge.
     let voice = async {
-        dmr_wire::voice::voice_task(
+        let r = tokio::spawn(dmr_wire::voice::voice_task(
             dmrd_in_rx,
             audio_in_rx,
             voice_ctl_rx,
@@ -534,10 +539,10 @@ async fn async_main() -> anyhow::Result<()> {
             voice_diagnostics,
             voice_policy,
             cancel.clone(),
-        )
+        ))
         .await;
         cancel.cancel();
-        anyhow::Ok(())
+        r.map_err(|e| anyhow::anyhow!("voice task failed: {e}"))
     };
     let homebrew = async {
         let r = homebrew_client::run(
