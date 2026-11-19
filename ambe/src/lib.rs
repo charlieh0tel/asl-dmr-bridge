@@ -81,10 +81,9 @@ pub trait Vocoder: Send {
     /// the backend exposes no per-stream state.
     fn reset(&mut self) {}
 
-    /// Pre-warm CPU caches by executing one decode cycle with a dummy
-    /// non-silence frame, then resetting state.  Called on RX call
-    /// start so the first real burst does not pay the cold-cache
-    /// penalty.  Default is a no-op for backends that are not
+    /// Pre-warm CPU caches (and any JIT) so the first real frame does
+    /// not pay the cold-start penalty.  Called once at startup and on
+    /// RX call start.  Default is a no-op for backends that are not
     /// cache-sensitive (chip, AMBEserver).
     fn warm_cache(&mut self) {}
 
@@ -114,6 +113,7 @@ impl Vocoder for SplitVocoder {
     }
 
     fn warm_cache(&mut self) {
+        self.encoder.warm_cache();
         self.decoder.warm_cache();
     }
 

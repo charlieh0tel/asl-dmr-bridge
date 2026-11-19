@@ -21,6 +21,11 @@ half of the neural backend (`decoder_backend = "dynarmic"` under
 artifacts.**  No legal advice offered -- operators are responsible
 for the posture in their jurisdiction.
 
+At bridge startup the backend runs ~1 s of synthetic speech plus
+trailing silence through encode + decode so the JIT compiles the
+voiced paths up front; otherwise the first real call stalls (hundreds
+of ms on a Pi 4) and drops USRP frames.
+
 **SIGSEGV on startup** with a backtrace in `oaknut` /
 `A32AddressSpace` almost always means `MemoryDenyWriteExecute=yes`
 is blocking the JIT's W+X mmap.  See the drop-in in
