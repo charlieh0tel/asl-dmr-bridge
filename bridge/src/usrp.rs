@@ -16,7 +16,9 @@ use tracing::debug;
 use tracing::info;
 use tracing::warn;
 
+use dmr_events::CallDirection;
 use dmr_events::MetaEvent;
+use dmr_events::StatsEvent;
 use dmr_wire::audio::AudioFrame;
 use usrp_wire::Frame;
 use usrp_wire::FrameType;
@@ -44,9 +46,17 @@ use pcm_utils::wav::WavRecorder;
 /// (so the encoder sees the levelled PCM) and resets state on
 /// unkey so each new talker starts neutral.  A per-call summary
 /// is emitted as `call_agc dir=fm_to_dmr ...`.
+///
+/// `stats`, when `Some`, receives a `Drop` per frame lost to a full
+/// voice_task channel so the per-call `drops=` count includes them.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "rx_task is the bridge's USRP-in hub: socket + voice and stats channel ends + remote addr + byte_swap + agc + limiter + cancel; refactor when there's a clear grouping, not preemptively."
+)]
 pub(crate) async fn rx_task(
     socket: Arc<UdpSocket>,
     tx: mpsc::Sender<AudioFrame>,
+    stats: Option<mpsc::Sender<StatsEvent>>,
     remote: SocketAddr,
     byte_swap: bool,
     mut agc: Option<Agc>,
@@ -109,6 +119,11 @@ pub(crate) async fn rx_task(
                             Ok(()) => {}
                             Err(mpsc::error::TrySendError::Full(_)) => {
                                 warn!("USRP rx: voice_task channel full, dropping frame");
+                                if let Some(stats) = &stats {
+                                    let _ = stats.try_send(StatsEvent::Drop {
+                                        dir: CallDirection::FmToDmr,
+                                    });
+                                }
                             }
                             Err(mpsc::error::TrySendError::Closed(_)) => {
                                 finalize_fm_in_agc_call(agc.as_mut(), &mut had_voice_in_call);
@@ -453,11 +468,14 @@ mod tests {
 
     #[tokio::test]
     async fn rx_task_drops_when_channel_full() {
+        const SENT_FRAMES: usize = 4;
+
         // Full voice channel must drop and keep looping, never block
-        // or exit.
+        // or exit, and report each drop to stats.
         let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let listen_addr = socket.local_addr().unwrap();
         let (tx, mut rx) = mpsc::channel::<AudioFrame>(1);
+        let (stats_tx, mut stats_rx) = mpsc::channel::<StatsEvent>(SENT_FRAMES);
         let cancel = tokio_util::sync::CancellationToken::new();
 
         let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -465,6 +483,7 @@ mod tests {
         let task = tokio::spawn(rx_task(
             socket.clone(),
             tx,
+            Some(stats_tx),
             sender_addr,
             false,
             None,
@@ -473,7 +492,7 @@ mod tests {
         ));
 
         let buf = make_voice_frame().serialize(false);
-        for _ in 0..4 {
+        for _ in 0..SENT_FRAMES {
             sender.send_to(&buf, listen_addr).await.unwrap();
         }
 
@@ -484,11 +503,27 @@ mod tests {
             drained += 1;
         }
         assert!(
-            (1..=4).contains(&drained),
+            (1..=SENT_FRAMES).contains(&drained),
             "expected >=1 frame drained, got {drained}"
         );
 
         cancel.cancel();
         task.await.unwrap().unwrap();
+
+        let mut drops = 0;
+        while let Ok(evt) = stats_rx.try_recv() {
+            assert!(matches!(
+                evt,
+                StatsEvent::Drop {
+                    dir: CallDirection::FmToDmr
+                }
+            ));
+            drops += 1;
+        }
+        assert_eq!(
+            drained + drops,
+            SENT_FRAMES,
+            "every frame drained or reported dropped"
+        );
     }
 }

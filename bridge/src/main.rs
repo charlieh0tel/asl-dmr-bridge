@@ -468,6 +468,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     // Stats events: try_send, drop on full.  256 = ~5s headroom.
     let (stats_tx, stats_rx) = mpsc::channel::<dmr_events::StatsEvent>(256);
+    let stats_tx_for_rx = stats_tx.clone();
     let stats_state = Arc::new(stats::Stats::new());
 
     let profile = make_profile(&config.network.profile);
@@ -629,6 +630,7 @@ async fn async_main() -> anyhow::Result<()> {
         let r = usrp::rx_task(
             socket_for_rx,
             audio_in_tx,
+            Some(stats_tx_for_rx),
             remote_addr,
             byte_swap,
             fm_to_dmr_agc,
