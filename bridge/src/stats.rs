@@ -4,7 +4,8 @@
 //!
 //! - **Per-call** (one per call, at the call's end): `dir`, `src`,
 //!   `dst`, `slot`, `dur`, `frames`, `drops`, `transcode_p50_ms`,
-//!   `transcode_p99_ms`, `reason`.  Suppressed when the call's
+//!   `transcode_p99_ms`, `reason`.  `frames` and `drops` count
+//!   20 ms AMBE frames.  Suppressed when the call's
 //!   duration is below `stats.min_call_log_duration` (cumulative
 //!   counters still update -- the call is real, just below the
 //!   logging-noise floor).
@@ -160,7 +161,7 @@ pub(crate) async fn consume_events(
                         .push(transcode.as_micros().min(u128::from(u32::MAX)) as u32);
                 }
             }
-            StatsEvent::Drop { dir } => {
+            StatsEvent::Drop { dir, frames } => {
                 let acc = match dir {
                     CallDirection::FmToDmr => fm_to_dmr.as_mut(),
                     CallDirection::DmrToFm => dmr_to_fm.as_mut(),
@@ -168,10 +169,11 @@ pub(crate) async fn consume_events(
                 // A drop can precede CallStart (e.g. the USRP input
                 // queue fills before the voice task opens the call);
                 // count it in the cumulative totals regardless.
+                let frames = u64::from(frames);
                 match acc {
-                    Some(acc) => acc.drops += 1,
+                    Some(acc) => acc.drops += frames,
                     None => {
-                        stats.dir(dir).drops.fetch_add(1, Ordering::Relaxed);
+                        stats.dir(dir).drops.fetch_add(frames, Ordering::Relaxed);
                     }
                 }
             }
@@ -352,6 +354,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(1);
         tx.send(StatsEvent::Drop {
             dir: CallDirection::FmToDmr,
+            frames: 1,
         })
         .await
         .unwrap();
